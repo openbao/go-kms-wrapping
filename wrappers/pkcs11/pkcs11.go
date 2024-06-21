@@ -534,9 +534,6 @@ func GetAttributesMap(attrs []*pkcs11.Attribute) map[uint][]byte {
 }
 
 func GetValueAsInt(value []byte) int64 {
-	if value == nil {
-		return 0
-	}
 	switch len(value) {
 	case 1:
 		return int64(value[0])
@@ -551,9 +548,6 @@ func GetValueAsInt(value []byte) int64 {
 }
 
 func GetValueAsUint(value []byte) uint64 {
-	if value == nil {
-		return 0
-	}
 	switch len(value) {
 	case 1:
 		return uint64(value[0])
