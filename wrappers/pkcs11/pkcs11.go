@@ -78,7 +78,7 @@ func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 			if err != nil {
 				return nil, err
 			}
-			opts.withSlot = uint(slot)
+			k.client.slot = uint(slot)
 		}
 		if k.client.slot == 0 {
 			k.client.slot = opts.withSlot
@@ -254,12 +254,12 @@ func MechanisString(mech uint) string {
 	}
 }
 
-func IsIvNeeded(mech uint) bool {
+func IsIvNeeded(mech uint) (bool, int) {
 	switch mech {
 	case pkcs11.CKM_AES_CBC_PAD:
-		return true
+		return true, 16
 	default:
-		return false
+		return false, 0
 	}
 }
 
@@ -371,7 +371,9 @@ func (kms *pkcs11KMS) EncryptDEK(ctx context.Context, plainDEK []byte) ([]byte, 
 	}
 
 	var iv []byte
-	if IsIvNeeded(mechanism) {
+	needIV, ivLength := IsIvNeeded(mechanism)
+	/*
+	if needIV && ivLength == 0 {
 		template = []*pkcs11.Attribute{
 			pkcs11.NewAttribute(pkcs11.CKA_VALUE_LEN, nil),
 		}
@@ -381,9 +383,11 @@ func (kms *pkcs11KMS) EncryptDEK(ctx context.Context, plainDEK []byte) ([]byte, 
 		}
 		attrMap := GetAttributesMap(attr)
 
-		ivLength := 0
-		ivLength = int(GetValueAsInt(attrMap[pkcs11.CKA_VALUE_LEN]))
-
+		keyLength = int(GetValueAsInt(attrMap[pkcs11.CKA_VALUE_LEN]))
+		ivLength = GetIvSize(mechanism, keyLength)
+	}
+	*/
+	if needIV && ivLength > 0 {
 		iv, err = uuid.GenerateRandomBytes(ivLength)
 		if err != nil {
 			return nil, err
@@ -493,7 +497,9 @@ func (kms *pkcs11KMS) DecryptDEK(ctx context.Context, encryptedDEK []byte) ([]by
 	}
 
 	var iv []byte
-	if IsIvNeeded(mechanism) {
+	needIV, ivLength := IsIvNeeded(mechanism)
+	/*
+	if needIV && ivLength == 0 {
 		template = []*pkcs11.Attribute{
 			pkcs11.NewAttribute(pkcs11.CKA_VALUE_LEN, nil),
 		}
@@ -503,9 +509,11 @@ func (kms *pkcs11KMS) DecryptDEK(ctx context.Context, encryptedDEK []byte) ([]by
 		}
 		attrMap := GetAttributesMap(attr)
 
-		ivLength := 0
-		ivLength = int(GetValueAsInt(attrMap[pkcs11.CKA_VALUE_LEN]))
-
+		keyLength = int(GetValueAsInt(attrMap[pkcs11.CKA_VALUE_LEN]))
+		ivLength = GetIvSize(mechanism, keyLength)
+	}
+	*/
+	if needIV && ivLength > 0 {
 		if len(encryptedDEK) < ivLength {
 			return nil, fmt.Errorf("encrypted DEK is too short")
 		}
