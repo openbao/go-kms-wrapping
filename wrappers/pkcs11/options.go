@@ -58,8 +58,10 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 				opts.withSlot = uint(slot)
 			case "pin":
 				opts.withPin = v
+			case "lib":
 			case "module":
 				opts.withModule = v
+			case "key_label":
 			case "label":
 				opts.withLabel = v
 			case "mechanism":
