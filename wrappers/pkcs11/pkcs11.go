@@ -372,17 +372,7 @@ func (kms *pkcs11KMS) EncryptDEK(ctx context.Context, plainDEK []byte) ([]byte, 
 
 	var iv []byte
 	if IsIvNeeded(mechanism) {
-		template = []*pkcs11.Attribute{
-			pkcs11.NewAttribute(pkcs11.CKA_VALUE_LEN, nil),
-		}
-		attr, err := p.GetAttributeValue(session, pkcs11.ObjectHandle(key), template)
-		if err != nil {
-			return nil, fmt.Errorf("failed to pkcs11 GetAttributeValue: %s", err)
-		}
-		attrMap := GetAttributesMap(attr)
-
-		ivLength := 0
-		ivLength = int(GetValueAsInt(attrMap[pkcs11.CKA_VALUE_LEN]))
+		ivLength := 16
 
 		iv, err = uuid.GenerateRandomBytes(ivLength)
 		if err != nil {
@@ -494,17 +484,7 @@ func (kms *pkcs11KMS) DecryptDEK(ctx context.Context, encryptedDEK []byte) ([]by
 
 	var iv []byte
 	if IsIvNeeded(mechanism) {
-		template = []*pkcs11.Attribute{
-			pkcs11.NewAttribute(pkcs11.CKA_VALUE_LEN, nil),
-		}
-		attr, err := p.GetAttributeValue(session, pkcs11.ObjectHandle(key), template)
-		if err != nil {
-			return nil, fmt.Errorf("failed to pkcs11 GetAttributeValue: %s", err)
-		}
-		attrMap := GetAttributesMap(attr)
-
-		ivLength := 0
-		ivLength = int(GetValueAsInt(attrMap[pkcs11.CKA_VALUE_LEN]))
+		ivLength := 16
 
 		if len(encryptedDEK) < ivLength {
 			return nil, fmt.Errorf("encrypted DEK is too short")
