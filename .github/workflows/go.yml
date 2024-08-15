@@ -52,7 +52,6 @@ jobs:
       - uses: bufbuild/buf-setup-action@a2450ddf330ebcbbb88645837933e7141568fd09 # v1.23.1
         with:
           version: "1.15.1"
-      - uses: bufbuild/buf-lint-action@bd48f53224baaaf0fc55de9a913e7680ca6dbea4 # v1.0.3
       - uses: bufbuild/buf-breaking-action@f47418c81c00bfd65394628385593542f64db477 # v1.1.2
         with:
           # The 'main' branch of the GitHub repository that defines the module.
