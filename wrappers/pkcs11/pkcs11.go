@@ -42,6 +42,17 @@ func NewWrapper() *Wrapper {
 	return k
 }
 
+// Init is called during core.Initialize
+func (s *Wrapper) Init(_ context.Context) error {
+	return nil
+}
+
+// Finalize is called during shutdown
+func (s *Wrapper) Finalize(_ context.Context) error {
+	s.client.DestroyClient()
+	return nil
+}
+
 // SetConfig sets the fields on the Pkcs11Wrapper object based on
 // values from the config parameter.
 //
@@ -108,7 +119,7 @@ func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 		if !opts.Options.WithDisallowEnvVars {
 			mechanismName := os.Getenv("PKCS11_MECHANISM")
 			if mechanismName != "" {
-				k.client.mechanism, err = MechanisFromString(mechanismName)
+				k.client.mechanism, err = MechanismFromString(mechanismName)
 				if err != nil {
 					return nil, err
 				}
@@ -116,7 +127,7 @@ func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 		}
 		if k.client.mechanism == 0 {
 			if opts.withMechanism != "" {
-				k.client.mechanism, err = MechanisFromString(opts.withMechanism)
+				k.client.mechanism, err = MechanismFromString(opts.withMechanism)
 				if err != nil {
 					return nil, err
 				}
@@ -125,26 +136,17 @@ func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 
 		k.client.keyId = k.keyId
 
-		p := pkcs11.New(k.client.module)
-		err := p.Initialize()
+		// Initialize the client
+		_, err = k.client.GetClient()
 		if err != nil {
-			return nil, fmt.Errorf("failed to initialize PKCS11: %w", err)
+			return nil, err
 		}
-		defer p.Destroy()
-		defer p.Finalize()
-
-		session, err := p.OpenSession(k.client.slot, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKF_RW_SESSION)
+		// Validate credentials for session establishment
+		session, err := k.client.GetSession()
 		if err != nil {
-			return nil, fmt.Errorf("failed to open session: %w", err)
+			return nil, err
 		}
-		defer p.CloseSession(session)
-
-		err = p.Login(session, pkcs11.CKU_USER, k.client.pin)
-		if err != nil {
-			return nil, fmt.Errorf("failed to login: %w", err)
-		}
-		defer p.Logout(session)
-
+		defer k.client.CloseSession(session)
 	}
 	// Store the current key id. If using a key alias, this will point to the actual
 	// unique key that that was used for this encrypt operation.
@@ -153,7 +155,7 @@ func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 	// Map that holds non-sensitive configuration info
 	wrapConfig := new(wrapping.WrapperConfig)
 	wrapConfig.Metadata = make(map[string]string)
-	wrapConfig.Metadata["kms_key_id"] = k.keyId
+	wrapConfig.Metadata["key_id"] = k.keyId
 	wrapConfig.Metadata["slot"] = strconv.Itoa(int(k.client.slot))
 	if k.client.label != "" {
 		wrapConfig.Metadata["label"] = k.client.label
@@ -175,12 +177,12 @@ func (k *Wrapper) KeyId(_ context.Context) (string, error) {
 	return k.currentKeyId.Load().(string), nil
 }
 
-// Encrypt is used to encrypt the master key using the the PKCS11.
+// Encrypt is used to encrypt data using the the PKCS11 key.
 // This returns the ciphertext, and/or any errors from this
 // call. This should be called after the KMS client has been instantiated.
 func (k *Wrapper) Encrypt(_ context.Context, plaintext []byte, opt ...wrapping.Option) (*wrapping.BlobInfo, error) {
-	if plaintext == nil {
-		return nil, fmt.Errorf("given plaintext for encryption is nil")
+	if len(plaintext) == 0 {
+		return nil, fmt.Errorf("given plaintext for encryption is empty")
 	}
 
 	env, err := wrapping.EnvelopeEncrypt(plaintext, opt...)
@@ -188,7 +190,7 @@ func (k *Wrapper) Encrypt(_ context.Context, plaintext []byte, opt ...wrapping.O
 		return nil, fmt.Errorf("error wrapping data: %w", err)
 	}
 
-	WrappedKey, err := k.client.EncryptDEK(context.Background(), env.Key)
+	WrappedKey, err := k.client.Encrypt(context.Background(), env.Key)
 	if err != nil {
 		return nil, fmt.Errorf("error encrypting data: %w", err)
 	}
@@ -214,7 +216,7 @@ func (k *Wrapper) Decrypt(_ context.Context, in *wrapping.BlobInfo, opt ...wrapp
 		return nil, fmt.Errorf("given input for decryption is nil")
 	}
 
-	keyBytes, err := k.client.DecryptDEK(context.Background(), in.KeyInfo.WrappedKey)
+	keyBytes, err := k.client.Decrypt(context.Background(), in.KeyInfo.WrappedKey)
 	if err != nil {
 		return nil, fmt.Errorf("error decrypting data encryption key: %w", err)
 	}
@@ -234,8 +236,12 @@ func (k *Wrapper) Decrypt(_ context.Context, in *wrapping.BlobInfo, opt ...wrapp
 
 func GetKeyTypeFromMech(mech uint) (uint, error) {
 	switch mech {
+	case pkcs11.CKM_RSA_PKCS_OAEP:
+		return pkcs11.CKK_RSA, nil
 	case pkcs11.CKM_RSA_PKCS:
 		return pkcs11.CKK_RSA, nil
+	case pkcs11.CKM_AES_GCM:
+		return pkcs11.CKK_AES, nil
 	case pkcs11.CKM_AES_CBC_PAD:
 		return pkcs11.CKK_AES, nil
 	default:
@@ -245,8 +251,12 @@ func GetKeyTypeFromMech(mech uint) (uint, error) {
 
 func MechanisString(mech uint) string {
 	switch mech {
+	case pkcs11.CKM_RSA_PKCS_OAEP:
+		return "CKM_RSA_PKCS_OAEP"
 	case pkcs11.CKM_RSA_PKCS:
 		return "CKM_RSA_PKCS"
+	case pkcs11.CKM_AES_GCM:
+		return "CKM_AES_GCM"
 	case pkcs11.CKM_AES_CBC_PAD:
 		return "CKM_AES_CBC_PAD"
 	default:
@@ -256,6 +266,8 @@ func MechanisString(mech uint) string {
 
 func IsIvNeeded(mech uint) (bool, int) {
 	switch mech {
+	case pkcs11.CKM_AES_GCM:
+		return true, 16
 	case pkcs11.CKM_AES_CBC_PAD:
 		return true, 16
 	default:
@@ -263,10 +275,14 @@ func IsIvNeeded(mech uint) (bool, int) {
 	}
 }
 
-func MechanisFromString(mech string) (uint, error) {
+func MechanismFromString(mech string) (uint, error) {
 	switch mech {
+	case "CKM_RSA_PKCS_OAEP":
+		return pkcs11.CKM_RSA_PKCS_OAEP, nil
 	case "CKM_RSA_PKCS":
 		return pkcs11.CKM_RSA_PKCS, nil
+	case "CKM_AES_GCM":
+		return pkcs11.CKM_AES_GCM, nil
 	case "CKM_AES_CBC_PAD":
 		return pkcs11.CKM_AES_CBC_PAD, nil
 	default:
@@ -275,6 +291,7 @@ func MechanisFromString(mech string) (uint, error) {
 }
 
 type pkcs11KMS struct {
+	client	  *pkcs11.Ctx
 	// standard PKCS11 configuration options
 	slot      uint
 	pin       string
@@ -284,39 +301,63 @@ type pkcs11KMS struct {
 	mechanism uint
 }
 
-// EncryptDEK uses the PKCS11 encrypt operation to encrypt the DEK.
-func (kms *pkcs11KMS) EncryptDEK(ctx context.Context, plainDEK []byte) ([]byte, error) {
-	p := pkcs11.New(kms.module)
-	err := p.Initialize()
+// Create a PKCS11 client for the configured module.
+func (kms *pkcs11KMS) GetClient() (*pkcs11.Ctx, error) {
+	if kms.client != nil {
+		return kms.client, nil
+	}
+	kms.client = pkcs11.New(kms.module)
+	err := kms.client.Initialize()
 	if err != nil {
+		kms.client = nil
 		return nil, fmt.Errorf("failed to initialize PKCS11: %w", err)
 	}
+	return kms.client, nil
+}
 
-	defer p.Destroy()
-	defer p.Finalize()
-
-	session, err := p.OpenSession(kms.slot, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKF_RW_SESSION)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open session: %w", err)
+// Open a session and perform the authentication process.
+func (kms *pkcs11KMS) GetSession() (pkcs11.SessionHandle, error) {
+	if kms.client == nil {
+		return 0, fmt.Errorf("PKCS11 not initialized")
 	}
-	defer p.CloseSession(session)
 
-	err = p.Login(session, pkcs11.CKU_USER, kms.pin)
+	session, err := kms.client.OpenSession(kms.slot, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKF_RW_SESSION)
 	if err != nil {
-		return nil, fmt.Errorf("failed to login: %w", err)
+		return 0, fmt.Errorf("failed to open session: %w", err)
 	}
-	defer p.Logout(session)
+	err = kms.client.Login(session, pkcs11.CKU_USER, kms.pin)
+	if err != nil {
+		return 0, fmt.Errorf("failed to login: %w", err)
+	}
+	return session, nil
+}
 
-	keyIdBytes, err := hex.DecodeString(kms.keyId)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode key id: %w", err)
+func (kms *pkcs11KMS) CloseSession(session pkcs11.SessionHandle) {
+	if kms.client == nil {
+		return
 	}
+	kms.client.Logout(session)
+	kms.client.CloseSession(session)
+}
+
+func (kms *pkcs11KMS) DestroyClient() {
+	if kms.client == nil {
+		return
+	}
+	kms.client.Finalize()
+	kms.client.Destroy()
+	kms.client = nil
+}
+
+//
+func (kms *pkcs11KMS) FindKey(session pkcs11.SessionHandle, typ uint) ([]pkcs11.ObjectHandle, error) {
 	template := []*pkcs11.Attribute{
-		pkcs11.NewAttribute(pkcs11.CKA_ID, keyIdBytes),
-		pkcs11.NewAttribute(pkcs11.CKA_ENCRYPT, true),
+		pkcs11.NewAttribute(pkcs11.CKA_LABEL, []byte(kms.label)),
+		pkcs11.NewAttribute(typ, true),
 	}
-	if kms.label != "" {
-		template = append(template, pkcs11.NewAttribute(pkcs11.CKA_LABEL, kms.label))
+	keyIdBytes, err := hex.DecodeString(kms.keyId)
+	if err == nil {
+		template = append(template, pkcs11.NewAttribute(pkcs11.CKA_ID, keyIdBytes))
 	}
 	if kms.mechanism != 0 {
 		keyTypeString, err := GetKeyTypeFromMech(kms.mechanism)
@@ -325,28 +366,28 @@ func (kms *pkcs11KMS) EncryptDEK(ctx context.Context, plainDEK []byte) ([]byte, 
 		}
 		template = append(template, pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, keyTypeString))
 	}
-	if err := p.FindObjectsInit(session, template); err != nil {
+
+	if err := kms.client.FindObjectsInit(session, template); err != nil {
 		return nil, fmt.Errorf("failed to pkcs11 FindObjectsInit: %s", err)
 	}
-	obj, _, err := p.FindObjects(session, 2)
+	obj, _, err := kms.client.FindObjects(session, 2)
 	if err != nil {
 		return nil, fmt.Errorf("failed to pkcs11 FindObjects: %s", err)
 	}
-	if err := p.FindObjectsFinal(session); err != nil {
+	if err := kms.client.FindObjectsFinal(session); err != nil {
 		return nil, fmt.Errorf("failed to pkcs11 FindObjectsFinal: %s", err)
 	}
 
-	if len(obj) != 1 {
-		return nil, fmt.Errorf("expected 1 object, got %d", len(obj))
-	}
-	key := obj[0]
+	return obj, nil
+}
 
-	template = []*pkcs11.Attribute{
+func (kms *pkcs11KMS) GetKeyMechanism(session pkcs11.SessionHandle, key pkcs11.ObjectHandle) (uint, error) {
+	template := []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, nil),
 	}
-	attr, err := p.GetAttributeValue(session, pkcs11.ObjectHandle(key), template)
+	attr, err := kms.client.GetAttributeValue(session, pkcs11.ObjectHandle(key), template)
 	if err != nil {
-		return nil, fmt.Errorf("failed to pkcs11 GetAttributeValue: %s", err)
+		return 0, fmt.Errorf("failed to pkcs11 GetAttributeValue: %s", err)
 	}
 
 	attrMap := GetAttributesMap(attr)
@@ -358,35 +399,45 @@ func (kms *pkcs11KMS) EncryptDEK(ctx context.Context, plainDEK []byte) ([]byte, 
 		if kms.mechanism != 0 {
 			mechanism = kms.mechanism
 		} else {
-			mechanism = pkcs11.CKM_AES_CBC_PAD
+			mechanism = pkcs11.CKM_AES_GCM
 		}
 	case pkcs11.CKK_RSA:
 		if kms.mechanism != 0 {
 			mechanism = kms.mechanism
 		} else {
-			mechanism = pkcs11.CKM_RSA_PKCS
+			mechanism = pkcs11.CKM_RSA_PKCS_OAEP
 		}
 	default:
-		return nil, fmt.Errorf("unsupported key type: %d", keyType)
+		return 0, fmt.Errorf("unsupported key type: %d", keyType)
+	}
+
+	return mechanism, nil
+}
+
+//
+func (kms *pkcs11KMS) Encrypt(ctx context.Context, plainDEK []byte) ([]byte, error) {
+	session, err := kms.GetSession()
+	if err != nil {
+		return nil, err
+	}
+	defer kms.CloseSession(session)
+
+	obj, err := kms.FindKey(session, pkcs11.CKA_ENCRYPT)
+	if err != nil {
+		return nil, err
+	}
+	if len(obj) != 1 {
+		return nil, fmt.Errorf("expected 1 object, got %d", len(obj))
+	}
+	key := obj[0]
+
+	mechanism, err := kms.GetKeyMechanism(session, key)
+	if err != nil {
+		return nil, err
 	}
 
 	var iv []byte
 	needIV, ivLength := IsIvNeeded(mechanism)
-	/*
-	if needIV && ivLength == 0 {
-		template = []*pkcs11.Attribute{
-			pkcs11.NewAttribute(pkcs11.CKA_VALUE_LEN, nil),
-		}
-		attr, err := p.GetAttributeValue(session, pkcs11.ObjectHandle(key), template)
-		if err != nil {
-			return nil, fmt.Errorf("failed to pkcs11 GetAttributeValue: %s", err)
-		}
-		attrMap := GetAttributesMap(attr)
-
-		keyLength = int(GetValueAsInt(attrMap[pkcs11.CKA_VALUE_LEN]))
-		ivLength = GetIvSize(mechanism, keyLength)
-	}
-	*/
 	if needIV && ivLength > 0 {
 		iv, err = uuid.GenerateRandomBytes(ivLength)
 		if err != nil {
@@ -394,11 +445,11 @@ func (kms *pkcs11KMS) EncryptDEK(ctx context.Context, plainDEK []byte) ([]byte, 
 		}
 	}
 
-	if err = p.EncryptInit(session, []*pkcs11.Mechanism{pkcs11.NewMechanism(mechanism, iv)}, key); err != nil {
+	if err = kms.client.EncryptInit(session, []*pkcs11.Mechanism{pkcs11.NewMechanism(mechanism, iv)}, key); err != nil {
 		return nil, fmt.Errorf("failed to pkcs11 EncryptInit: %s", err)
 	}
 	var ciphertext []byte
-	if ciphertext, err = p.Encrypt(session, plainDEK); err != nil {
+	if ciphertext, err = kms.client.Encrypt(session, plainDEK); err != nil {
 		return nil, fmt.Errorf("failed to pkcs11 Encrypt: %s", err)
 	}
 
@@ -409,57 +460,17 @@ func (kms *pkcs11KMS) EncryptDEK(ctx context.Context, plainDEK []byte) ([]byte, 
 	}
 }
 
-// DecryptDEK uses the PKCS11 decrypt operation to decrypt the DEK.
-func (kms *pkcs11KMS) DecryptDEK(ctx context.Context, encryptedDEK []byte) ([]byte, error) {
-	p := pkcs11.New(kms.module)
-	err := p.Initialize()
+// Decrypt uses the PKCS11 decrypt operation to decrypt the DEK.
+func (kms *pkcs11KMS) Decrypt(ctx context.Context, encryptedDEK []byte) ([]byte, error) {
+	session, err := kms.GetSession()
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize PKCS11: %w", err)
+		return nil, err
 	}
+	defer kms.CloseSession(session)
 
-	defer p.Destroy()
-	defer p.Finalize()
-
-	session, err := p.OpenSession(kms.slot, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKF_RW_SESSION)
+	obj, err := kms.FindKey(session, pkcs11.CKA_DECRYPT)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open session: %w", err)
-	}
-	defer p.CloseSession(session)
-
-	err = p.Login(session, pkcs11.CKU_USER, kms.pin)
-	if err != nil {
-		return nil, fmt.Errorf("failed to login: %w", err)
-	}
-	defer p.Logout(session)
-
-	keyIdBytes, err := hex.DecodeString(kms.keyId)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode key id: %w", err)
-	}
-	template := []*pkcs11.Attribute{
-		pkcs11.NewAttribute(pkcs11.CKA_ID, keyIdBytes),
-		pkcs11.NewAttribute(pkcs11.CKA_DECRYPT, true),
-	}
-	if kms.label != "" {
-		template = append(template, pkcs11.NewAttribute(pkcs11.CKA_LABEL, []byte(kms.label)))
-	}
-	if kms.mechanism != 0 {
-		keyTypeString, err := GetKeyTypeFromMech(kms.mechanism)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get key type from mechanism: %s", err)
-		}
-		template = append(template, pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, keyTypeString))
-	}
-	if err := p.FindObjectsInit(session, template); err != nil {
-		return nil, fmt.Errorf("failed to pkcs11 FindObjectsInit: %s", err)
-	}
-
-	obj, _, err := p.FindObjects(session, 2)
-	if err != nil {
-		return nil, fmt.Errorf("failed to pkcs11 FindObjects: %s", err)
-	}
-	if err := p.FindObjectsFinal(session); err != nil {
-		return nil, fmt.Errorf("failed to pkcs11 FindObjectsFinal: %s", err)
+		return nil, err
 	}
 
 	if len(obj) != 1 {
@@ -467,52 +478,13 @@ func (kms *pkcs11KMS) DecryptDEK(ctx context.Context, encryptedDEK []byte) ([]by
 	}
 	key := obj[0]
 
-	template = []*pkcs11.Attribute{
-		pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, nil),
-	}
-	attr, err := p.GetAttributeValue(session, pkcs11.ObjectHandle(key), template)
+	mechanism, err := kms.GetKeyMechanism(session, key)
 	if err != nil {
-		return nil, fmt.Errorf("failed to pkcs11 GetAttributeValue: %s", err)
-	}
-
-	attrMap := GetAttributesMap(attr)
-	keyType := GetValueAsInt(attrMap[pkcs11.CKA_KEY_TYPE])
-
-	mechanism := uint(0)
-	switch keyType {
-	case pkcs11.CKK_AES:
-		if kms.mechanism != 0 {
-			mechanism = kms.mechanism
-		} else {
-			mechanism = pkcs11.CKM_AES_CBC_PAD
-		}
-	case pkcs11.CKK_RSA:
-		if kms.mechanism != 0 {
-			mechanism = kms.mechanism
-		} else {
-			mechanism = pkcs11.CKM_RSA_PKCS
-		}
-	default:
-		return nil, fmt.Errorf("unsupported key type: %d", keyType)
+		return nil, err
 	}
 
 	var iv []byte
 	needIV, ivLength := IsIvNeeded(mechanism)
-	/*
-	if needIV && ivLength == 0 {
-		template = []*pkcs11.Attribute{
-			pkcs11.NewAttribute(pkcs11.CKA_VALUE_LEN, nil),
-		}
-		attr, err := p.GetAttributeValue(session, pkcs11.ObjectHandle(key), template)
-		if err != nil {
-			return nil, fmt.Errorf("failed to pkcs11 GetAttributeValue: %s", err)
-		}
-		attrMap := GetAttributesMap(attr)
-
-		keyLength = int(GetValueAsInt(attrMap[pkcs11.CKA_VALUE_LEN]))
-		ivLength = GetIvSize(mechanism, keyLength)
-	}
-	*/
 	if needIV && ivLength > 0 {
 		if len(encryptedDEK) < ivLength {
 			return nil, fmt.Errorf("encrypted DEK is too short")
@@ -522,12 +494,12 @@ func (kms *pkcs11KMS) DecryptDEK(ctx context.Context, encryptedDEK []byte) ([]by
 		encryptedDEK = encryptedDEK[ivLength:]
 	}
 
-	if err = p.DecryptInit(session, []*pkcs11.Mechanism{pkcs11.NewMechanism(mechanism, iv)}, key); err != nil {
+	if err = kms.client.DecryptInit(session, []*pkcs11.Mechanism{pkcs11.NewMechanism(mechanism, iv)}, key); err != nil {
 		return nil, fmt.Errorf("failed to pkcs11 DecryptInit: %s", err)
 	}
 
 	var decrypted []byte
-	if decrypted, err = p.Decrypt(session, encryptedDEK); err != nil {
+	if decrypted, err = kms.client.Decrypt(session, encryptedDEK); err != nil {
 		return nil, fmt.Errorf("failed to pkcs11 Decrypt: %s", err)
 	}
 	return decrypted, nil
