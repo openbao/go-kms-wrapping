@@ -4,8 +4,6 @@
 package pkcs11
 
 import (
-	"strconv"
-
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
 
@@ -46,24 +44,19 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 	if opts.WithConfigMap != nil {
 		for k, v := range opts.WithConfigMap {
 			switch k {
-			case "kms_key_id": // deprecated backend-specific value, set global
-				opts.WithKeyId = v
+			// case "key_id", "kms_key_id": // deprecated backend-specific value, set global
+			case "key_id":
+				opts.withKeyId = v
 			case "slot":
-				var err error
-				var slot uint64
-				slot, err = strconv.ParseUint(v, 10, 64)
-				if err != nil {
-					return nil, err
-				}
-				opts.withSlot = uint(slot)
+				opts.withSlot = v
 			case "pin":
 				opts.withPin = v
-			case "lib":
-			case "module":
-				opts.withModule = v
-			case "key_label":
-			case "label":
-				opts.withLabel = v
+			case "lib", "module":
+				opts.withLib = v
+			case "token", "token_label":
+				opts.withTokenLabel = v
+			case "label", "key_label":
+				opts.withKeyLabel = v
 			case "mechanism":
 				opts.withMechanism = v
 			}
@@ -90,11 +83,13 @@ type OptionFunc func(*options) error
 type options struct {
 	*wrapping.Options
 
-	withSlot      uint
-	withPin       string
-	withModule    string
-	withLabel     string
-	withMechanism string
+	withSlot      	string
+	withPin       	string
+	withLib       	string
+	withKeyId		string
+	withKeyLabel   	string
+	withTokenLabel	string
+	withMechanism 	string
 }
 
 func getDefaultOptions() options {
@@ -102,9 +97,17 @@ func getDefaultOptions() options {
 }
 
 // WithSlot sets the slot
-func WithSlot(slot uint) OptionFunc {
+func WithSlot(slot string) OptionFunc {
 	return func(o *options) error {
 		o.withSlot = slot
+		return nil
+	}
+}
+
+// WithSlot sets the slot
+func WithTokenLabel(slot string) OptionFunc {
+	return func(o *options) error {
+		o.withTokenLabel = slot
 		return nil
 	}
 }
@@ -117,18 +120,26 @@ func WithPin(pin string) OptionFunc {
 	}
 }
 
-// WithModule sets the module
-func WithModule(module string) OptionFunc {
+// WithLib sets the module
+func WithLib(lib string) OptionFunc {
 	return func(o *options) error {
-		o.withModule = module
+		o.withLib = lib
 		return nil
 	}
 }
 
 // WithLabel sets the label
-func WithLabel(label string) OptionFunc {
+func WithKeyId(keyId string) OptionFunc {
 	return func(o *options) error {
-		o.withLabel = label
+		o.withKeyId = keyId
+		return nil
+	}
+}
+
+// WithLabel sets the label
+func WithKeyLabel(label string) OptionFunc {
+	return func(o *options) error {
+		o.withKeyLabel = label
 		return nil
 	}
 }
