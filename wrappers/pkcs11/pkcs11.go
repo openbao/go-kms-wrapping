@@ -11,12 +11,6 @@ import (
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
 
-// These constants contain the accepted env vars; the Vault one is for backwards compat
-const (
-	EnvPkcs11WrapperKeyId   = "PKCS11_WRAPPER_KEY_ID"
-	EnvVaultPkcs11SealKeyId = "VAULT_PKCS11_SEAL_KEY_ID"
-)
-
 // Wrapper is a Wrapper that uses PKCS11
 type Wrapper struct {
 	client       pkcs11ClientEncryptor

@@ -10,7 +10,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 
-	"github.com/openbao/openbao/api"
+	"github.com/openbao/openbao/api/v2"
 	uuid "github.com/hashicorp/go-uuid"
 	pkcs11 "github.com/miekg/pkcs11"
 	wrapping "github.com/openbao/go-kms-wrapping/v2"

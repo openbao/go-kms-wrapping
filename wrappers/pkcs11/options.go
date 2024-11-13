@@ -97,57 +97,71 @@ func getDefaultOptions() options {
 }
 
 // WithSlot sets the slot
-func WithSlot(slot string) OptionFunc {
-	return func(o *options) error {
-		o.withSlot = slot
-		return nil
+func WithSlot(slot string) wrapping.Option {
+	return func() interface{} {
+		return OptionFunc(func(o *options) error {
+			o.withSlot = slot
+			return nil
+		})
 	}
 }
 
 // WithSlot sets the slot
-func WithTokenLabel(slot string) OptionFunc {
-	return func(o *options) error {
-		o.withTokenLabel = slot
-		return nil
+func WithTokenLabel(slot string) wrapping.Option {
+	return func() interface{} {
+		return OptionFunc(func(o *options) error {
+			o.withTokenLabel = slot
+			return nil
+		})
 	}
 }
 
 // WithPin sets the pin
-func WithPin(pin string) OptionFunc {
-	return func(o *options) error {
-		o.withPin = pin
-		return nil
+func WithPin(pin string) wrapping.Option {
+	return func() interface{} {
+		return OptionFunc(func(o *options) error {
+			o.withPin = pin
+			return nil
+		})
 	}
 }
 
 // WithLib sets the module
-func WithLib(lib string) OptionFunc {
-	return func(o *options) error {
-		o.withLib = lib
-		return nil
+func WithLib(lib string) wrapping.Option {
+	return func() interface{} {
+		return OptionFunc(func(o *options) error {
+			o.withLib = lib
+			return nil
+		})
 	}
 }
 
 // WithLabel sets the label
-func WithKeyId(keyId string) OptionFunc {
-	return func(o *options) error {
-		o.withKeyId = keyId
-		return nil
+func WithKeyId(keyId string) wrapping.Option {
+	return func() interface{} {
+		return OptionFunc(func(o *options) error {
+			o.withKeyId = keyId
+			return nil
+		})
 	}
 }
 
 // WithLabel sets the label
-func WithKeyLabel(label string) OptionFunc {
-	return func(o *options) error {
-		o.withKeyLabel = label
-		return nil
+func WithKeyLabel(label string) wrapping.Option {
+	return func() interface{} {
+		return OptionFunc(func(o *options) error {
+			o.withKeyLabel = label
+			return nil
+		})
 	}
 }
 
 // WithMechanism sets the mechanism
-func WithMechanism(mechanism string) OptionFunc {
-	return func(o *options) error {
-		o.withMechanism = mechanism
-		return nil
+func WithMechanism(mechanism string) wrapping.Option {
+	return func() interface{} {
+		return OptionFunc(func(o *options) error {
+			o.withMechanism = mechanism
+			return nil
+		})
 	}
 }

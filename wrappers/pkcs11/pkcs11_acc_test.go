@@ -14,13 +14,12 @@ import (
 // but the KMS key used is generally not free.
 //
 // To run this test, the following env variables need to be set:
-//   - VAULT_PKCS11_SEAL_KEY_ID or PKCS11_WRAPPING_KEY_ID
-//   - PKCS11_WRAPPER_KEY_ID
-//   - PKCS11_SLOT
-//   - PKCS11_PIN
-//   - PKCS11_MODULE
-//   - PKCS11_LABEL
-//   - PKCS11_MECHANISM
+//   - BAO_HSM_SLOT
+//   - BAO_HSM_PIN
+//   - BAO_HSM_LIB
+//   - BAO_HSM_KEY_LABEL
+//   - BAO_HSM_KEY_ID
+//   - BAO_HSM_MECHANISM
 func TestAccPkcs11Wrapper_Lifecycle(t *testing.T) {
 	if os.Getenv("VAULT_ACC") == "" && os.Getenv("KMS_ACC_TESTS") == "" {
 		t.SkipNow()
