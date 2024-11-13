@@ -1,3 +1,4 @@
+// Copyright (c) 2024 OpenBao a Series of LF Projects, LLC
 // Copyright (c) HashiCorp, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
