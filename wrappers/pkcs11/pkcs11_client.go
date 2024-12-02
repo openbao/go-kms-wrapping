@@ -59,20 +59,22 @@ type Pkcs11Client struct {
 	keyLabel	string
 	keyId     	string
 	mechanism 	uint
+	rsaOaepHash string
 }
 
 const (
-	EnvHsmWrapperLib   		= "BAO_HSM_LIB"
-	EnvHsmWrapperSlot  		= "BAO_HSM_SLOT"
-	EnvHsmWrapperTokenLabel = "BAO_HSM_TOKEN_LABEL"
-	EnvHsmWrapperPin		= "BAO_HSM_PIN"
-	EnvHsmWrapperKeyLabel	= "BAO_HSM_KEY_LABEL"
-	EnvHsmWrapperKeyId		= "BAO_HSM_KEY_ID"
-	EnvHsmWrapperMechanism  = "BAO_HSM_MECHANISM"
+	EnvHsmWrapperLib         = "BAO_HSM_LIB"
+	EnvHsmWrapperSlot        = "BAO_HSM_SLOT"
+	EnvHsmWrapperTokenLabel  = "BAO_HSM_TOKEN_LABEL"
+	EnvHsmWrapperPin         = "BAO_HSM_PIN"
+	EnvHsmWrapperKeyLabel    = "BAO_HSM_KEY_LABEL"
+	EnvHsmWrapperKeyId       = "BAO_HSM_KEY_ID"
+	EnvHsmWrapperMechanism   = "BAO_HSM_MECHANISM"
+	EnvHsmWrapperRsaOaepHash = "BAO_HSM_RSA_OAEP_HASH"
 )
 
 func newPkcs11Client(opts *options) (*Pkcs11Client, *wrapping.WrapperConfig, error) {
-	var lib, slot, keyId, tokenLabel, pin, keyLabel, mechanism string
+	var lib, slot, keyId, tokenLabel, pin, keyLabel, mechanism, rsaOaepHash string
 	var slotNum, mechanismNum uint64
 	var err error
 
@@ -115,6 +117,10 @@ func newPkcs11Client(opts *options) (*Pkcs11Client, *wrapping.WrapperConfig, err
 	default:
 		keyId = ""
 	}
+	// Remove the 0x prefix.
+	if strings.HasPrefix(keyId, "0x") {
+		keyId = keyId[2:]
+	}
 
 	switch {
 	case api.ReadBaoVariable(EnvHsmWrapperPin) != "" && !opts.Options.WithDisallowEnvVars:
@@ -143,6 +149,15 @@ func newPkcs11Client(opts *options) (*Pkcs11Client, *wrapping.WrapperConfig, err
 		mechanism = ""
 	}
 
+	switch {
+	case api.ReadBaoVariable(EnvHsmWrapperRsaOaepHash) != "" && !opts.Options.WithDisallowEnvVars:
+		rsaOaepHash = strings.ToLower(api.ReadBaoVariable(EnvHsmWrapperRsaOaepHash))
+	case opts.withRsaOaepHash != "":
+		rsaOaepHash = strings.ToLower(opts.withRsaOaepHash)
+	default:
+		rsaOaepHash = ""
+	}
+
 	if slot != "" {
 		if slotNum, err = numberAutoParse(slot, 32); err != nil {
 			return nil, nil, fmt.Errorf("Invalid slot number")
@@ -160,18 +175,19 @@ func newPkcs11Client(opts *options) (*Pkcs11Client, *wrapping.WrapperConfig, err
 	}
 
 	client := &Pkcs11Client{
-		client:    	nil,
-		lib:		lib,
-		slot:      	uint(slotNum),
-		pin:       	pin,
-		tokenLabel: tokenLabel,
-		keyId:		keyId,
-		keyLabel:  	keyLabel,
-		mechanism: 	uint(mechanismNum),
+		client:      nil,
+		lib:         lib,
+		slot:        uint(slotNum),
+		pin:         pin,
+		tokenLabel:  tokenLabel,
+		keyId:       keyId,
+		keyLabel:    keyLabel,
+		mechanism:   uint(mechanismNum),
+		rsaOaepHash: rsaOaepHash,
 	}
 	
 	// Initialize the client
-	_, err = client.GetClient()
+	err = client.InitializeClient()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -196,6 +212,9 @@ func newPkcs11Client(opts *options) (*Pkcs11Client, *wrapping.WrapperConfig, err
 	if mechanismNum != 0 {
 		wrapConfig.Metadata["mechanism"] = MechanismString(uint(mechanismNum))
 	}
+	if rsaOaepHash != "" {
+		wrapConfig.Metadata["rsa_oaep_hash"] = rsaOaepHash
+	}
 
 	return client, wrapConfig, nil
 }
@@ -218,30 +237,16 @@ func (c *Pkcs11Client) Encrypt(plaintext []byte) ([]byte, *Pkcs11Key, error) {
 	defer c.CloseSession(session)
 
 	keyId := Pkcs11Key{ label: c.keyLabel, id: c.keyId }
-	obj, err := c.FindKey(session, keyId, pkcs11.CKA_ENCRYPT)
-	if err != nil {
-		return nil, nil, err
-	}
-	if len(obj) != 1 {
-		return nil, nil, fmt.Errorf("expected 1 object, got %d", len(obj))
-	}
-	key := obj[0]
-
-	mechanism, err := c.GetKeyMechanism(session, key)
+	key, err := c.FindKey(session, keyId, pkcs11.CKA_ENCRYPT)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	var iv []byte
-	needIV, ivLength := IsIvNeeded(mechanism)
-	if needIV && ivLength > 0 {
-		iv, err = uuid.GenerateRandomBytes(ivLength)
-		if err != nil {
-			return nil, nil, err
-		}
+	prefix, params, err := c.CreatePkcsParamsForKey(session, key)
+	if err != nil {
+		return nil, nil, err
 	}
-
-	if err = c.client.EncryptInit(session, []*pkcs11.Mechanism{pkcs11.NewMechanism(mechanism, iv)}, key); err != nil {
+	if err = c.client.EncryptInit(session, []*pkcs11.Mechanism{params}, key); err != nil {
 		return nil, nil, fmt.Errorf("failed to pkcs11 EncryptInit: %s", err)
 	}
 	var ciphertext []byte
@@ -249,8 +254,8 @@ func (c *Pkcs11Client) Encrypt(plaintext []byte) ([]byte, *Pkcs11Key, error) {
 		return nil, nil, fmt.Errorf("failed to pkcs11 Encrypt: %s", err)
 	}
 
-	if iv != nil {
-		return append(iv, ciphertext...), &keyId, nil
+	if prefix != nil {
+		return append(prefix, ciphertext...), &keyId, nil
 	} else {
 		return ciphertext, &keyId, nil
 	}
@@ -267,33 +272,30 @@ func (c *Pkcs11Client) Decrypt(ciphertext []byte, keyId *Pkcs11Key) ([]byte, err
 		keyId = &Pkcs11Key{ label: c.keyLabel, id: c.keyId }
 	}
 
-	obj, err := c.FindKey(session, *keyId, pkcs11.CKA_DECRYPT)
+	key, err := c.FindKey(session, *keyId, pkcs11.CKA_DECRYPT)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(obj) != 1 {
-		return nil, fmt.Errorf("expected 1 object, got %d", len(obj))
-	}
-	key := obj[0]
-
-	mechanism, err := c.GetKeyMechanism(session, key)
+	var prefix []byte
+	mechanism, prefixSize, err := c.GetMechAndPrefixSizeForKey(session, key)
 	if err != nil {
 		return nil, err
 	}
-
-	var iv []byte
-	needIV, ivLength := IsIvNeeded(mechanism)
-	if needIV && ivLength > 0 {
-		if len(ciphertext) < ivLength {
-			return nil, fmt.Errorf("encrypted DEK is too short")
+	if prefixSize > 0 {
+		if len(ciphertext) < prefixSize {
+			return nil, fmt.Errorf("encrypted content is too short")
 		}
 
-		iv = ciphertext[:ivLength]
-		ciphertext = ciphertext[ivLength:]
+		prefix = ciphertext[:prefixSize]
+		ciphertext = ciphertext[prefixSize:]
+	}
+	params, err := c.GetPkcsParamsFromPrefix(session, key, mechanism, prefix)
+	if err != nil {
+		return nil, err
 	}
 
-	if err = c.client.DecryptInit(session, []*pkcs11.Mechanism{pkcs11.NewMechanism(mechanism, iv)}, key); err != nil {
+	if err = c.client.DecryptInit(session, []*pkcs11.Mechanism{params}, key); err != nil {
 		return nil, fmt.Errorf("failed to pkcs11 DecryptInit: %s", err)
 	}
 
@@ -305,17 +307,17 @@ func (c *Pkcs11Client) Decrypt(ciphertext []byte, keyId *Pkcs11Key) ([]byte, err
 }
 
 // Create a PKCS11 client for the configured module.
-func (c *Pkcs11Client) GetClient() (*pkcs11.Ctx, error) {
+func (c *Pkcs11Client) InitializeClient() (error) {
 	if c.client != nil {
-		return c.client, nil
+		return nil
 	}
 	c.client = pkcs11.New(c.lib)
 	err := c.client.Initialize()
 	if err != nil {
 		c.client = nil
-		return nil, fmt.Errorf("failed to initialize PKCS11: %w", err)
+		return fmt.Errorf("failed to initialize PKCS11: %w", err)
 	}
-	return c.client, nil
+	return nil
 }
 
 func (c *Pkcs11Client) GetSlotForLabel() (uint, error) {
@@ -371,8 +373,8 @@ func (c *Pkcs11Client) CloseSession(session pkcs11.SessionHandle) {
 	c.client.CloseSession(session)
 }
 
-//
-func (c *Pkcs11Client) FindKey(session pkcs11.SessionHandle, key Pkcs11Key, typ uint) ([]pkcs11.ObjectHandle, error) {
+// Find on key for the given Label, ID and Mechanism.
+func (c *Pkcs11Client) FindKey(session pkcs11.SessionHandle, key Pkcs11Key, typ uint) (pkcs11.ObjectHandle, error) {
 	template := []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_LABEL, []byte(key.label)),
 		pkcs11.NewAttribute(typ, true),
@@ -383,23 +385,29 @@ func (c *Pkcs11Client) FindKey(session pkcs11.SessionHandle, key Pkcs11Key, typ 
 	if c.mechanism != 0 {
 		keyTypeString, err := GetKeyTypeFromMech(c.mechanism)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get key type from mechanism: %s", err)
+			return 0, fmt.Errorf("failed to get key type from mechanism: %s", err)
 		}
 		template = append(template, pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, keyTypeString))
 	}
 
 	if err := c.client.FindObjectsInit(session, template); err != nil {
-		return nil, fmt.Errorf("failed to pkcs11 FindObjectsInit: %s", err)
+		return 0, fmt.Errorf("failed to pkcs11 FindObjectsInit: %s", err)
 	}
 	obj, _, err := c.client.FindObjects(session, 2)
 	if err != nil {
-		return nil, fmt.Errorf("failed to pkcs11 FindObjects: %s", err)
+		return 0, fmt.Errorf("failed to pkcs11 FindObjects: %s", err)
 	}
 	if err := c.client.FindObjectsFinal(session); err != nil {
-		return nil, fmt.Errorf("failed to pkcs11 FindObjectsFinal: %s", err)
+		return 0, fmt.Errorf("failed to pkcs11 FindObjectsFinal: %s", err)
+	}
+	if len(obj) == 0 {
+		return 0, fmt.Errorf("no key found for the label: %s", key.label)
+	}
+	if len(obj) != 1 {
+		return 0, fmt.Errorf("got more than 1 key for the label: %s", key.label)
 	}
 
-	return obj, nil
+	return obj[0], nil
 }
 
 func (c *Pkcs11Client) GetKeyMechanism(session pkcs11.SessionHandle, key pkcs11.ObjectHandle) (uint, error) {
@@ -435,6 +443,67 @@ func (c *Pkcs11Client) GetKeyMechanism(session pkcs11.SessionHandle, key pkcs11.
 	return mechanism, nil
 }
 
+func (c *Pkcs11Client) GetMechAndPrefixSizeForKey(session pkcs11.SessionHandle, key pkcs11.ObjectHandle) (uint, int, error) {
+	mechanism, err := c.GetKeyMechanism(session, key)
+	if err != nil {
+		return 0, 0, err
+	}
+	switch mechanism {
+	case pkcs11.CKM_AES_GCM:
+		return mechanism, 16, nil
+	// Deprecated
+	case pkcs11.CKM_AES_CBC_PAD:
+		return mechanism, 16, nil
+	case pkcs11.CKM_AES_CBC:
+		return mechanism, 16, nil
+	// Consider others with no prefix
+	default:
+		return mechanism, 0, nil
+	}
+}
+
+func (c *Pkcs11Client) CreatePkcsParamsForKey(session pkcs11.SessionHandle, key pkcs11.ObjectHandle) ([]byte, *pkcs11.Mechanism, error) {
+	mechanismNum, prefixSize, err := c.GetMechAndPrefixSizeForKey(session, key)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Prefix is the IV or Nonce.
+	prefix, err := uuid.GenerateRandomBytes(prefixSize)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	mechanism, err := c.GetPkcsParamsFromPrefix(session, key, mechanismNum, prefix)
+	if err != nil {
+		return nil, nil, err
+	}
+	return prefix, mechanism, nil
+}
+
+func (c *Pkcs11Client) GetPkcsParamsFromPrefix(session pkcs11.SessionHandle, key pkcs11.ObjectHandle, mechanism uint, prefix []byte) (*pkcs11.Mechanism, error) {
+	var params interface{}
+	switch mechanism {
+	case pkcs11.CKM_AES_GCM:
+		params = pkcs11.NewGCMParams(prefix, nil, 128)
+	case pkcs11.CKM_RSA_PKCS_OAEP:
+		var rsaOaepHash string
+		if c.rsaOaepHash != "" {
+			rsaOaepHash = c.rsaOaepHash
+		} else {
+			rsaOaepHash = "sha256"
+		}
+		hash, mgf_hash, err := RsaHashMechFromString(rsaOaepHash)
+		if err != nil {
+			return nil, err
+		}
+		params = pkcs11.NewOAEPParams(hash, mgf_hash, pkcs11.CKZ_DATA_SPECIFIED, nil)
+	default:
+		params = prefix
+	}
+	return pkcs11.NewMechanism(mechanism, params), nil
+}
+
 func (c *Pkcs11Client) GetCurrentKey() Pkcs11Key {
 	return Pkcs11Key{
 		label: c.keyLabel,
@@ -442,27 +511,16 @@ func (c *Pkcs11Client) GetCurrentKey() Pkcs11Key {
 	}
 }
 
-func IsIvNeeded(mech uint) (bool, int) {
-	switch mech {
-	case pkcs11.CKM_AES_GCM:
-		return true, 16
-	case pkcs11.CKM_AES_CBC_PAD:
-		return true, 16
-	default:
-		return false, 0
-	}
-}
-
 func GetKeyTypeFromMech(mech uint) (uint, error) {
 	switch mech {
 	case pkcs11.CKM_RSA_PKCS_OAEP:
 		return pkcs11.CKK_RSA, nil
-	case pkcs11.CKM_RSA_PKCS:
-		return pkcs11.CKK_RSA, nil
 	case pkcs11.CKM_AES_GCM:
 		return pkcs11.CKK_AES, nil
-	case pkcs11.CKM_AES_CBC_PAD:
-		return pkcs11.CKK_AES, nil
+	// Deprecated mechanisms
+	case pkcs11.CKM_RSA_PKCS, pkcs11.CKM_AES_CBC, pkcs11.CKM_AES_CBC_PAD:
+		return 0, fmt.Errorf("deprecated mechanism: %s (%d)", MechanismString(mech), mech)
+	// Other are unsupported
 	default:
 		return 0, fmt.Errorf("unsupported mechanism: %d", mech)
 	}
@@ -472,10 +530,13 @@ func MechanismString(mech uint) string {
 	switch mech {
 	case pkcs11.CKM_RSA_PKCS_OAEP:
 		return "CKM_RSA_PKCS_OAEP"
-	case pkcs11.CKM_RSA_PKCS:
-		return "CKM_RSA_PKCS"
 	case pkcs11.CKM_AES_GCM:
 		return "CKM_AES_GCM"
+	// Deprecated mechanisms
+	case pkcs11.CKM_RSA_PKCS:
+		return "CKM_RSA_PKCS"
+	case pkcs11.CKM_AES_CBC:
+		return "CKM_AES_CBC"
 	case pkcs11.CKM_AES_CBC_PAD:
 		return "CKM_AES_CBC_PAD"
 	default:
@@ -487,13 +548,14 @@ func MechanismFromString(mech string) (uint64, error) {
 	switch mech {
 	case "CKM_RSA_PKCS_OAEP", "RSA_PKCS_OAEP":
 		return pkcs11.CKM_RSA_PKCS_OAEP, nil
-	case "CKM_RSA_PKCS", "RSA_PKCS":
-		return pkcs11.CKM_RSA_PKCS, nil
 	case "CKM_AES_GCM", "AES_GCM":
 		return pkcs11.CKM_AES_GCM, nil
-	case "CKM_AES_CBC_PAD", "AES_CBC_PAD":
-		return pkcs11.CKM_AES_CBC_PAD, nil
+	// Deprecated mechanisms
+	case "CKM_RSA_PKCS", "RSA_PKCS", "CKM_AES_CBC_PAD", "AES_CBC_PAD":
+		return 0, fmt.Errorf("deprecated mechanism: %s", mech)
+	// Other mechanisms
 	default:
+		// Try to extract the mechanism PKCS11 raw value.
 		if mechanismNum, err := numberAutoParse(mech, 32); err == nil {
 			if _, err = GetKeyTypeFromMech(uint(mechanismNum)); err == nil {
 				return mechanismNum, nil
@@ -503,6 +565,23 @@ func MechanismFromString(mech string) (uint64, error) {
 	}
 }
 
+func RsaHashMechFromString(mech string) (uint, uint, error) {
+	mech = strings.ToLower(mech)
+	switch mech {
+	case "sha1":
+		return pkcs11.CKM_SHA_1, pkcs11.CKG_MGF1_SHA1, nil
+	case "sha224":
+		return pkcs11.CKM_SHA224, pkcs11.CKG_MGF1_SHA224, nil
+	case "sha256":
+		return pkcs11.CKM_SHA256, pkcs11.CKG_MGF1_SHA256, nil
+	case "sha384":
+		return pkcs11.CKM_SHA384, pkcs11.CKG_MGF1_SHA384, nil
+	case "sha512":
+		return pkcs11.CKM_SHA512, pkcs11.CKG_MGF1_SHA512, nil
+	default:
+		return 0, 0, fmt.Errorf("unsupported mechanism: %s", mech)
+	}
+}
 
 func GetAttributesMap(attrs []*pkcs11.Attribute) map[uint][]byte {
 	m := make(map[uint][]byte, len(attrs))

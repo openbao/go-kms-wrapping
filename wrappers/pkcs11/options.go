@@ -60,6 +60,8 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 				opts.withKeyLabel = v
 			case "mechanism":
 				opts.withMechanism = v
+			case "rsa_oaep_hash":
+				opts.withRsaOaepHash = v
 			}
 		}
 	}
@@ -91,6 +93,7 @@ type options struct {
 	withKeyLabel   	string
 	withTokenLabel	string
 	withMechanism 	string
+	withRsaOaepHash string
 }
 
 func getDefaultOptions() options {
@@ -162,6 +165,16 @@ func WithMechanism(mechanism string) wrapping.Option {
 	return func() interface{} {
 		return OptionFunc(func(o *options) error {
 			o.withMechanism = mechanism
+			return nil
+		})
+	}
+}
+
+// WithRsaOaepHash sets the RSA OAEP Hash mechanism
+func WithRsaOaepHash(hashMechanisme string) wrapping.Option {
+	return func() interface{} {
+		return OptionFunc(func(o *options) error {
+			o.withRsaOaepHash = hashMechanisme
 			return nil
 		})
 	}

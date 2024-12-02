@@ -43,6 +43,7 @@ func (k *Wrapper) Finalize(_ context.Context) error {
 
 // SetConfig processes the config info from the server config
 func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrapping.WrapperConfig, error) {
+	// Option validation is performed by newPkcs11Client(...).
 	opts, err := getOpts(opt...)
 	if err != nil {
 		return nil, err
@@ -54,12 +55,6 @@ func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 	}
 	k.client = client
 	k.keyId = client.GetCurrentKey().String()
-
-	// Send a value to test the wrapper and to set the current key id
-	if _, err := k.Encrypt(context.Background(), []byte("a")); err != nil {
-		client.Close()
-		return nil, err
-	}
 
 	return wrapConfig, nil
 }
