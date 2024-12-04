@@ -73,7 +73,7 @@ func (k *Wrapper) KeyId(_ context.Context) (string, error) {
 // This returns the ciphertext, and/or any errors from this
 // call. This should be called after the KMS client has been instantiated.
 func (k *Wrapper) Encrypt(_ context.Context, plaintext []byte, opt ...wrapping.Option) (*wrapping.BlobInfo, error) {
-	ciphertext, key, err := k.client.Encrypt(plaintext)
+	ciphertext, iv, key, err := k.client.Encrypt(plaintext)
 	if err != nil {
 		return nil, err
 	}
@@ -83,6 +83,7 @@ func (k *Wrapper) Encrypt(_ context.Context, plaintext []byte, opt ...wrapping.O
 
 	ret := &wrapping.BlobInfo{
 		Ciphertext: ciphertext,
+		Iv: iv,
 		KeyInfo: &wrapping.KeyInfo{
 			KeyId: keyId,
 		},
@@ -105,7 +106,7 @@ func (k *Wrapper) Decrypt(_ context.Context, in *wrapping.BlobInfo, opt ...wrapp
 	if err != nil {
 		return nil, err
 	}
-	plaintext, err := k.client.Decrypt(in.Ciphertext, keyId)
+	plaintext, err := k.client.Decrypt(in.Ciphertext, in.Iv, keyId)
 	if err != nil {
 		return nil, err
 	}

@@ -11,7 +11,6 @@ import (
 	"encoding/hex"
 
 	"github.com/openbao/openbao/api/v2"
-	uuid "github.com/hashicorp/go-uuid"
 	pkcs11 "github.com/miekg/pkcs11"
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
@@ -46,8 +45,9 @@ func (k Pkcs11Key) Set(v string) error {
 
 type pkcs11ClientEncryptor interface {
 	Close()
-	Encrypt(plaintext []byte) (ciphertext []byte, keyId *Pkcs11Key, err error)
-	Decrypt(ciphertext []byte, keyId *Pkcs11Key) (plaintext []byte, err error)
+	GenerateRandom(length int) ([]byte, error)
+	Encrypt(plaintext []byte) (ciphertext []byte, nonce []byte, keyId *Pkcs11Key, err error)
+	Decrypt(ciphertext []byte, nonce []byte, keyId *Pkcs11Key) (plaintext []byte, err error)
 }
 
 type Pkcs11Client struct {
@@ -71,6 +71,14 @@ const (
 	EnvHsmWrapperKeyId       = "BAO_HSM_KEY_ID"
 	EnvHsmWrapperMechanism   = "BAO_HSM_MECHANISM"
 	EnvHsmWrapperRsaOaepHash = "BAO_HSM_RSA_OAEP_HASH"
+)
+const (
+	DefaultAesMechanism      = pkcs11.CKM_AES_GCM
+	DefaultRsaMechanism      = pkcs11.CKM_RSA_PKCS_OAEP
+	DefaultRsaOaepHash       = "sha256"
+
+	CryptoAesGcmNonceSize    = 12
+	CryptoAesGcmOverhead     = 16
 )
 
 func newPkcs11Client(opts *options) (*Pkcs11Client, *wrapping.WrapperConfig, error) {
@@ -185,7 +193,7 @@ func newPkcs11Client(opts *options) (*Pkcs11Client, *wrapping.WrapperConfig, err
 		mechanism:   uint(mechanismNum),
 		rsaOaepHash: rsaOaepHash,
 	}
-	
+
 	// Initialize the client
 	err = client.InitializeClient()
 	if err != nil {
@@ -229,39 +237,101 @@ func (c *Pkcs11Client) Close() {
 	c.client = nil
 }
 
-func (c *Pkcs11Client) Encrypt(plaintext []byte) ([]byte, *Pkcs11Key, error) {
+func (c *Pkcs11Client) GenerateRandom(length int) ([]byte, error) {
 	session, err := c.GetSession()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
+	}
+	defer c.CloseSession(session)
+
+	return c.client.GenerateRandom(session, length)
+}
+
+func (c *Pkcs11Client) Encrypt(plaintext []byte) ([]byte, []byte, *Pkcs11Key, error) {
+	session, err := c.GetSession()
+	if err != nil {
+		return nil, nil, nil, err
 	}
 	defer c.CloseSession(session)
 
 	keyId := Pkcs11Key{ label: c.keyLabel, id: c.keyId }
 	key, err := c.FindKey(session, keyId, pkcs11.CKA_ENCRYPT)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
-	prefix, params, err := c.CreatePkcsParamsForKey(session, key)
+	mechanism, err := c.GetKeyMechanism(session, key)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	if err = c.client.EncryptInit(session, []*pkcs11.Mechanism{params}, key); err != nil {
-		return nil, nil, fmt.Errorf("failed to pkcs11 EncryptInit: %s", err)
+
+	switch mechanism {
+	case pkcs11.CKM_AES_GCM:
+		return c.EncryptAesGcm(session, key, keyId, plaintext)
+	case pkcs11.CKM_RSA_PKCS_OAEP:
+		return c.EncryptRsaOaep(session, key, keyId, plaintext)
+	}
+	return nil, nil, nil, fmt.Errorf("unsupported mechanism")
+}
+
+// Encryption for AES GCM algorithm
+func (c *Pkcs11Client) EncryptAesGcm(session pkcs11.SessionHandle, key pkcs11.ObjectHandle, keyId Pkcs11Key, plaintext []byte) ([]byte, []byte, *Pkcs11Key, error) {
+	nonce, err := c.client.GenerateRandom(session, CryptoAesGcmNonceSize)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	// Some HSM will ignore the given nonce and generate their own.
+	// That's why we need to free manually the GCM parameters.
+	params := pkcs11.NewGCMParams(nonce, nil, CryptoAesGcmOverhead*8)
+	defer params.Free()
+
+	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_AES_GCM, params)}
+
+	if err = c.client.EncryptInit(session, mech, key); err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to pkcs11 EncryptInit: %s", err)
 	}
 	var ciphertext []byte
 	if ciphertext, err = c.client.Encrypt(session, plaintext); err != nil {
-		return nil, nil, fmt.Errorf("failed to pkcs11 Encrypt: %s", err)
+		return nil, nil, nil, fmt.Errorf("failed to pkcs11 Encrypt: %s", err)
 	}
 
-	if prefix != nil {
-		return append(prefix, ciphertext...), &keyId, nil
-	} else {
-		return ciphertext, &keyId, nil
+	// Some HSM (CloudHSM) does not read the nonce/IV and generate its own.
+	// Since it's append, we need to extract it.
+	if len(ciphertext) == CryptoAesGcmNonceSize + len(plaintext) + CryptoAesGcmOverhead {
+		nonce = ciphertext[len(ciphertext)-CryptoAesGcmNonceSize:]
+		ciphertext = ciphertext[:len(ciphertext)-CryptoAesGcmNonceSize]
 	}
+
+	return ciphertext, nonce, &keyId, nil
 }
 
-func (c *Pkcs11Client) Decrypt(ciphertext []byte, keyId *Pkcs11Key) ([]byte, error) {
+func (c *Pkcs11Client) EncryptRsaOaep(session pkcs11.SessionHandle, key pkcs11.ObjectHandle, keyId Pkcs11Key, plaintext []byte) ([]byte, []byte, *Pkcs11Key, error) {	
+	var rsaOaepHash string
+	if c.rsaOaepHash != "" {
+		rsaOaepHash = c.rsaOaepHash
+	} else {
+		rsaOaepHash = DefaultRsaOaepHash
+	}
+	hash, mgf_hash, err := RsaHashMechFromString(rsaOaepHash)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	params := pkcs11.NewOAEPParams(hash, mgf_hash, pkcs11.CKZ_DATA_SPECIFIED, nil)
+	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS_OAEP, params)}
+
+	if err = c.client.EncryptInit(session, mech, key); err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to pkcs11 EncryptInit: %s", err)
+	}
+	var ciphertext []byte
+	if ciphertext, err = c.client.Encrypt(session, plaintext); err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to pkcs11 Encrypt: %s", err)
+	}
+
+	return ciphertext, nil, &keyId, nil
+}
+
+func (c *Pkcs11Client) Decrypt(ciphertext []byte, nonce []byte, keyId *Pkcs11Key) ([]byte, error) {
 	session, err := c.GetSession()
 	if err != nil {
 		return nil, err
@@ -277,28 +347,55 @@ func (c *Pkcs11Client) Decrypt(ciphertext []byte, keyId *Pkcs11Key) ([]byte, err
 		return nil, err
 	}
 
-	var prefix []byte
-	mechanism, prefixSize, err := c.GetMechAndPrefixSizeForKey(session, key)
-	if err != nil {
-		return nil, err
-	}
-	if prefixSize > 0 {
-		if len(ciphertext) < prefixSize {
-			return nil, fmt.Errorf("encrypted content is too short")
-		}
-
-		prefix = ciphertext[:prefixSize]
-		ciphertext = ciphertext[prefixSize:]
-	}
-	params, err := c.GetPkcsParamsFromPrefix(session, key, mechanism, prefix)
+	mechanism, err := c.GetKeyMechanism(session, key)
 	if err != nil {
 		return nil, err
 	}
 
-	if err = c.client.DecryptInit(session, []*pkcs11.Mechanism{params}, key); err != nil {
+	switch mechanism {
+	case pkcs11.CKM_AES_GCM:
+		return c.DecryptAesGcm(session, key, nonce, ciphertext)
+	case pkcs11.CKM_RSA_PKCS_OAEP:
+		return c.DecryptRsaOaep(session, key, nonce, ciphertext)
+	}
+	return nil, fmt.Errorf("unsupported mechanism")
+}
+
+func (c *Pkcs11Client) DecryptAesGcm(session pkcs11.SessionHandle, key pkcs11.ObjectHandle, nonce []byte, ciphertext []byte) ([]byte, error) {
+	params := pkcs11.NewGCMParams(nonce, nil, CryptoAesGcmOverhead*8)
+	defer params.Free()
+
+	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_AES_GCM, params)}
+
+	var err error
+	if err = c.client.DecryptInit(session, mech, key); err != nil {
 		return nil, fmt.Errorf("failed to pkcs11 DecryptInit: %s", err)
 	}
+	var decrypted []byte
+	if decrypted, err = c.client.Decrypt(session, ciphertext); err != nil {
+		return nil, fmt.Errorf("failed to pkcs11 Decrypt: %s", err)
+	}
+	return decrypted, nil
+}
 
+func (c *Pkcs11Client) DecryptRsaOaep(session pkcs11.SessionHandle, key pkcs11.ObjectHandle, _ []byte, ciphertext []byte) ([]byte, error) {
+	var rsaOaepHash string
+	if c.rsaOaepHash != "" {
+		rsaOaepHash = c.rsaOaepHash
+	} else {
+		rsaOaepHash = DefaultRsaOaepHash
+	}
+	hash, mgf_hash, err := RsaHashMechFromString(rsaOaepHash)
+	if err != nil {
+		return nil, err
+	}
+	params := pkcs11.NewOAEPParams(hash, mgf_hash, pkcs11.CKZ_DATA_SPECIFIED, nil)
+
+	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS_OAEP, params)}
+
+	if err = c.client.DecryptInit(session, mech, key); err != nil {
+		return nil, fmt.Errorf("failed to pkcs11 DecryptInit: %s", err)
+	}
 	var decrypted []byte
 	if decrypted, err = c.client.Decrypt(session, ciphertext); err != nil {
 		return nil, fmt.Errorf("failed to pkcs11 Decrypt: %s", err)
@@ -383,11 +480,11 @@ func (c *Pkcs11Client) FindKey(session pkcs11.SessionHandle, key Pkcs11Key, typ 
 		template = append(template, pkcs11.NewAttribute(pkcs11.CKA_ID, keyIdBytes))
 	}
 	if c.mechanism != 0 {
-		keyTypeString, err := GetKeyTypeFromMech(c.mechanism)
+		keyType, err := GetKeyTypeFromMech(c.mechanism)
 		if err != nil {
 			return 0, fmt.Errorf("failed to get key type from mechanism: %s", err)
 		}
-		template = append(template, pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, keyTypeString))
+		template = append(template, pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, keyType))
 	}
 
 	if err := c.client.FindObjectsInit(session, template); err != nil {
@@ -428,80 +525,19 @@ func (c *Pkcs11Client) GetKeyMechanism(session pkcs11.SessionHandle, key pkcs11.
 		if c.mechanism != 0 {
 			mechanism = c.mechanism
 		} else {
-			mechanism = pkcs11.CKM_AES_GCM
+			mechanism = DefaultAesMechanism
 		}
 	case pkcs11.CKK_RSA:
 		if c.mechanism != 0 {
 			mechanism = c.mechanism
 		} else {
-			mechanism = pkcs11.CKM_RSA_PKCS_OAEP
+			mechanism = DefaultRsaMechanism
 		}
 	default:
 		return 0, fmt.Errorf("unsupported key type: %d", keyType)
 	}
 
 	return mechanism, nil
-}
-
-func (c *Pkcs11Client) GetMechAndPrefixSizeForKey(session pkcs11.SessionHandle, key pkcs11.ObjectHandle) (uint, int, error) {
-	mechanism, err := c.GetKeyMechanism(session, key)
-	if err != nil {
-		return 0, 0, err
-	}
-	switch mechanism {
-	case pkcs11.CKM_AES_GCM:
-		return mechanism, 16, nil
-	// Deprecated
-	case pkcs11.CKM_AES_CBC_PAD:
-		return mechanism, 16, nil
-	case pkcs11.CKM_AES_CBC:
-		return mechanism, 16, nil
-	// Consider others with no prefix
-	default:
-		return mechanism, 0, nil
-	}
-}
-
-func (c *Pkcs11Client) CreatePkcsParamsForKey(session pkcs11.SessionHandle, key pkcs11.ObjectHandle) ([]byte, *pkcs11.Mechanism, error) {
-	mechanismNum, prefixSize, err := c.GetMechAndPrefixSizeForKey(session, key)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// Prefix is the IV or Nonce.
-	prefix, err := uuid.GenerateRandomBytes(prefixSize)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	mechanism, err := c.GetPkcsParamsFromPrefix(session, key, mechanismNum, prefix)
-	if err != nil {
-		return nil, nil, err
-	}
-	return prefix, mechanism, nil
-}
-
-func (c *Pkcs11Client) GetPkcsParamsFromPrefix(session pkcs11.SessionHandle, key pkcs11.ObjectHandle, mechanism uint, prefix []byte) (*pkcs11.Mechanism, error) {
-	var params interface{}
-	switch mechanism {
-	case pkcs11.CKM_AES_GCM:
-		params = pkcs11.NewGCMParams(prefix, nil, 128)
-	case pkcs11.CKM_RSA_PKCS_OAEP:
-		var rsaOaepHash string
-		if c.rsaOaepHash != "" {
-			rsaOaepHash = c.rsaOaepHash
-		} else {
-			rsaOaepHash = "sha256"
-		}
-		hash, mgf_hash, err := RsaHashMechFromString(rsaOaepHash)
-		if err != nil {
-			return nil, err
-		}
-		params = pkcs11.NewOAEPParams(hash, mgf_hash, pkcs11.CKZ_DATA_SPECIFIED, nil)
-	default:
-		params = prefix
-	}
-	return pkcs11.NewMechanism(mechanism, params), nil
 }
 
 func (c *Pkcs11Client) GetCurrentKey() Pkcs11Key {
