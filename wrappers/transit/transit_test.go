@@ -349,9 +349,18 @@ func TestSetConfig(t *testing.T) {
 }
 
 func TestContextCancellation(t *testing.T) {
-	t.Parallel()
+	// Set up a shared Vault cluster with Transit.
+	cluster, _, client := getTestCluster(t)
+	defer cluster.Cleanup()
+
+	testWithMountPath := "transit/"
+	testWithAddress := client.Address()
+	testWithKeyName := "example-key"
+	testWithToken := client.Token()
+
+	os.Setenv("BAO_CACERT_BYTES", string(cluster.CACertPEM))
+
 	t.Run("Encrypt stops when the context is cancelled", func(t *testing.T) {
-		t.Parallel()
 		_, require := assert.New(t), require.New(t)
 		w := NewWrapper()
 		_, err := w.SetConfig(
@@ -360,7 +369,6 @@ func TestContextCancellation(t *testing.T) {
 			WithToken(testWithToken),
 			WithMountPath(testWithMountPath),
 			WithKeyName(testWithKeyName),
-			WithNamespace(testWithNamespace),
 			WithKeyIdPrefix("test/"),
 		)
 		require.NoError(err)
@@ -372,7 +380,6 @@ func TestContextCancellation(t *testing.T) {
 		require.ErrorIs(err, context.Canceled)
 	})
 	t.Run("Decrypt stops when the context is cancelled", func(t *testing.T) {
-		t.Parallel()
 		_, require := assert.New(t), require.New(t)
 		w := NewWrapper()
 		_, err := w.SetConfig(
@@ -381,7 +388,6 @@ func TestContextCancellation(t *testing.T) {
 			WithToken(testWithToken),
 			WithMountPath(testWithMountPath),
 			WithKeyName(testWithKeyName),
-			WithNamespace(testWithNamespace),
 			WithKeyIdPrefix("test/"),
 		)
 		require.NoError(err)
