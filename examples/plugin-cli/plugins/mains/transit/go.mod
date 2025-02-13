@@ -38,7 +38,7 @@ require (
 	github.com/niemeyer/pretty v0.0.0-20200227124842-a10e7caefd8e // indirect
 	github.com/oklog/run v1.1.0 // indirect
 	github.com/openbao/go-kms-wrapping/v2 v2.2.0 // indirect
-	github.com/openbao/openbao/api/v2 v2.1.1-0.20250209152033-92b45291cda1 // indirect
+	github.com/openbao/openbao/api/v2 v2.2.0 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/ryanuber/go-glob v1.0.0 // indirect
 	github.com/stretchr/testify v1.10.0 // indirect
