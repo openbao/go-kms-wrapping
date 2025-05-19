@@ -16,11 +16,12 @@ jobs:
           - './wrappers/azurekeyvault'
           - './wrappers/gcpckms'
           - './wrappers/huaweicloudkms'
+          - './wrappers/kmip'
           - './wrappers/ocikms'
+          - './wrappers/pkcs11'
+          - './wrappers/static'
           - './wrappers/tencentcloudkms'
           - './wrappers/transit'
-          - './wrappers/pkcs11'
-          - './wrappers/kmip'
         go: ["1.22"]
         platform: [ubuntu-latest] # can not run in macOS and Windows
     runs-on: ${{ matrix.platform }}
