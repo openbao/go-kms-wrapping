@@ -37,12 +37,40 @@ func TestAzureKeyVault_SetConfig(t *testing.T) {
 	}
 }
 
+func TestMapAuthMethod(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected authenticationMethod
+	}{
+		{"Empty String", "", Automatic},
+		{"Managed Identity", "managed_identity", ManagedIdentityCredential},
+		{"Client Secret", "client_secret", ClientSecretCredential},
+		{"Workload Identity", "workload_identity", WorkloadIdentityCredential},
+		{"Certificate", "certificate", CertificateCredential},
+		{"Environment", "environment", EnvironmentCredential},
+		{"Default", "default", DefaultAzureCredential},
+		{"Invalid Input", "invalid_input", Automatic},
+		{"Mixed Case Input", "Managed_Identity", ManagedIdentityCredential},
+		{"Leading/Tailing Whitespace", " client_secret ", Automatic},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := mapAuthMethod(tt.input)
+			if result != tt.expected {
+				t.Errorf("mapAuthMethod(%q) = %v; want %v", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
 func TestAzureKeyVault_IgnoreEnv(t *testing.T) {
 	if os.Getenv("VAULT_ACC") == "" {
 		t.SkipNow()
 	}
 
-	expectedErr := `error fetching Azure Key Vault wrapper key information: Get "https://a-vault-name.a-resource/keys/a-key-name/?api-version=7.3": dial tcp: lookup a-vault-name.a-resource: no such host`
+	expectedErr := `error fetching Azure Key Vault wrapper key information: Get "https://a-vault-name.a-resource/keys/a-key-name/?api-version=7.4": dial tcp: lookup a-vault-name.a-resource: no such host`
 
 	s := NewWrapper()
 
@@ -65,6 +93,9 @@ func TestAzureKeyVault_IgnoreEnv(t *testing.T) {
 		"resource":          "a-resource",
 		"vault_name":        "a-vault-name",
 		"key_name":          "a-key-name",
+		"auth_method":       "managed_identity",
+		"cert_path":         "/cert/someCert.pem",
+		"cert_password":     "somePassword",
 	}
 	_, err := s.SetConfig(context.Background(), wrapping.WithConfigMap(config))
 	require.Equal(t, expectedErr, err.Error())
@@ -75,6 +106,9 @@ func TestAzureKeyVault_IgnoreEnv(t *testing.T) {
 	require.Equal(t, "https://"+config["resource"]+"/", s.resource)
 	require.Equal(t, config["vault_name"], s.vaultName)
 	require.Equal(t, config["key_name"], s.keyName)
+	require.Equal(t, mapAuthMethod(config["auth_method"]), s.authMethod)
+	require.Equal(t, config["cert_path"], s.certPath)
+	require.Equal(t, config["cert_password"], s.certPass)
 }
 
 func TestAzureKeyVault_Lifecycle(t *testing.T) {
