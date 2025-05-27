@@ -73,6 +73,12 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 				opts.withVaultName = v
 			case "key_name":
 				opts.withKeyName = v
+			case "auth_method":
+				opts.withAuthMethod = v
+			case "cert_path":
+				opts.withCertPath = v
+			case "cert_password":
+				opts.withCertPass = v
 			}
 		}
 	}
@@ -110,6 +116,9 @@ type options struct {
 	withResource        string
 	withVaultName       string
 	withKeyName         string
+	withAuthMethod      string
+	withCertPath        string
+	withCertPass        string
 
 	withLogger hclog.Logger
 }
