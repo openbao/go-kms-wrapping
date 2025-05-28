@@ -64,3 +64,17 @@ generate-all:
 .PHONY: fmt
 fmt:
 	find . -name '*.go' | grep -v pb.go | grep -v vendor | xargs go run mvdan.cc/gofumpt@latest -w
+
+.PHONY: bump-api
+bump-api:
+	@:$(if $(BAO_RELEASE),,$(error please set the BAO_RELEASE environment variable for OpenBao API updates))
+	cd wrappers/transit && go get github.com/openbao/openbao/api/v2@$(BAO_RELEASE)
+	cd wrappers/transit && go mod tidy
+
+.PHONY: tag-check
+tag-check:
+	bash ./scripts/bump-tags.sh
+
+.PHONY: tag
+tag:
+	bash ./scripts/bump-tags.sh apply
