@@ -141,6 +141,7 @@ func keyOptsFromConfigMap(config map[string]string) (*keyOptions, error) {
 
 // getWrapperOpts evaluates options that apply to a Wrapper.
 // Environment variables are read unless disallowed via WithDisallowEnvVars.
+// The slot pin may be read via wrapping.ParsePaths if applicable.
 func getWrapperOpts(opts []wrapping.Option) (*wrapperOptions, error) {
 	globalOpts, clientOpts, keyOpts, err := sortOpts(opts)
 	if err != nil {
@@ -173,6 +174,10 @@ func getWrapperOpts(opts []wrapping.Option) (*wrapperOptions, error) {
 		if err := o(options.keyOptions); err != nil {
 			return nil, err
 		}
+	}
+
+	if err := wrapping.ParsePaths(&options.pin); err != nil {
+		return nil, err
 	}
 
 	return &options, nil
