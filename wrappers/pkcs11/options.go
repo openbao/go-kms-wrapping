@@ -108,6 +108,10 @@ func clientOptsFromConfigMap(config map[string]string) (*clientOptions, error) {
 				return nil, fmt.Errorf("failed to parse max sessions value: %w", err)
 			}
 			opts.maxSessions = int(sessions)
+		case "module":
+			return nil, fmt.Errorf(`deprecated config option: "module", use "lib" instead`)
+		case "token":
+			return nil, fmt.Errorf(`deprecated config option: "token", use "token_label" instead`)
 		}
 	}
 	return &opts, nil
@@ -128,6 +132,8 @@ func keyOptsFromConfigMap(config map[string]string) (*keyOptions, error) {
 			opts.mechanism = val
 		case "rsa_oaep_hash":
 			opts.hash = val
+		case "key":
+			return nil, fmt.Errorf(`deprecated config option: "key", use "key_label" instead`)
 		}
 	}
 	return &opts, nil
