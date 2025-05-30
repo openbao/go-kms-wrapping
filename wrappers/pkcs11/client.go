@@ -120,7 +120,7 @@ func (c *Client) WithSession(ctx context.Context, f func(*Session) error) error 
 	return f(session)
 }
 
-// FindEncryptionKey finds an key capable of encryption (CKA_ENCRYPT).
+// FindEncryptionKey finds a key capable of encryption (CKA_ENCRYPT).
 func (s *Session) FindEncryptionKey(key *Key) (pkcs11.ObjectHandle, int, error) {
 	template := []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_ENCRYPT, true),
@@ -128,7 +128,7 @@ func (s *Session) FindEncryptionKey(key *Key) (pkcs11.ObjectHandle, int, error) 
 	return s.FindKey(key, template)
 }
 
-// FindEncryptionKey finds an key capable of encryption (CKA_DECRYPT).
+// FindEncryptionKey finds a key capable of decryption (CKA_DECRYPT).
 func (s *Session) FindDecryptionKey(key *Key) (pkcs11.ObjectHandle, int, error) {
 	template := []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_DECRYPT, true),
@@ -136,12 +136,31 @@ func (s *Session) FindDecryptionKey(key *Key) (pkcs11.ObjectHandle, int, error) 
 	return s.FindKey(key, template)
 }
 
-// FindEncryptionKey finds an key capable of signing (CKA_SIGN).
-func (s *Session) FindSigningKey(key *Key) (pkcs11.ObjectHandle, int, error) {
+// FindSigningKeyPair finds a public/private key pair where the private key is capable of signing (CKA_SIGN).
+func (s *Session) FindSigningKeyPair(key *Key) (pkcs11.ObjectHandle, pkcs11.ObjectHandle, int, error) {
 	template := []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_SIGN, true),
+		pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY),
 	}
-	return s.FindKey(key, template)
+	priv, privtype, err := s.FindKey(key, template)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("failed to find private key: %w", err)
+	}
+
+	template = []*pkcs11.Attribute{
+		pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PUBLIC_KEY),
+	}
+	pub, pubtype, err := s.FindKey(key, template)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("failed to find public key: %w", err)
+	}
+
+	// Sanity check!
+	if privtype != pubtype {
+		return 0, 0, 0, fmt.Errorf("public and private key type do not match: %d vs %d", pubtype, privtype)
+	}
+
+	return priv, pub, privtype, nil
 }
 
 // FindKey finds a key, based on key ID, key label, key type and other template attributes.

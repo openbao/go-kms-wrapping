@@ -63,26 +63,27 @@ func (k *ExternalKey) Signer(ctx context.Context, options ...wrapping.Option) (c
 		return nil, err
 	}
 
-	var obj pkcs11.ObjectHandle
-	var keytype int
+	var signer crypto.Signer
+	err = k.client.WithSession(ctx, func(session *Session) error {
+		obj, _, keytype, err := session.FindSigningKeyPair(key)
+		if err != nil {
+			return err
+		}
 
-	if err := k.client.WithSession(ctx, func(session *Session) error {
-		var err error
-		obj, keytype, err = session.FindSigningKey(key)
-		return err
-	}); err != nil {
-		return nil, err
-	}
+		base := baseSignerDecrypter{ctx: ctx, client: k.client, obj: obj}
+		switch keytype {
+		case pkcs11.CKK_EC:
+			signer = &ecdsaSigner{baseSignerDecrypter: base}
+		case pkcs11.CKK_RSA:
+			signer = &rsaSignerDecrypter{baseSignerDecrypter: base}
+		default:
+			return fmt.Errorf("unsupported key type: %d", keytype)
+		}
 
-	base := baseSignerDecrypter{ctx: ctx, client: k.client, obj: obj}
-	switch keytype {
-	case pkcs11.CKK_RSA:
-		return &rsaSignerDecrypter{baseSignerDecrypter: base}, nil
-	case pkcs11.CKK_EC:
-		return &ecdsaSigner{baseSignerDecrypter: base}, nil
-	default:
-		return nil, fmt.Errorf("unsupported key type: %d", keytype)
-	}
+		return nil
+	})
+
+	return signer, err
 }
 
 func (k *ExternalKey) Decrypter(ctx context.Context, options ...wrapping.Option) (crypto.Decrypter, error) {
