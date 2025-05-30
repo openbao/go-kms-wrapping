@@ -5,6 +5,9 @@ package pkcs11
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rsa"
 	"encoding/asn1"
 	"encoding/hex"
 	"fmt"
@@ -320,9 +323,74 @@ func (s *Session) DecryptAesGcm(obj pkcs11.ObjectHandle, ciphertext, nonce []byt
 	return decrypted, nil
 }
 
-// SignRsa signs a digest with the CKK_RSA key referenced by obj.
-func (s *Session) SignRsa(obj pkcs11.ObjectHandle, digest []byte) ([]byte, error) {
-	return nil, nil
+// Inlined from crypto/x509:
+var (
+	oidNamedCurveP224 = asn1.ObjectIdentifier{1, 3, 132, 0, 33}
+	oidNamedCurveP256 = asn1.ObjectIdentifier{1, 2, 840, 10045, 3, 1, 7}
+	oidNamedCurveP384 = asn1.ObjectIdentifier{1, 3, 132, 0, 34}
+	oidNamedCurveP521 = asn1.ObjectIdentifier{1, 3, 132, 0, 35}
+)
+
+// Inlined from crypto/x509:
+func namedCurveFromOID(oid asn1.ObjectIdentifier) elliptic.Curve {
+	switch {
+	case oid.Equal(oidNamedCurveP224):
+		return elliptic.P224()
+	case oid.Equal(oidNamedCurveP256):
+		return elliptic.P256()
+	case oid.Equal(oidNamedCurveP384):
+		return elliptic.P384()
+	case oid.Equal(oidNamedCurveP521):
+		return elliptic.P521()
+
+	}
+	return nil
+}
+
+// ExportEcdsaPublicKey exports an ECDSA public key (provided the curve is known by Go's
+// standard library) from a public key handle.
+func (s *Session) ExportEcdsaPublicKey(obj pkcs11.ObjectHandle) (*ecdsa.PublicKey, error) {
+	template := []*pkcs11.Attribute{
+		pkcs11.NewAttribute(pkcs11.CKA_EC_PARAMS, nil),
+		pkcs11.NewAttribute(pkcs11.CKA_EC_POINT, nil),
+	}
+	attrs, err := s.ctx.GetAttributeValue(s.handle, obj, template)
+	if err != nil {
+		return nil, fmt.Errorf("failed to pkcs11 GetAttributeValue: %w", err)
+	}
+
+	var oid asn1.ObjectIdentifier
+	rest, err := asn1.Unmarshal(attrs[0].Value, &oid)
+	if err != nil {
+		return nil, err
+	}
+	if len(rest) != 0 {
+		return nil, fmt.Errorf("unexpected data remaining unmarshaling elliptic curve parameter bytes")
+	}
+
+	var point []byte
+	rest, err = asn1.Unmarshal(attrs[1].Value, &point)
+	if err != nil {
+		return nil, err
+	}
+	if len(rest) != 0 {
+		return nil, fmt.Errorf("unexpected data remaining unmarshaling elliptic curve point bytes")
+	}
+
+	curve := namedCurveFromOID(oid)
+	if curve == nil {
+		return nil, fmt.Errorf("unknown/unsupported elliptic curve")
+	}
+	x, y := elliptic.Unmarshal(curve, point)
+	if x == nil || y == nil {
+		return nil, fmt.Errorf("failed to unmarshal elliptic curve point")
+	}
+
+	return &ecdsa.PublicKey{Curve: curve, X: x, Y: y}, nil
+}
+
+func (s *Session) ExportRsaPublicKey(obj pkcs11.ObjectHandle) (*rsa.PublicKey, error) {
+	return nil, fmt.Errorf("unimplemented")
 }
 
 // SignEcdsa signs a digest with the CKK_EC key referenced by obj via ECDSA.
@@ -350,4 +418,9 @@ func (s *Session) SignEcdsa(obj pkcs11.ObjectHandle, digest []byte) ([]byte, err
 		R: R.SetBytes(signature[:mid]),
 		S: S.SetBytes(signature[mid:]),
 	})
+}
+
+// SignRsa signs a digest with the CKK_RSA key referenced by obj.
+func (s *Session) SignRsa(obj pkcs11.ObjectHandle, digest []byte) ([]byte, error) {
+	return nil, nil
 }

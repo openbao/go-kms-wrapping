@@ -6,6 +6,8 @@ package pkcs11
 import (
 	"context"
 	"crypto"
+	"crypto/ecdsa"
+	"crypto/rsa"
 	"fmt"
 	"io"
 
@@ -65,17 +67,25 @@ func (k *ExternalKey) Signer(ctx context.Context, options ...wrapping.Option) (c
 
 	var signer crypto.Signer
 	err = k.client.WithSession(ctx, func(session *Session) error {
-		obj, _, keytype, err := session.FindSigningKeyPair(key)
+		priv, pub, keytype, err := session.FindSigningKeyPair(key)
 		if err != nil {
 			return err
 		}
 
-		base := baseSignerDecrypter{ctx: ctx, client: k.client, obj: obj}
+		base := baseSignerDecrypter{ctx: ctx, client: k.client, obj: priv}
 		switch keytype {
 		case pkcs11.CKK_EC:
-			signer = &ecdsaSigner{baseSignerDecrypter: base}
+			public, err := session.ExportEcdsaPublicKey(pub)
+			if err != nil {
+				return fmt.Errorf("failed to export ecdsa public key: %w", err)
+			}
+			signer = &ecdsaSigner{baseSignerDecrypter: base, public: public}
 		case pkcs11.CKK_RSA:
-			signer = &rsaSignerDecrypter{baseSignerDecrypter: base}
+			public, err := session.ExportRsaPublicKey(pub)
+			if err != nil {
+				return fmt.Errorf("failed to export rsa public key: %w", err)
+			}
+			signer = &rsaSignerDecrypter{baseSignerDecrypter: base, public: public}
 		default:
 			return fmt.Errorf("unsupported key type: %d", keytype)
 		}
@@ -96,24 +106,30 @@ func (k *ExternalKey) Decrypter(ctx context.Context, options ...wrapping.Option)
 		return nil, err
 	}
 
-	var obj pkcs11.ObjectHandle
-	var keytype int
+	var decrypter crypto.Decrypter
+	err = k.client.WithSession(ctx, func(session *Session) error {
+		obj, keytype, err := session.FindDecryptionKey(key)
+		if err != nil {
+			return err
 
-	if err := k.client.WithSession(ctx, func(session *Session) error {
-		var err error
-		obj, keytype, err = session.FindDecryptionKey(key)
-		return err
-	}); err != nil {
-		return nil, err
-	}
+		}
 
-	base := baseSignerDecrypter{ctx: ctx, client: k.client, obj: obj}
-	switch keytype {
-	case pkcs11.CKK_RSA:
-		return &rsaSignerDecrypter{baseSignerDecrypter: base}, nil
-	default:
-		return nil, fmt.Errorf("unsupported key type: %d", keytype)
-	}
+		base := baseSignerDecrypter{ctx: ctx, client: k.client, obj: obj}
+		switch keytype {
+		case pkcs11.CKK_RSA:
+			public, err := session.ExportRsaPublicKey(obj)
+			if err != nil {
+				return fmt.Errorf("failed to export rsa public key: %w", err)
+			}
+			decrypter = &rsaSignerDecrypter{baseSignerDecrypter: base, public: public}
+		default:
+			return fmt.Errorf("unsupported key type: %d", keytype)
+		}
+
+		return nil
+	})
+
+	return decrypter, err
 }
 
 var (
@@ -130,22 +146,18 @@ type baseSignerDecrypter struct {
 	ctx context.Context
 	// Client to perform operations
 	client *Client
-	// Internal handle to the backing private key
+	// Internal handle to the backing private key (for signers)
+	// or public key (for decrypters)
 	obj pkcs11.ObjectHandle
-	// Resolved public key
-	public crypto.PublicKey
-}
-
-func (b *baseSignerDecrypter) Public() crypto.PublicKey {
-	return b.public
 }
 
 type ecdsaSigner struct {
 	baseSignerDecrypter
+	public *ecdsa.PublicKey
 }
 
-type rsaSignerDecrypter struct {
-	baseSignerDecrypter
+func (e *ecdsaSigner) Public() crypto.PublicKey {
+	return e.public
 }
 
 func (e *ecdsaSigner) Sign(_ io.Reader, digest []byte, _ crypto.SignerOpts) (signature []byte, err error) {
@@ -154,6 +166,15 @@ func (e *ecdsaSigner) Sign(_ io.Reader, digest []byte, _ crypto.SignerOpts) (sig
 		return err
 	})
 	return signature, err
+}
+
+type rsaSignerDecrypter struct {
+	baseSignerDecrypter
+	public *rsa.PublicKey
+}
+
+func (e *rsaSignerDecrypter) Public() crypto.PublicKey {
+	return e.public
 }
 
 func (r *rsaSignerDecrypter) Sign(_ io.Reader, digest []byte, _ crypto.SignerOpts) ([]byte, error) {
