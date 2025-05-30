@@ -141,8 +141,18 @@ func (s *Session) FindDecryptionKey(key *Key) (pkcs11.ObjectHandle, int, error) 
 
 // FindSigningKeyPair finds a public/private key pair where the private key is capable of signing (CKA_SIGN).
 func (s *Session) FindSigningKeyPair(key *Key) (pkcs11.ObjectHandle, pkcs11.ObjectHandle, int, error) {
+	return s.FindKeyPair(key, pkcs11.CKA_SIGN)
+}
+
+// FindDecryptionKeyPair finds a public/private key pair where the private key is capable of decryption (CKA_DECRYPT).
+func (s *Session) FindDecryptionKeyPair(key *Key) (pkcs11.ObjectHandle, pkcs11.ObjectHandle, int, error) {
+	return s.FindKeyPair(key, pkcs11.CKA_DECRYPT)
+}
+
+// FindKeyPair finds a public/private key pair where the private key is capable of <purpose>.
+func (s *Session) FindKeyPair(key *Key, purpose uint) (pkcs11.ObjectHandle, pkcs11.ObjectHandle, int, error) {
 	template := []*pkcs11.Attribute{
-		pkcs11.NewAttribute(pkcs11.CKA_SIGN, true),
+		pkcs11.NewAttribute(purpose, true),
 		pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY),
 	}
 	priv, privtype, err := s.FindKey(key, template)
