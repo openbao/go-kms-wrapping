@@ -4,6 +4,7 @@
 package pkcs11
 
 import (
+	"crypto"
 	"encoding/binary"
 	"fmt"
 	"strconv"
@@ -234,6 +235,24 @@ func HashMechanismFromString(mech string) (int, error) {
 	case "SHA384":
 		return pkcs11.CKM_SHA384, nil
 	case "SHA512":
+		return pkcs11.CKM_SHA512, nil
+	default:
+		return -1, fmt.Errorf("unsupported mechanism: %s", mech)
+	}
+}
+
+// HashMechanismFromCrypto converts a crypto.Hash to the PKCS#11 equivalent.
+func HashMechanismFromCrypto(mech crypto.Hash) (int, error) {
+	switch mech {
+	case crypto.SHA1:
+		return pkcs11.CKM_SHA_1, nil
+	case crypto.SHA224:
+		return pkcs11.CKM_SHA224, nil
+	case crypto.SHA256:
+		return pkcs11.CKM_SHA256, nil
+	case crypto.SHA384:
+		return pkcs11.CKM_SHA384, nil
+	case crypto.SHA512:
 		return pkcs11.CKM_SHA512, nil
 	default:
 		return -1, fmt.Errorf("unsupported mechanism: %s", mech)
