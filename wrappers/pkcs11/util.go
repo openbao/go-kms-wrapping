@@ -85,11 +85,11 @@ func NewKey(id, label, keytype, mechanism, hash string) (*Key, error) {
 }
 
 // String returns a string representation of the key.
-func (k Key) String() string {
+func (k *Key) String() string {
 	return fmt.Sprintf("%s:%s", k.label, k.id)
 }
 
-func (k Key) CollectMetadata(metadata map[string]string) {
+func (k *Key) CollectMetadata(metadata map[string]string) {
 	if k.id != "" {
 		metadata["key_id"] = k.id
 	}
@@ -105,6 +105,18 @@ func (k Key) CollectMetadata(metadata map[string]string) {
 	if k.hash != -1 {
 		metadata["hash"] = HashMechanismToString(k.hash)
 	}
+}
+
+// CertainlyAsymmetric attempts to determine whether the key is an asymmetric key
+// _for certain_. If false, this does not imply that the key is symmetric!
+// The key type may be unknown, and thus false will be returned.
+func (k *Key) CertainlyAsymmetric() bool {
+	switch k.keytype {
+	case pkcs11.CKK_RSA, pkcs11.CKK_EC:
+		return true
+	}
+
+	return false
 }
 
 // KeyTypeFromString parses supported key types from a string.
