@@ -77,13 +77,13 @@ func (k *ExternalKey) Signer(ctx context.Context, options ...wrapping.Option) (c
 		case pkcs11.CKK_EC:
 			public, err := session.ExportEcdsaPublicKey(pub)
 			if err != nil {
-				return fmt.Errorf("failed to export ecdsa public key: %w", err)
+				return fmt.Errorf("failed to export ECDSA public key: %w", err)
 			}
 			signer = &ecdsaSigner{baseSignerDecrypter: base, public: public}
 		case pkcs11.CKK_RSA:
 			public, err := session.ExportRsaPublicKey(pub)
 			if err != nil {
-				return fmt.Errorf("failed to export rsa public key: %w", err)
+				return fmt.Errorf("failed to export RSA public key: %w", err)
 			}
 			signer = &rsaSignerDecrypter{baseSignerDecrypter: base, public: public}
 		default:
@@ -119,7 +119,7 @@ func (k *ExternalKey) Decrypter(ctx context.Context, options ...wrapping.Option)
 		case pkcs11.CKK_RSA:
 			public, err := session.ExportRsaPublicKey(pub)
 			if err != nil {
-				return fmt.Errorf("failed to export rsa public key: %w", err)
+				return fmt.Errorf("failed to export RSA public key: %w", err)
 			}
 			decrypter = &rsaSignerDecrypter{baseSignerDecrypter: base, public: public}
 		default:
@@ -180,6 +180,21 @@ func (r *rsaSignerDecrypter) Sign(_ io.Reader, digest []byte, _ crypto.SignerOpt
 	return nil, fmt.Errorf("unimplemented")
 }
 
-func (r *rsaSignerDecrypter) Decrypt(_ io.Reader, msg []byte, opts crypto.DecrypterOpts) ([]byte, error) {
-	return nil, fmt.Errorf("unimplemented")
+func (r *rsaSignerDecrypter) Decrypt(_ io.Reader, msg []byte, opts crypto.DecrypterOpts) (plaintext []byte, err error) {
+	switch o := opts.(type) {
+	case *rsa.OAEPOptions:
+		hash, err := HashMechanismFromCrypto(o.Hash)
+		if err != nil {
+			return nil, err
+		}
+		err = r.client.WithSession(r.ctx, func(s *Session) error {
+			var err error
+			plaintext, err = s.DecryptRsaOaep(r.obj, msg, hash)
+			return err
+		})
+	default:
+		// TODO: Do we want to support PKCS#1 v1.5 here, given the use is general-purpose and not scoped to sealing?
+		err = fmt.Errorf("unsupported RSA options")
+	}
+	return plaintext, err
 }
