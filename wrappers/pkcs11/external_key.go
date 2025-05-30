@@ -108,16 +108,16 @@ func (k *ExternalKey) Decrypter(ctx context.Context, options ...wrapping.Option)
 
 	var decrypter crypto.Decrypter
 	err = k.client.WithSession(ctx, func(session *Session) error {
-		obj, keytype, err := session.FindDecryptionKey(key)
+		priv, pub, keytype, err := session.FindDecryptionKeyPair(key)
 		if err != nil {
 			return err
 
 		}
 
-		base := baseSignerDecrypter{ctx: ctx, client: k.client, obj: obj}
+		base := baseSignerDecrypter{ctx: ctx, client: k.client, obj: priv}
 		switch keytype {
 		case pkcs11.CKK_RSA:
-			public, err := session.ExportRsaPublicKey(obj)
+			public, err := session.ExportRsaPublicKey(pub)
 			if err != nil {
 				return fmt.Errorf("failed to export rsa public key: %w", err)
 			}
@@ -146,8 +146,7 @@ type baseSignerDecrypter struct {
 	ctx context.Context
 	// Client to perform operations
 	client *Client
-	// Internal handle to the backing private key (for signers)
-	// or public key (for decrypters)
+	// Internal handle to the backing private key
 	obj pkcs11.ObjectHandle
 }
 
