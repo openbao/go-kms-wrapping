@@ -128,6 +128,10 @@ func (s *Session) FindEncryptionKey(key *Key) (pkcs11.ObjectHandle, int, error) 
 	template := []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_ENCRYPT, true),
 	}
+	// We know for sure that the key is asymmetric, so filter for public keys.
+	if key.CertainlyAsymmetric() {
+		template = append(template, pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PUBLIC_KEY))
+	}
 	return s.FindKey(key, template)
 }
 
@@ -135,6 +139,10 @@ func (s *Session) FindEncryptionKey(key *Key) (pkcs11.ObjectHandle, int, error) 
 func (s *Session) FindDecryptionKey(key *Key) (pkcs11.ObjectHandle, int, error) {
 	template := []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_DECRYPT, true),
+	}
+	// We know for sure that the key is asymmetric, so filter for private keys.
+	if key.CertainlyAsymmetric() {
+		template = append(template, pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY))
 	}
 	return s.FindKey(key, template)
 }
