@@ -342,7 +342,6 @@ func namedCurveFromOID(oid asn1.ObjectIdentifier) elliptic.Curve {
 		return elliptic.P384()
 	case oid.Equal(oidNamedCurveP521):
 		return elliptic.P521()
-
 	}
 	return nil
 }
@@ -389,8 +388,38 @@ func (s *Session) ExportEcdsaPublicKey(obj pkcs11.ObjectHandle) (*ecdsa.PublicKe
 	return &ecdsa.PublicKey{Curve: curve, X: x, Y: y}, nil
 }
 
+// ExportRsaPublicKey exports an RSA public key from a public key handle.
 func (s *Session) ExportRsaPublicKey(obj pkcs11.ObjectHandle) (*rsa.PublicKey, error) {
-	return nil, fmt.Errorf("unimplemented")
+	template := []*pkcs11.Attribute{
+		pkcs11.NewAttribute(pkcs11.CKA_MODULUS, nil),
+		pkcs11.NewAttribute(pkcs11.CKA_PUBLIC_EXPONENT, nil),
+	}
+	attrs, err := s.ctx.GetAttributeValue(s.handle, obj, template)
+	if err != nil {
+		return nil, fmt.Errorf("failed to pkcs11 GetAttributeValue: %w", err)
+	}
+
+	var n = new(big.Int)
+	n.SetBytes(attrs[0].Value)
+	var e = new(big.Int)
+	e.SetBytes(attrs[1].Value)
+
+	// Sanity checks
+	one := big.NewInt(1)
+	if n.Cmp(one) != 1 {
+		return nil, fmt.Errorf("malformed rsa public key: modulus is less than one")
+	}
+	if e.Cmp(one) != 1 {
+		return nil, fmt.Errorf("malformed rsa public key: exponent is less than one")
+	}
+	if n.Cmp(e) != 1 {
+		return nil, fmt.Errorf("malformed rsa public key: modulus must be greater than exponent")
+	}
+	if e.BitLen() > 32 {
+		return nil, fmt.Errorf("malformed rsa public key: exponent is longer than 32 bits")
+	}
+
+	return &rsa.PublicKey{N: n, E: int(e.Int64())}, nil
 }
 
 // SignEcdsa signs a digest with the CKK_EC key referenced by obj via ECDSA.
