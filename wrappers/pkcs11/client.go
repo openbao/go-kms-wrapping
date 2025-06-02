@@ -122,9 +122,7 @@ func (c *Client) WithSession(ctx context.Context, f func(*Session) error) error 
 
 // FindEncryptionKey finds a key capable of encryption (CKA_ENCRYPT).
 func (s *Session) FindEncryptionKey(key *Key) (pkcs11.ObjectHandle, error) {
-	template := []*pkcs11.Attribute{
-		pkcs11.NewAttribute(pkcs11.CKA_ENCRYPT, true),
-	}
+	template := []*pkcs11.Attribute{pkcs11.NewAttribute(pkcs11.CKA_ENCRYPT, true)}
 	if key.IsAsymmetric() {
 		template = append(template, pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PUBLIC_KEY))
 	}
@@ -133,9 +131,7 @@ func (s *Session) FindEncryptionKey(key *Key) (pkcs11.ObjectHandle, error) {
 
 // FindEncryptionKey finds a key capable of decryption (CKA_DECRYPT).
 func (s *Session) FindDecryptionKey(key *Key) (pkcs11.ObjectHandle, error) {
-	template := []*pkcs11.Attribute{
-		pkcs11.NewAttribute(pkcs11.CKA_DECRYPT, true),
-	}
+	template := []*pkcs11.Attribute{pkcs11.NewAttribute(pkcs11.CKA_DECRYPT, true)}
 	if key.IsAsymmetric() {
 		template = append(template, pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY))
 	}
@@ -163,9 +159,7 @@ func (s *Session) FindKeyPair(key *Key, purpose uint) (pkcs11.ObjectHandle, pkcs
 		return 0, 0, fmt.Errorf("failed to find private key: %w", err)
 	}
 
-	template = []*pkcs11.Attribute{
-		pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PUBLIC_KEY),
-	}
+	template = []*pkcs11.Attribute{pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PUBLIC_KEY)}
 	pub, err := s.FindKey(key, template)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to find public key: %w", err)
@@ -360,6 +354,8 @@ func (s *Session) ExportEcdsaPublicKey(obj pkcs11.ObjectHandle) (*ecdsa.PublicKe
 	if curve == nil {
 		return nil, fmt.Errorf("unknown/unsupported elliptic curve")
 	}
+	// Deprecated function, but realistically waiting on https://github.com/golang/go/issues/63963
+	// (i.e., likely Go 1.25) to reasonably replace.
 	x, y := elliptic.Unmarshal(curve, point)
 	if x == nil || y == nil {
 		return nil, fmt.Errorf("failed to unmarshal elliptic curve point")
