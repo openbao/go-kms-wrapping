@@ -58,14 +58,23 @@ func (k *Wrapper) SetConfig(_ context.Context, options ...wrapping.Option) (*wra
 	if err != nil {
 		return nil, err
 	}
-	key, err := NewKey(opts.keyId, opts.keyLabel, opts.keyType, opts.mechanism, opts.hash)
+
+	key, err := NewKey(opts.keyId, opts.keyLabel, opts.mechanism, opts.hash)
 	if err != nil {
 		return nil, err
 	}
+	switch key.mechanism {
+	// Only allow RSA-OAEP and AES-GCM for sealing/unsealing.
+	case pkcs11.CKM_RSA_PKCS_OAEP, pkcs11.CKM_AES_GCM:
+	default:
+		return nil, fmt.Errorf("mechanism not allowed: %s", MechanismToString(key.mechanism))
+	}
+
 	client, err := NewClient(opts.lib, opts.slotNumber, opts.tokenLabel, opts.pin, opts.maxSessions)
 	if err != nil {
 		return nil, err
 	}
+
 	k.key = key
 	k.client = client
 
@@ -84,17 +93,17 @@ func (k *Wrapper) SetConfig(_ context.Context, options ...wrapping.Option) (*wra
 func (k *Wrapper) Encrypt(ctx context.Context, plaintext []byte, _ ...wrapping.Option) (*wrapping.BlobInfo, error) {
 	var ret wrapping.BlobInfo
 	err := k.client.WithSession(ctx, func(session *Session) error {
-		obj, keytype, err := session.FindEncryptionKey(k.key)
+		obj, err := session.FindEncryptionKey(k.key)
 		if err != nil {
 			return err
 		}
-		switch keytype {
-		case pkcs11.CKK_RSA:
+		switch k.key.mechanism {
+		case pkcs11.CKM_RSA_PKCS_OAEP:
 			ret.Ciphertext, err = session.EncryptRsaOaep(obj, plaintext, k.key.hash)
-		case pkcs11.CKK_AES:
+		case pkcs11.CKM_AES_GCM:
 			ret.Ciphertext, ret.Iv, err = session.EncryptAesGcm(obj, plaintext)
 		default:
-			err = fmt.Errorf("unsupported key type: %d", keytype)
+			err = fmt.Errorf("unsupported mechanism: %s", MechanismToString(k.key.mechanism))
 		}
 		return err
 	})
@@ -105,17 +114,17 @@ func (k *Wrapper) Encrypt(ctx context.Context, plaintext []byte, _ ...wrapping.O
 func (k *Wrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, _ ...wrapping.Option) ([]byte, error) {
 	var plaintext []byte
 	err := k.client.WithSession(ctx, func(session *Session) error {
-		obj, keytype, err := session.FindDecryptionKey(k.key)
+		obj, err := session.FindDecryptionKey(k.key)
 		if err != nil {
 			return err
 		}
-		switch keytype {
-		case pkcs11.CKK_RSA:
+		switch k.key.mechanism {
+		case pkcs11.CKM_RSA_PKCS_OAEP:
 			plaintext, err = session.DecryptRsaOaep(obj, in.Ciphertext, k.key.hash)
-		case pkcs11.CKK_AES:
+		case pkcs11.CKM_AES_GCM:
 			plaintext, err = session.DecryptAesGcm(obj, in.Ciphertext, in.Iv)
 		default:
-			err = fmt.Errorf("unsupported key type: %d", keytype)
+			err = fmt.Errorf("unsupported mechanism: %s", MechanismToString(k.key.mechanism))
 		}
 		return err
 	})

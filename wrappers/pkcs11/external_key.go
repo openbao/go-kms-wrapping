@@ -60,34 +60,34 @@ func (k *ExternalKey) Signer(ctx context.Context, options ...wrapping.Option) (c
 	if err != nil {
 		return nil, err
 	}
-	key, err := NewKey(opts.keyId, opts.keyLabel, opts.keyType, opts.mechanism, opts.hash)
+	key, err := NewKey(opts.keyId, opts.keyLabel, opts.mechanism, opts.hash)
 	if err != nil {
 		return nil, err
 	}
 
 	var signer crypto.Signer
 	err = k.client.WithSession(ctx, func(session *Session) error {
-		priv, pub, keytype, err := session.FindSigningKeyPair(key)
+		priv, pub, err := session.FindSigningKeyPair(key)
 		if err != nil {
 			return err
 		}
 
 		base := baseSignerDecrypter{ctx: ctx, client: k.client, obj: priv}
-		switch keytype {
-		case pkcs11.CKK_EC:
+		switch key.mechanism {
+		case pkcs11.CKM_ECDSA:
 			public, err := session.ExportEcdsaPublicKey(pub)
 			if err != nil {
 				return fmt.Errorf("failed to export ECDSA public key: %w", err)
 			}
 			signer = &ecdsaSigner{baseSignerDecrypter: base, public: public}
-		case pkcs11.CKK_RSA:
+		case pkcs11.CKM_RSA_PKCS_OAEP:
 			public, err := session.ExportRsaPublicKey(pub)
 			if err != nil {
 				return fmt.Errorf("failed to export RSA public key: %w", err)
 			}
 			signer = &rsaSignerDecrypter{baseSignerDecrypter: base, public: public}
 		default:
-			return fmt.Errorf("unsupported key type: %d", keytype)
+			return fmt.Errorf("unsupported mechanism: %s", MechanismToString(key.mechanism))
 		}
 
 		return nil
@@ -101,29 +101,28 @@ func (k *ExternalKey) Decrypter(ctx context.Context, options ...wrapping.Option)
 	if err != nil {
 		return nil, err
 	}
-	key, err := NewKey(opts.keyId, opts.keyLabel, opts.keyType, opts.mechanism, opts.hash)
+	key, err := NewKey(opts.keyId, opts.keyLabel, opts.mechanism, opts.hash)
 	if err != nil {
 		return nil, err
 	}
 
 	var decrypter crypto.Decrypter
 	err = k.client.WithSession(ctx, func(session *Session) error {
-		priv, pub, keytype, err := session.FindDecryptionKeyPair(key)
+		priv, pub, err := session.FindDecryptionKeyPair(key)
 		if err != nil {
 			return err
 
 		}
-
 		base := baseSignerDecrypter{ctx: ctx, client: k.client, obj: priv}
-		switch keytype {
-		case pkcs11.CKK_RSA:
+		switch key.mechanism {
+		case pkcs11.CKM_RSA_PKCS_OAEP:
 			public, err := session.ExportRsaPublicKey(pub)
 			if err != nil {
 				return fmt.Errorf("failed to export RSA public key: %w", err)
 			}
 			decrypter = &rsaSignerDecrypter{baseSignerDecrypter: base, public: public}
 		default:
-			return fmt.Errorf("unsupported key type: %d", keytype)
+			return fmt.Errorf("unsupported mechanism: %s", MechanismToString(key.mechanism))
 		}
 
 		return nil

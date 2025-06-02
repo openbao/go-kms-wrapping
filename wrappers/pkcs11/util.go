@@ -13,6 +13,8 @@ import (
 	"github.com/miekg/pkcs11"
 )
 
+const DefaultRsaOaepHash = pkcs11.CKM_SHA256
+
 // Key is a helper type that is later used to perform key lookups.
 // It enforces that at least one of ID, label are set.
 type Key struct {
@@ -20,58 +22,39 @@ type Key struct {
 	id string
 	// The key label
 	label string
-	// Key type (CKK_*), -1 if unspecified.
-	// We use -1 as "zero values" because 0 is e.g. a valid key type (RSA).
-	keytype int
-	// Mechanism (CKM_*), -1 if unspecified.
+	// Mechanism (CKM_*)
 	mechanism int
-	// Associated hash mechanism, -1 if unspecified.
-	// Currently only used in conjunction with the RSA-OAEP mechanism.
+	// Key type (CKK_*) derived from mechanism
+	keytype int
+	// Associated hash mechanism for RSA-OAEP
 	hash int
 }
 
-// NewKey creates a new Key from a ID, label, mechanism and keytype.
-// All arguments are optional, but at least one of id, label must be non-empty.
-func NewKey(id, label, keytype, mechanism, hash string) (*Key, error) {
+// NewKey creates a new Key from a ID, label and mechanism.
+// - One of key id, key label may be empty
+// - Mechanism must be set
+func NewKey(id, label, mechanism, hash string) (*Key, error) {
 	// Remove the 0x prefix.
 	if strings.HasPrefix(id, "0x") {
 		id = id[2:]
 	}
-
 	if id == "" && label == "" {
 		return nil, fmt.Errorf("at least one one of key id, key label must be set")
 	}
+	if mechanism == "" {
+		return nil, fmt.Errorf("key mechanism must be set")
+	}
 
 	key := &Key{
-		id: id, label: label,
-		keytype: -1, mechanism: -1, hash: -1,
+		id:    id,
+		label: label,
+		hash:  DefaultRsaOaepHash,
 	}
 
 	var err error
-
-	if mechanism != "" {
-		key.mechanism, err = MechanismFromString(mechanism)
-		if err != nil {
-			return nil, err
-		}
-		key.keytype, err = MechanismToKeyType(key.mechanism)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	if keytype != "" {
-		tmp, err := KeyTypeFromString(keytype)
-		if err != nil {
-			return nil, err
-		}
-
-		// If keytype was previously set via mechanism,
-		// validate that it matches the given key type.
-		if key.keytype != -1 && tmp != key.keytype {
-			return nil, fmt.Errorf("mechanism %q does not match key type %q", mechanism, keytype)
-		}
-		key.keytype = tmp
+	key.mechanism, key.keytype, err = MechanismFromString(mechanism)
+	if err != nil {
+		return nil, err
 	}
 
 	if hash != "" {
@@ -96,21 +79,15 @@ func (k *Key) CollectMetadata(metadata map[string]string) {
 	if k.label != "" {
 		metadata["key_label"] = k.label
 	}
-	if k.keytype != -1 {
-		metadata["key_type"] = KeyTypeToString(k.keytype)
-	}
-	if k.mechanism != -1 {
-		metadata["mechanism"] = MechanismToString(k.mechanism)
-	}
-	if k.hash != -1 {
-		metadata["hash"] = HashMechanismToString(k.hash)
+
+	metadata["mechanism"] = MechanismToString(k.mechanism)
+	if k.mechanism == pkcs11.CKM_RSA_PKCS_OAEP {
+		metadata["rsa_oaep_hash"] = HashMechanismToString(k.hash)
 	}
 }
 
-// CertainlyAsymmetric attempts to determine whether the key is an asymmetric key
-// _for certain_. If false, this does not imply that the key is symmetric!
-// The key type may be unknown, and thus false will be returned.
-func (k *Key) CertainlyAsymmetric() bool {
+// IsAsymmetric determines whether the key is asymmetric.
+func (k *Key) IsAsymmetric() bool {
 	switch k.keytype {
 	case pkcs11.CKK_RSA, pkcs11.CKK_EC:
 		return true
@@ -119,64 +96,19 @@ func (k *Key) CertainlyAsymmetric() bool {
 	return false
 }
 
-// KeyTypeFromString parses supported key types from a string.
-func KeyTypeFromString(keytype string) (int, error) {
-	keytype = strings.ToUpper(keytype)
-	switch keytype {
-	case "CKK_RSA", "RSA":
-		return pkcs11.CKK_RSA, nil
-	case "CKK_EC", "CKK_ECDSA", "EC", "ECDSA":
-		return pkcs11.CKK_EC, nil
-	case "CKK_AES", "AES":
-		return pkcs11.CKK_AES, nil
-	}
-
-	var err error
-	var id uint64
-
-	if strings.HasPrefix(keytype, "0x") {
-		id, err = strconv.ParseUint(keytype[2:], 16, 32)
-	} else {
-		id, err = strconv.ParseUint(keytype, 10, 32)
-	}
-
-	if err != nil {
-		return -1, fmt.Errorf("unsupported key type: %s", keytype)
-	}
-
-	switch int(id) {
-	case pkcs11.CKK_RSA, pkcs11.CKK_AES, pkcs11.CKK_EC:
-		return int(id), nil
-	default:
-		return -1, fmt.Errorf("unsupported key type: %s", keytype)
-	}
-}
-
-// KeyTypeToString stringifies supported key types
-func KeyTypeToString(keytype int) string {
-	switch keytype {
-	case pkcs11.CKK_RSA:
-		return "CKK_RSA"
-	case pkcs11.CKK_EC:
-		return "CKM_EC"
-	case pkcs11.CKK_AES:
-		return "CKK_AES"
-	default:
-		return "Unknown"
-	}
-}
-
 // MechanismFromString parses supported mechanisms from a string.
-func MechanismFromString(mech string) (int, error) {
+func MechanismFromString(mech string) (int, int, error) {
 	mech = strings.ToUpper(mech)
 	switch mech {
 	case "CKM_RSA_PKCS_OAEP", "RSA_PKCS_OAEP":
-		return pkcs11.CKM_RSA_PKCS_OAEP, nil
+		return pkcs11.CKM_RSA_PKCS_OAEP, pkcs11.CKK_RSA, nil
+	case "CKM_ECDSA", "ECDSA":
+		return pkcs11.CKM_ECDSA, pkcs11.CKK_EC, nil
 	case "CKM_AES_GCM", "AES_GCM":
-		return pkcs11.CKM_AES_GCM, nil
+		return pkcs11.CKM_AES_GCM, pkcs11.CKK_AES, nil
 	// Deprecated mechanisms
 	case "CKM_RSA_PKCS", "RSA_PKCS", "CKM_AES_CBC_PAD", "AES_CBC_PAD":
-		return -1, fmt.Errorf("deprecated mechanism: %s", mech)
+		return 0, 0, fmt.Errorf("deprecated mechanism: %s", mech)
 	}
 
 	var err error
@@ -189,17 +121,21 @@ func MechanismFromString(mech string) (int, error) {
 	}
 
 	if err != nil {
-		return -1, fmt.Errorf("unsupported mechanism: %s", mech)
+		return 0, 0, fmt.Errorf("unsupported mechanism: %s", mech)
 	}
 
-	switch uint(id) { // Compare via uint, cannot overflow
-	case pkcs11.CKM_RSA_PKCS_OAEP, pkcs11.CKM_AES_GCM:
-		return int(id), nil // Then return as int, above values are way below a max int
+	switch uint(id) {
+	case pkcs11.CKM_RSA_PKCS_OAEP:
+		return pkcs11.CKM_RSA_PKCS_OAEP, pkcs11.CKK_RSA, nil
+	case pkcs11.CKM_ECDSA:
+		return pkcs11.CKM_ECDSA, pkcs11.CKK_EC, nil
+	case pkcs11.CKM_AES_GCM:
+		return pkcs11.CKM_AES_GCM, pkcs11.CKK_AES, nil
 	// Deprecated mechanisms
 	case pkcs11.CKM_RSA_PKCS, pkcs11.CKM_AES_CBC, pkcs11.CKM_AES_CBC_PAD:
-		return -1, fmt.Errorf("deprecated mechanism: %s", mech)
+		return 0, 0, fmt.Errorf("deprecated mechanism: %s", mech)
 	default:
-		return -1, fmt.Errorf("unsupported mechanism: %s", mech)
+		return 0, 0, fmt.Errorf("unsupported mechanism: %s", mech)
 	}
 }
 
@@ -208,6 +144,8 @@ func MechanismToString(mech int) string {
 	switch mech {
 	case pkcs11.CKM_RSA_PKCS_OAEP:
 		return "CKM_RSA_PKCS_OAEP"
+	case pkcs11.CKM_ECDSA:
+		return "CKM_ECDSA"
 	case pkcs11.CKM_AES_GCM:
 		return "CKM_AES_GCM"
 	// Deprecated mechanisms
@@ -218,19 +156,7 @@ func MechanismToString(mech int) string {
 	case pkcs11.CKM_AES_CBC_PAD:
 		return "CKM_AES_CBC_PAD"
 	default:
-		return "Unknown"
-	}
-}
-
-// MechanismToKeyType converts a supported mechanism to the respective key type.
-func MechanismToKeyType(mech int) (int, error) {
-	switch mech {
-	case pkcs11.CKM_RSA_PKCS_OAEP:
-		return pkcs11.CKK_RSA, nil
-	case pkcs11.CKM_AES_GCM:
-		return pkcs11.CKK_AES, nil
-	default:
-		return -1, fmt.Errorf("unsupported mechanism: %d", mech)
+		return fmt.Sprintf("Unknown (%d)", mech)
 	}
 }
 
@@ -249,7 +175,7 @@ func HashMechanismFromString(mech string) (int, error) {
 	case "SHA512":
 		return pkcs11.CKM_SHA512, nil
 	default:
-		return -1, fmt.Errorf("unsupported mechanism: %s", mech)
+		return 0, fmt.Errorf("unsupported mechanism: %s", mech)
 	}
 }
 
@@ -267,7 +193,7 @@ func HashMechanismFromCrypto(mech crypto.Hash) (int, error) {
 	case crypto.SHA512:
 		return pkcs11.CKM_SHA512, nil
 	default:
-		return -1, fmt.Errorf("unsupported mechanism: %s", mech)
+		return 0, fmt.Errorf("unsupported mechanism: %s", mech)
 	}
 }
 
@@ -303,7 +229,7 @@ func HashMechanismToMgf(mech int) (int, error) {
 	case pkcs11.CKM_SHA512:
 		return pkcs11.CKG_MGF1_SHA512, nil
 	default:
-		return -1, fmt.Errorf("unknown hash mechanism: %d", mech)
+		return 0, fmt.Errorf("unknown hash mechanism: %d", mech)
 	}
 }
 

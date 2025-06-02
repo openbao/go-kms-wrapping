@@ -20,7 +20,6 @@ const (
 	EnvHsmWrapperMaxParallel = "BAO_HSM_MAX_PARALLEL"
 	EnvHsmWrapperKeyId       = "BAO_HSM_KEY_ID"
 	EnvHsmWrapperKeyLabel    = "BAO_HSM_KEY_LABEL"
-	EnvHsmWrapperKeyType     = "BAO_HSM_KEY_TYPE"
 	EnvHsmWrapperMechanism   = "BAO_HSM_MECHANISM"
 	EnvHsmWrapperRsaOaepHash = "BAO_HSM_RSA_OAEP_HASH"
 )
@@ -38,7 +37,6 @@ type clientOptions struct {
 type keyOptions struct {
 	keyId     string
 	keyLabel  string
-	keyType   string
 	mechanism string
 	hash      string
 }
@@ -126,8 +124,6 @@ func keyOptsFromConfigMap(config map[string]string) (*keyOptions, error) {
 			opts.keyId = val
 		case "key_label":
 			opts.keyLabel = val
-		case "key_type":
-			opts.keyType = val
 		case "mechanism":
 			opts.mechanism = val
 		case "rsa_oaep_hash":
@@ -204,9 +200,6 @@ func mergeConfigMapWithEnv(config map[string]string) {
 	}
 	if env := api.ReadBaoVariable(EnvHsmWrapperKeyLabel); env != "" {
 		config["key_label"] = env
-	}
-	if env := api.ReadBaoVariable(EnvHsmWrapperKeyType); env != "" {
-		config["key_type"] = env
 	}
 	if env := api.ReadBaoVariable(EnvHsmWrapperMechanism); env != "" {
 		config["mechanism"] = env
@@ -321,16 +314,6 @@ func WithKeyLabel(label string) wrapping.Option {
 	return func() any {
 		return KeyOption(func(o *keyOptions) error {
 			o.keyLabel = label
-			return nil
-		})
-	}
-}
-
-// WithKeyType sets the key type.
-func WithKeyType(ty string) wrapping.Option {
-	return func() any {
-		return KeyOption(func(o *keyOptions) error {
-			o.keyType = ty
 			return nil
 		})
 	}
