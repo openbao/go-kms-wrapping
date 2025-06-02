@@ -5,7 +5,6 @@ package pkcs11
 
 import (
 	"crypto"
-	"encoding/binary"
 	"fmt"
 	"strconv"
 	"strings"
@@ -13,7 +12,7 @@ import (
 	"github.com/miekg/pkcs11"
 )
 
-const DefaultRSAHash = pkcs11.CKM_SHA256
+const DefaultRSAOAEPHash = pkcs11.CKM_SHA256
 
 // Key is a helper type that is later used to perform key lookups.
 // It enforces that at least one of ID, label are set.
@@ -45,7 +44,7 @@ func NewKey(id, label, mechanism string) (*Key, error) {
 		return nil, fmt.Errorf("key mechanism must be set")
 	}
 
-	key := &Key{id: id, label: label, hash: DefaultRSAHash}
+	key := &Key{id: id, label: label, hash: DefaultRSAOAEPHash}
 
 	var err error
 	key.mechanism, key.keytype, err = MechanismFromString(mechanism)
@@ -74,6 +73,7 @@ func (k *Key) String() string {
 	return fmt.Sprintf("%s:%s", k.label, k.id)
 }
 
+// CollectMetadata collects stringified key info into a map.
 func (k *Key) CollectMetadata(metadata map[string]string) {
 	if k.id != "" {
 		metadata["key_id"] = k.id
@@ -107,12 +107,14 @@ func MechanismFromString(mech string) (uint, uint, error) {
 		return pkcs11.CKM_RSA_PKCS_OAEP, pkcs11.CKK_RSA, nil
 	case "CKM_RSA_PKCS_PSS", "RSA_PKCS_PSS":
 		return pkcs11.CKM_RSA_PKCS_PSS, pkcs11.CKK_RSA, nil
+	case "CKM_RSA_PKCS", "RSA_PKCS":
+		return pkcs11.CKM_RSA_PKCS, pkcs11.CKK_RSA, nil
 	case "CKM_ECDSA", "ECDSA":
 		return pkcs11.CKM_ECDSA, pkcs11.CKK_EC, nil
 	case "CKM_AES_GCM", "AES_GCM":
 		return pkcs11.CKM_AES_GCM, pkcs11.CKK_AES, nil
 	// Deprecated mechanisms
-	case "CKM_RSA_PKCS", "RSA_PKCS", "CKM_AES_CBC_PAD", "AES_CBC_PAD":
+	case "CKM_AES_CBC_PAD", "AES_CBC_PAD":
 		return 0, 0, fmt.Errorf("deprecated mechanism: %s", mech)
 	}
 
@@ -134,12 +136,13 @@ func MechanismFromString(mech string) (uint, uint, error) {
 		return pkcs11.CKM_RSA_PKCS_OAEP, pkcs11.CKK_RSA, nil
 	case pkcs11.CKM_RSA_PKCS_PSS:
 		return pkcs11.CKM_RSA_PKCS_PSS, pkcs11.CKK_RSA, nil
+	case pkcs11.CKM_RSA_PKCS:
+		return pkcs11.CKM_RSA_PKCS, pkcs11.CKK_RSA, nil
 	case pkcs11.CKM_ECDSA:
 		return pkcs11.CKM_ECDSA, pkcs11.CKK_EC, nil
 	case pkcs11.CKM_AES_GCM:
 		return pkcs11.CKM_AES_GCM, pkcs11.CKK_AES, nil
-	// Deprecated mechanisms
-	case pkcs11.CKM_RSA_PKCS, pkcs11.CKM_AES_CBC, pkcs11.CKM_AES_CBC_PAD:
+	case pkcs11.CKM_AES_CBC, pkcs11.CKM_AES_CBC_PAD:
 		return 0, 0, fmt.Errorf("deprecated mechanism: %s", mech)
 	default:
 		return 0, 0, fmt.Errorf("unsupported mechanism: %s", mech)
@@ -153,13 +156,13 @@ func MechanismToString(mech uint) string {
 		return "CKM_RSA_PKCS_OAEP"
 	case pkcs11.CKM_RSA_PKCS_PSS:
 		return "CKM_RSA_PKCS_PSS"
+	case pkcs11.CKM_RSA_PKCS:
+		return "CKM_RSA_PKCS"
 	case pkcs11.CKM_ECDSA:
 		return "CKM_ECDSA"
 	case pkcs11.CKM_AES_GCM:
 		return "CKM_AES_GCM"
 	// Deprecated mechanisms
-	case pkcs11.CKM_RSA_PKCS:
-		return "CKM_RSA_PKCS"
 	case pkcs11.CKM_AES_CBC:
 		return "CKM_AES_CBC"
 	case pkcs11.CKM_AES_CBC_PAD:
@@ -260,20 +263,4 @@ func ParseSlotNumber(value string) (uint, error) {
 		return 0, fmt.Errorf("failed to parse slot number: %w", err)
 	}
 	return uint(slot), nil
-}
-
-// BytesToUint converts a byte slice of either 1, 2, 4 or 8 bytes to a uint.
-func BytesToUint(value []byte) (uint64, error) {
-	switch len(value) {
-	case 1:
-		return uint64(value[0]), nil
-	case 2:
-		return uint64(binary.NativeEndian.Uint16(value)), nil
-	case 4:
-		return uint64(binary.NativeEndian.Uint32(value)), nil
-	case 8:
-		return binary.NativeEndian.Uint64(value), nil
-	default:
-		return 0, fmt.Errorf("cannot convert byte slice of length %d to uint", len(value))
-	}
 }

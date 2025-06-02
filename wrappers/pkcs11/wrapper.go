@@ -66,6 +66,9 @@ func (k *Wrapper) SetConfig(_ context.Context, options ...wrapping.Option) (*wra
 	switch key.mechanism {
 	// Only allow RSA-OAEP and AES-GCM for sealing/unsealing.
 	case pkcs11.CKM_RSA_PKCS_OAEP, pkcs11.CKM_AES_GCM:
+	// RSA-PKCS is allowed for external keys, but deprecated for wrappers.
+	case pkcs11.CKM_RSA_PKCS:
+		return nil, fmt.Errorf("deprecated mechanism: %s", MechanismToString(key.mechanism))
 	default:
 		return nil, fmt.Errorf("forbidden mechanism: %s", MechanismToString(key.mechanism))
 	}
@@ -89,7 +92,7 @@ func (k *Wrapper) SetConfig(_ context.Context, options ...wrapping.Option) (*wra
 	return &wrapping.WrapperConfig{Metadata: metadata}, nil
 }
 
-// Encrypt encrypts plaintext using keys in an HSM. The supported mechanisms are RSA-OAEP and AES-GCM.
+// Encrypt encrypts plaintext via PKCS#11. The supported mechanisms are RSA-OAEP and AES-GCM.
 func (k *Wrapper) Encrypt(ctx context.Context, plaintext []byte, _ ...wrapping.Option) (*wrapping.BlobInfo, error) {
 	var ret wrapping.BlobInfo
 	err := k.client.WithSession(ctx, func(session *Session) error {
@@ -110,7 +113,7 @@ func (k *Wrapper) Encrypt(ctx context.Context, plaintext []byte, _ ...wrapping.O
 	return &ret, err
 }
 
-// Decrypt decrypts ciphertext using keys in an HSM. The supported mechanisms are RSA-OAEP and AES-GCM.
+// Decrypt decrypts ciphertext via PKCS#11. The supported mechanisms are RSA-OAEP and AES-GCM.
 func (k *Wrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, _ ...wrapping.Option) ([]byte, error) {
 	var plaintext []byte
 	err := k.client.WithSession(ctx, func(session *Session) error {
