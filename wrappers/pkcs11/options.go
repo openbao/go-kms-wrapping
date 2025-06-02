@@ -329,8 +329,8 @@ func WithMechanism(mechanism string) wrapping.Option {
 	}
 }
 
-// WithRsaOaepHash sets the RSA-OAEP Hash mechanism.
-func WithRsaOaepHash(hash string) wrapping.Option {
+// WithHash sets the hash mechanism for RSA OAEP/PSS.
+func WithHash(hash string) wrapping.Option {
 	return func() any {
 		return KeyOption(func(o *keyOptions) error {
 			o.hash = hash
