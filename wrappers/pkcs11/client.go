@@ -11,7 +11,6 @@ import (
 	"encoding/asn1"
 	"encoding/hex"
 	"fmt"
-	"math"
 	"math/big"
 	"sync"
 
@@ -21,8 +20,6 @@ import (
 const (
 	CryptoAesGcmNonceSize = 12
 	CryptoAesGcmOverhead  = 16
-
-	DefaultRsaOaepHash = pkcs11.CKM_SHA256
 )
 
 // Client is a high-level PKCS#11 client wrapping a specific token slot.
@@ -124,73 +121,64 @@ func (c *Client) WithSession(ctx context.Context, f func(*Session) error) error 
 }
 
 // FindEncryptionKey finds a key capable of encryption (CKA_ENCRYPT).
-func (s *Session) FindEncryptionKey(key *Key) (pkcs11.ObjectHandle, int, error) {
+func (s *Session) FindEncryptionKey(key *Key) (pkcs11.ObjectHandle, error) {
 	template := []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_ENCRYPT, true),
 	}
-	// We know for sure that the key is asymmetric, so filter for public keys.
-	if key.CertainlyAsymmetric() {
+	if key.IsAsymmetric() {
 		template = append(template, pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PUBLIC_KEY))
 	}
 	return s.FindKey(key, template)
 }
 
 // FindEncryptionKey finds a key capable of decryption (CKA_DECRYPT).
-func (s *Session) FindDecryptionKey(key *Key) (pkcs11.ObjectHandle, int, error) {
+func (s *Session) FindDecryptionKey(key *Key) (pkcs11.ObjectHandle, error) {
 	template := []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_DECRYPT, true),
 	}
-	// We know for sure that the key is asymmetric, so filter for private keys.
-	if key.CertainlyAsymmetric() {
+	if key.IsAsymmetric() {
 		template = append(template, pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY))
 	}
 	return s.FindKey(key, template)
 }
 
 // FindSigningKeyPair finds a public/private key pair where the private key is capable of signing (CKA_SIGN).
-func (s *Session) FindSigningKeyPair(key *Key) (pkcs11.ObjectHandle, pkcs11.ObjectHandle, int, error) {
+func (s *Session) FindSigningKeyPair(key *Key) (pkcs11.ObjectHandle, pkcs11.ObjectHandle, error) {
 	return s.FindKeyPair(key, pkcs11.CKA_SIGN)
 }
 
 // FindDecryptionKeyPair finds a public/private key pair where the private key is capable of decryption (CKA_DECRYPT).
-func (s *Session) FindDecryptionKeyPair(key *Key) (pkcs11.ObjectHandle, pkcs11.ObjectHandle, int, error) {
+func (s *Session) FindDecryptionKeyPair(key *Key) (pkcs11.ObjectHandle, pkcs11.ObjectHandle, error) {
 	return s.FindKeyPair(key, pkcs11.CKA_DECRYPT)
 }
 
-// FindKeyPair finds a public/private key pair where the private key is capable of <purpose>.
-func (s *Session) FindKeyPair(key *Key, purpose uint) (pkcs11.ObjectHandle, pkcs11.ObjectHandle, int, error) {
+// FindKeyPair finds a public/private key pair where the private key is capable of purpose.
+func (s *Session) FindKeyPair(key *Key, purpose uint) (pkcs11.ObjectHandle, pkcs11.ObjectHandle, error) {
 	template := []*pkcs11.Attribute{
 		pkcs11.NewAttribute(purpose, true),
 		pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY),
 	}
-	priv, privtype, err := s.FindKey(key, template)
+	priv, err := s.FindKey(key, template)
 	if err != nil {
-		return 0, 0, 0, fmt.Errorf("failed to find private key: %w", err)
+		return 0, 0, fmt.Errorf("failed to find private key: %w", err)
 	}
 
 	template = []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PUBLIC_KEY),
 	}
-	pub, pubtype, err := s.FindKey(key, template)
+	pub, err := s.FindKey(key, template)
 	if err != nil {
-		return 0, 0, 0, fmt.Errorf("failed to find public key: %w", err)
+		return 0, 0, fmt.Errorf("failed to find public key: %w", err)
 	}
 
-	// Sanity check!
-	if privtype != pubtype {
-		return 0, 0, 0, fmt.Errorf("public and private key type do not match: %d vs %d", pubtype, privtype)
-	}
-
-	return priv, pub, privtype, nil
+	return priv, pub, nil
 }
 
 // FindKey finds a key, based on key ID, key label, key type and other template attributes.
 // If the type of the passed key is unset, FindKey attempts to find a unique key regardless of key type
 // and returns the resolved type of the key.
-func (s *Session) FindKey(key *Key, template []*pkcs11.Attribute) (pkcs11.ObjectHandle, int, error) {
-	if key.keytype > -1 {
-		template = append(template, pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, key.keytype))
-	}
+func (s *Session) FindKey(key *Key, template []*pkcs11.Attribute) (pkcs11.ObjectHandle, error) {
+	template = append(template, pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, key.keytype))
 
 	if id, err := hex.DecodeString(key.id); err == nil && len(id) != 0 {
 		template = append(template, pkcs11.NewAttribute(pkcs11.CKA_ID, id))
@@ -200,50 +188,24 @@ func (s *Session) FindKey(key *Key, template []*pkcs11.Attribute) (pkcs11.Object
 	}
 
 	if err := s.ctx.FindObjectsInit(s.handle, template); err != nil {
-		return 0, 0, err
+		return 0, err
 	}
 	objs, _, err := s.ctx.FindObjects(s.handle, 2)
 	if err != nil {
-		return 0, 0, err
+		return 0, err
 	}
 	if err := s.ctx.FindObjectsFinal(s.handle); err != nil {
-		return 0, 0, err
+		return 0, err
 	}
 
 	if len(objs) == 0 {
-		return 0, 0, fmt.Errorf("no key found for id %q and label %q", key.id, key.label)
+		return 0, fmt.Errorf("no key found for id %q and label %q", key.id, key.label)
 	}
 	if len(objs) != 1 {
-		return 0, 0, fmt.Errorf("found more than one key for id %q and label %q", key.id, key.label)
+		return 0, fmt.Errorf("found more than one key for id %q and label %q", key.id, key.label)
 	}
 
-	if key.keytype > -1 {
-		return objs[0], key.keytype, nil
-	}
-
-	// If we weren't looking for a specific key type, try to find out what type we got.
-	// Integer casting here gets a bit ugly. We want to return an int because that's what
-	// pkcs11.CKK_* values are typed as, we need a uint to compare to CK_UNAVAILABLE_INFORMATION,
-	// and we need to account for reading a full uint64 from the GetAttributeValue result.
-	template = []*pkcs11.Attribute{
-		pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, 0),
-	}
-	attrs, err := s.ctx.GetAttributeValue(s.handle, objs[0], template)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to pkcs11 GetAttributeValue: %w", err)
-	}
-	keytype, err := BytesToUint(attrs[0].Value)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to read pkcs11 GetAttributeValue response: %w", err)
-	}
-	if keytype == uint64(pkcs11.CK_UNAVAILABLE_INFORMATION) {
-		return 0, 0, fmt.Errorf("failed to automatically determine key type for id %q and label %q", key.id, key.label)
-	}
-	if keytype > math.MaxInt {
-		return 0, 0, fmt.Errorf("got key type that exceeds max int: %d", keytype)
-	}
-
-	return objs[0], int(keytype), nil
+	return objs[0], nil
 }
 
 // EncryptRsaOaep encrypts plaintext with the key referenced by obj using the RSA-OAEP mechanism.
