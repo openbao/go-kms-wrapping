@@ -26,14 +26,14 @@ type Key struct {
 	mechanism uint
 	// Key type (CKK_*) derived from mechanism
 	keytype uint
-	// Associated hash mechanism for RSA OAEP/PSS
+	// Associated hash mechanism for RSA-OAEP
 	hash uint
 }
 
 // NewKey creates a new Key from a ID, label and mechanism.
 // - One of key id, key label may be empty
 // - Mechanism must be set
-func NewKey(id, label, mechanism, hash string) (*Key, error) {
+func NewKey(id, label, mechanism string) (*Key, error) {
 	// Remove the 0x prefix.
 	if strings.HasPrefix(id, "0x") {
 		id = id[2:]
@@ -53,14 +53,20 @@ func NewKey(id, label, mechanism, hash string) (*Key, error) {
 		return nil, err
 	}
 
-	if hash != "" {
-		key.hash, err = HashMechanismFromString(hash)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	return key, nil
+}
+
+// NewKeyWithHash is like NewKey, but also parses a hash mechanism.
+func NewKeyWithHash(id, label, mechanism, hash string) (*Key, error) {
+	key, err := NewKey(id, label, mechanism)
+	if err != nil {
+		return nil, err
+	}
+	if hash == "" {
+		return key, nil
+	}
+	key.hash, err = HashMechanismFromString(hash)
+	return key, err
 }
 
 // String returns a string representation of the key.

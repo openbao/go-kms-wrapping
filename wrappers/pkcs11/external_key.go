@@ -60,7 +60,7 @@ func (k *ExternalKey) Signer(ctx context.Context, options ...wrapping.Option) (c
 	if err != nil {
 		return nil, err
 	}
-	key, err := NewKey(opts.keyId, opts.keyLabel, opts.mechanism, opts.hash)
+	key, err := NewKey(opts.keyId, opts.keyLabel, opts.mechanism)
 	if err != nil {
 		return nil, err
 	}
@@ -80,12 +80,16 @@ func (k *ExternalKey) Signer(ctx context.Context, options ...wrapping.Option) (c
 				return fmt.Errorf("failed to export ECDSA public key: %w", err)
 			}
 			signer = &ecdsaSigner{baseSignerDecrypter: base, public: public}
-		case pkcs11.CKM_RSA_PKCS_OAEP:
+		case pkcs11.CKM_RSA_PKCS_PSS, pkcs11.CKM_RSA_PKCS:
 			public, err := session.ExportRSAPublicKey(pub)
 			if err != nil {
 				return fmt.Errorf("failed to export RSA public key: %w", err)
 			}
-			signer = &rsaSignerDecrypter{baseSignerDecrypter: base, public: public}
+			signer = &rsaSignerDecrypter{
+				baseSignerDecrypter: base,
+				public:              public,
+				mechanism:           key.mechanism,
+			}
 		default:
 			return fmt.Errorf("unsupported mechanism: %s", MechanismToString(key.mechanism))
 		}
@@ -101,7 +105,7 @@ func (k *ExternalKey) Decrypter(ctx context.Context, options ...wrapping.Option)
 	if err != nil {
 		return nil, err
 	}
-	key, err := NewKey(opts.keyId, opts.keyLabel, opts.mechanism, opts.hash)
+	key, err := NewKey(opts.keyId, opts.keyLabel, opts.mechanism)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +124,11 @@ func (k *ExternalKey) Decrypter(ctx context.Context, options ...wrapping.Option)
 			if err != nil {
 				return fmt.Errorf("failed to export RSA public key: %w", err)
 			}
-			decrypter = &rsaSignerDecrypter{baseSignerDecrypter: base, public: public}
+			decrypter = &rsaSignerDecrypter{
+				baseSignerDecrypter: base,
+				public:              public,
+				mechanism:           key.mechanism,
+			}
 		default:
 			return fmt.Errorf("unsupported mechanism: %s", MechanismToString(key.mechanism))
 		}
@@ -168,7 +176,8 @@ func (e *ecdsaSigner) Sign(_ io.Reader, digest []byte, _ crypto.SignerOpts) (sig
 
 type rsaSignerDecrypter struct {
 	baseSignerDecrypter
-	public *rsa.PublicKey
+	public    *rsa.PublicKey
+	mechanism uint
 }
 
 func (e *rsaSignerDecrypter) Public() crypto.PublicKey {
@@ -178,6 +187,10 @@ func (e *rsaSignerDecrypter) Public() crypto.PublicKey {
 func (r *rsaSignerDecrypter) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
 	switch o := opts.(type) {
 	case *rsa.PSSOptions:
+		if r.mechanism != pkcs11.CKM_RSA_PKCS_PSS {
+			return nil, fmt.Errorf("forbidden mechanism, this signer is meant for: %s",
+				MechanismToString(r.mechanism))
+		}
 		var hash uint
 		hash, err = HashMechanismFromCrypto(o.Hash)
 		if err != nil {
@@ -195,6 +208,10 @@ func (r *rsaSignerDecrypter) Sign(_ io.Reader, digest []byte, opts crypto.Signer
 			return err
 		})
 	default:
+		if r.mechanism != pkcs11.CKM_RSA_PKCS {
+			return nil, fmt.Errorf("forbidden mechanism, this signer is meant for: %s",
+				MechanismToString(r.mechanism))
+		}
 		err = r.client.WithSession(r.ctx, func(s *Session) error {
 			signature, err = s.SignRSAPKCS1v15(r.obj, digest)
 			return err
@@ -206,6 +223,10 @@ func (r *rsaSignerDecrypter) Sign(_ io.Reader, digest []byte, opts crypto.Signer
 func (r *rsaSignerDecrypter) Decrypt(_ io.Reader, msg []byte, opts crypto.DecrypterOpts) (plaintext []byte, err error) {
 	switch o := opts.(type) {
 	case *rsa.OAEPOptions:
+		if r.mechanism != pkcs11.CKM_RSA_PKCS_OAEP {
+			return nil, fmt.Errorf("forbidden mechanism, this decrypter is meant for: %s",
+				MechanismToString(r.mechanism))
+		}
 		var hash uint
 		hash, err = HashMechanismFromCrypto(o.Hash)
 		if err != nil {

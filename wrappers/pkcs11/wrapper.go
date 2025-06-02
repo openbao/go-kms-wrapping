@@ -59,7 +59,7 @@ func (k *Wrapper) SetConfig(_ context.Context, options ...wrapping.Option) (*wra
 		return nil, err
 	}
 
-	key, err := NewKey(opts.keyId, opts.keyLabel, opts.mechanism, opts.hash)
+	key, err := NewKeyWithHash(opts.keyId, opts.keyLabel, opts.mechanism, opts.hash)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +67,7 @@ func (k *Wrapper) SetConfig(_ context.Context, options ...wrapping.Option) (*wra
 	// Only allow RSA-OAEP and AES-GCM for sealing/unsealing.
 	case pkcs11.CKM_RSA_PKCS_OAEP, pkcs11.CKM_AES_GCM:
 	default:
-		return nil, fmt.Errorf("mechanism not allowed: %s", MechanismToString(key.mechanism))
+		return nil, fmt.Errorf("forbidden mechanism: %s", MechanismToString(key.mechanism))
 	}
 
 	client, err := NewClient(opts.lib, opts.slotNumber, opts.tokenLabel, opts.pin, opts.maxSessions)
