@@ -99,9 +99,9 @@ func (k *Wrapper) Encrypt(ctx context.Context, plaintext []byte, _ ...wrapping.O
 		}
 		switch k.key.mechanism {
 		case pkcs11.CKM_RSA_PKCS_OAEP:
-			ret.Ciphertext, err = session.EncryptRsaOaep(obj, plaintext, k.key.hash)
+			ret.Ciphertext, err = session.EncryptRSAOAEP(obj, plaintext, k.key.hash)
 		case pkcs11.CKM_AES_GCM:
-			ret.Ciphertext, ret.Iv, err = session.EncryptAesGcm(obj, plaintext)
+			ret.Ciphertext, ret.Iv, err = session.EncryptAESGCM(obj, plaintext)
 		default:
 			err = fmt.Errorf("unsupported mechanism: %s", MechanismToString(k.key.mechanism))
 		}
@@ -120,9 +120,9 @@ func (k *Wrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, _ ...wrapp
 		}
 		switch k.key.mechanism {
 		case pkcs11.CKM_RSA_PKCS_OAEP:
-			plaintext, err = session.DecryptRsaOaep(obj, in.Ciphertext, k.key.hash)
+			plaintext, err = session.DecryptRSAOAEP(obj, in.Ciphertext, k.key.hash)
 		case pkcs11.CKM_AES_GCM:
-			plaintext, err = session.DecryptAesGcm(obj, in.Ciphertext, in.Iv)
+			plaintext, err = session.DecryptAESGcm(obj, in.Ciphertext, in.Iv)
 		default:
 			err = fmt.Errorf("unsupported mechanism: %s", MechanismToString(k.key.mechanism))
 		}

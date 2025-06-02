@@ -169,8 +169,6 @@ func (s *Session) FindKeyPair(key *Key, purpose uint) (pkcs11.ObjectHandle, pkcs
 }
 
 // FindKey finds a key, based on key ID, key label, key type and other template attributes.
-// If the type of the passed key is unset, FindKey attempts to find a unique key regardless of key type
-// and returns the resolved type of the key.
 func (s *Session) FindKey(key *Key, template []*pkcs11.Attribute) (pkcs11.ObjectHandle, error) {
 	template = append(template, pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, key.keytype))
 
@@ -202,17 +200,14 @@ func (s *Session) FindKey(key *Key, template []*pkcs11.Attribute) (pkcs11.Object
 	return objs[0], nil
 }
 
-// EncryptRsaOaep encrypts plaintext with the key referenced by obj using the RSA-OAEP mechanism.
-func (s *Session) EncryptRsaOaep(obj pkcs11.ObjectHandle, plaintext []byte, hash int) ([]byte, error) {
-	if hash < 0 {
-		hash = DefaultRsaOaepHash
-	}
+// EncryptRSAOAEP encrypts plaintext via CKM_RSA_PKCS_OAEP with the CKK_RSA key referenced by obj.
+func (s *Session) EncryptRSAOAEP(obj pkcs11.ObjectHandle, plaintext []byte, hash uint) ([]byte, error) {
 	mgf, err := HashMechanismToMgf(hash)
 	if err != nil {
 		return nil, err
 	}
 
-	params := pkcs11.NewOAEPParams(uint(hash), uint(mgf), pkcs11.CKZ_DATA_SPECIFIED, nil)
+	params := pkcs11.NewOAEPParams(hash, mgf, pkcs11.CKZ_DATA_SPECIFIED, nil)
 	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS_OAEP, params)}
 
 	if err = s.ctx.EncryptInit(s.handle, mech, obj); err != nil {
@@ -225,8 +220,8 @@ func (s *Session) EncryptRsaOaep(obj pkcs11.ObjectHandle, plaintext []byte, hash
 	return ciphertext, nil
 }
 
-// EncryptAesGcm encrypts plaintext with the key referenced by obj using the AES-GCM mechanism.
-func (s *Session) EncryptAesGcm(obj pkcs11.ObjectHandle, plaintext []byte) ([]byte, []byte, error) {
+// EncryptAESGCM encrypts plaintext via CKM_AES_GCM with the CKK_AES key referenced by obj.
+func (s *Session) EncryptAESGCM(obj pkcs11.ObjectHandle, plaintext []byte) ([]byte, []byte, error) {
 	nonce, err := s.ctx.GenerateRandom(s.handle, CryptoAesGcmNonceSize)
 	if err != nil {
 		return nil, nil, err
@@ -257,17 +252,14 @@ func (s *Session) EncryptAesGcm(obj pkcs11.ObjectHandle, plaintext []byte) ([]by
 	return ciphertext, nonce, nil
 }
 
-// DecryptRsaOaep decrypts ciphertext with the key referenced by obj using the RSA-OAEP mechanism.
-func (s *Session) DecryptRsaOaep(obj pkcs11.ObjectHandle, ciphertext []byte, hash int) ([]byte, error) {
-	if hash < 0 {
-		hash = DefaultRsaOaepHash
-	}
+// DecryptRSAOAEP decrypts ciphertext via CKM_RSA_PKCS_OAEP with the CKK_RSA key referenced by obj.
+func (s *Session) DecryptRSAOAEP(obj pkcs11.ObjectHandle, ciphertext []byte, hash uint) ([]byte, error) {
 	mgf, err := HashMechanismToMgf(hash)
 	if err != nil {
 		return nil, err
 	}
 
-	params := pkcs11.NewOAEPParams(uint(hash), uint(mgf), pkcs11.CKZ_DATA_SPECIFIED, nil)
+	params := pkcs11.NewOAEPParams(hash, mgf, pkcs11.CKZ_DATA_SPECIFIED, nil)
 	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS_OAEP, params)}
 
 	if err = s.ctx.DecryptInit(s.handle, mech, obj); err != nil {
@@ -280,8 +272,8 @@ func (s *Session) DecryptRsaOaep(obj pkcs11.ObjectHandle, ciphertext []byte, has
 	return plaintext, nil
 }
 
-// DecryptAesGcm decrypts ciphertext with the key referenced by obj using the AES-GCM mechanism.
-func (s *Session) DecryptAesGcm(obj pkcs11.ObjectHandle, ciphertext, nonce []byte) ([]byte, error) {
+// DecryptAESGcm decrypts ciphertext via CKM_AES_GCM with the CKK_AES key referenced by obj.
+func (s *Session) DecryptAESGcm(obj pkcs11.ObjectHandle, ciphertext, nonce []byte) ([]byte, error) {
 	params := pkcs11.NewGCMParams(nonce, nil, CryptoAesGcmOverhead*8)
 	defer params.Free()
 	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_AES_GCM, params)}
@@ -320,9 +312,9 @@ func namedCurveFromOID(oid asn1.ObjectIdentifier) elliptic.Curve {
 	return nil
 }
 
-// ExportEcdsaPublicKey exports an ECDSA public key (provided the curve is known by Go's
-// standard library) from a public key handle.
-func (s *Session) ExportEcdsaPublicKey(obj pkcs11.ObjectHandle) (*ecdsa.PublicKey, error) {
+// ExportECDSAPublicKey exports an ECDSA public key (provided the curve is known by Go's
+// standard library) from a CKK_EC public key handle.
+func (s *Session) ExportECDSAPublicKey(obj pkcs11.ObjectHandle) (*ecdsa.PublicKey, error) {
 	template := []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_EC_PARAMS, nil),
 		pkcs11.NewAttribute(pkcs11.CKA_EC_POINT, nil),
@@ -364,8 +356,8 @@ func (s *Session) ExportEcdsaPublicKey(obj pkcs11.ObjectHandle) (*ecdsa.PublicKe
 	return &ecdsa.PublicKey{Curve: curve, X: x, Y: y}, nil
 }
 
-// ExportRsaPublicKey exports an RSA public key from a public key handle.
-func (s *Session) ExportRsaPublicKey(obj pkcs11.ObjectHandle) (*rsa.PublicKey, error) {
+// ExportRSAPublicKey exports an RSA public key from a CKK_RSA public key handle.
+func (s *Session) ExportRSAPublicKey(obj pkcs11.ObjectHandle) (*rsa.PublicKey, error) {
 	template := []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_MODULUS, nil),
 		pkcs11.NewAttribute(pkcs11.CKA_PUBLIC_EXPONENT, nil),
@@ -398,16 +390,16 @@ func (s *Session) ExportRsaPublicKey(obj pkcs11.ObjectHandle) (*rsa.PublicKey, e
 	return &rsa.PublicKey{N: n, E: int(e.Int64())}, nil
 }
 
-// SignEcdsa signs a digest with the CKK_EC key referenced by obj via ECDSA.
-func (s *Session) SignEcdsa(obj pkcs11.ObjectHandle, digest []byte) ([]byte, error) {
+// SignECDSA signs a digest via CKM_ECDSA with the CKK_EC key referenced by obj.
+func (s *Session) SignECDSA(obj pkcs11.ObjectHandle, digest []byte) ([]byte, error) {
 	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_ECDSA, nil)}
 
 	if err := s.ctx.SignInit(s.handle, mech, obj); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to pkcs#11 SignInit: %w", err)
 	}
 	signature, err := s.ctx.Sign(s.handle, digest)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to pkcs#11 Sign: %w", err)
 	}
 
 	if len(signature) == 0 || len(signature)%2 != 0 {
@@ -425,7 +417,37 @@ func (s *Session) SignEcdsa(obj pkcs11.ObjectHandle, digest []byte) ([]byte, err
 	})
 }
 
-// SignRsa signs a digest with the CKK_RSA key referenced by obj.
-func (s *Session) SignRsa(obj pkcs11.ObjectHandle, digest []byte) ([]byte, error) {
-	return nil, nil
+// SignRSAPSS signs a digest via CKM_RSA_PKCS_PSS with the CKK_RSA key referenced by obj.
+func (s *Session) SignRSAPSS(obj pkcs11.ObjectHandle, digest []byte, hash, saltLength uint) ([]byte, error) {
+	mgf, err := HashMechanismToMgf(hash)
+	if err != nil {
+		return nil, err
+	}
+
+	params := pkcs11.NewPSSParams(hash, mgf, saltLength)
+	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS_PSS, params)}
+
+	if err := s.ctx.SignInit(s.handle, mech, obj); err != nil {
+		return nil, fmt.Errorf("failed to pkcs#11 SignInit: %w", err)
+	}
+	signature, err := s.ctx.Sign(s.handle, digest)
+	if err != nil {
+		return nil, fmt.Errorf("failed to pkcs#11 Sign: %w", err)
+	}
+
+	return signature, nil
+}
+
+// SignRSAPKCS1v15 signs a digest via CKM_RSA_PKCS with the CKK_RSA key referenced by obj.
+func (s *Session) SignRSAPKCS1v15(obj pkcs11.ObjectHandle, digest []byte) ([]byte, error) {
+	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS, nil)}
+	if err := s.ctx.SignInit(s.handle, mech, obj); err != nil {
+		return nil, fmt.Errorf("failed to pkcs#11 SignInit: %w", err)
+	}
+	signature, err := s.ctx.Sign(s.handle, digest)
+	if err != nil {
+		return nil, fmt.Errorf("failed to pkcs#11 Sign: %w", err)
+	}
+
+	return signature, nil
 }

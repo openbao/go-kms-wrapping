@@ -13,7 +13,7 @@ import (
 	"github.com/miekg/pkcs11"
 )
 
-const DefaultRsaOaepHash = pkcs11.CKM_SHA256
+const DefaultRSAHash = pkcs11.CKM_SHA256
 
 // Key is a helper type that is later used to perform key lookups.
 // It enforces that at least one of ID, label are set.
@@ -23,11 +23,11 @@ type Key struct {
 	// The key label
 	label string
 	// Mechanism (CKM_*)
-	mechanism int
+	mechanism uint
 	// Key type (CKK_*) derived from mechanism
-	keytype int
-	// Associated hash mechanism for RSA-OAEP
-	hash int
+	keytype uint
+	// Associated hash mechanism for RSA OAEP/PSS
+	hash uint
 }
 
 // NewKey creates a new Key from a ID, label and mechanism.
@@ -45,11 +45,7 @@ func NewKey(id, label, mechanism, hash string) (*Key, error) {
 		return nil, fmt.Errorf("key mechanism must be set")
 	}
 
-	key := &Key{
-		id:    id,
-		label: label,
-		hash:  DefaultRsaOaepHash,
-	}
+	key := &Key{id: id, label: label, hash: DefaultRSAHash}
 
 	var err error
 	key.mechanism, key.keytype, err = MechanismFromString(mechanism)
@@ -81,8 +77,9 @@ func (k *Key) CollectMetadata(metadata map[string]string) {
 	}
 
 	metadata["mechanism"] = MechanismToString(k.mechanism)
-	if k.mechanism == pkcs11.CKM_RSA_PKCS_OAEP {
-		metadata["rsa_oaep_hash"] = HashMechanismToString(k.hash)
+	switch k.mechanism {
+	case pkcs11.CKM_RSA_PKCS_OAEP, pkcs11.CKM_RSA_PKCS_PSS:
+		metadata["hash"] = HashMechanismToString(k.hash)
 	}
 }
 
@@ -97,11 +94,13 @@ func (k *Key) IsAsymmetric() bool {
 }
 
 // MechanismFromString parses supported mechanisms from a string.
-func MechanismFromString(mech string) (int, int, error) {
+func MechanismFromString(mech string) (uint, uint, error) {
 	mech = strings.ToUpper(mech)
 	switch mech {
 	case "CKM_RSA_PKCS_OAEP", "RSA_PKCS_OAEP":
 		return pkcs11.CKM_RSA_PKCS_OAEP, pkcs11.CKK_RSA, nil
+	case "CKM_RSA_PKCS_PSS", "RSA_PKCS_PSS":
+		return pkcs11.CKM_RSA_PKCS_PSS, pkcs11.CKK_RSA, nil
 	case "CKM_ECDSA", "ECDSA":
 		return pkcs11.CKM_ECDSA, pkcs11.CKK_EC, nil
 	case "CKM_AES_GCM", "AES_GCM":
@@ -127,6 +126,8 @@ func MechanismFromString(mech string) (int, int, error) {
 	switch uint(id) {
 	case pkcs11.CKM_RSA_PKCS_OAEP:
 		return pkcs11.CKM_RSA_PKCS_OAEP, pkcs11.CKK_RSA, nil
+	case pkcs11.CKM_RSA_PKCS_PSS:
+		return pkcs11.CKM_RSA_PKCS_PSS, pkcs11.CKK_RSA, nil
 	case pkcs11.CKM_ECDSA:
 		return pkcs11.CKM_ECDSA, pkcs11.CKK_EC, nil
 	case pkcs11.CKM_AES_GCM:
@@ -140,10 +141,12 @@ func MechanismFromString(mech string) (int, int, error) {
 }
 
 // MechanismToString stringifies supported mechanisms.
-func MechanismToString(mech int) string {
+func MechanismToString(mech uint) string {
 	switch mech {
 	case pkcs11.CKM_RSA_PKCS_OAEP:
 		return "CKM_RSA_PKCS_OAEP"
+	case pkcs11.CKM_RSA_PKCS_PSS:
+		return "CKM_RSA_PKCS_PSS"
 	case pkcs11.CKM_ECDSA:
 		return "CKM_ECDSA"
 	case pkcs11.CKM_AES_GCM:
@@ -161,7 +164,7 @@ func MechanismToString(mech int) string {
 }
 
 // HashMechanismFromString parses supported hash mechanisms from a string.
-func HashMechanismFromString(mech string) (int, error) {
+func HashMechanismFromString(mech string) (uint, error) {
 	mech = strings.ToUpper(mech)
 	switch mech {
 	case "SHA1":
@@ -180,7 +183,7 @@ func HashMechanismFromString(mech string) (int, error) {
 }
 
 // HashMechanismFromCrypto converts a crypto.Hash to the PKCS#11 equivalent.
-func HashMechanismFromCrypto(mech crypto.Hash) (int, error) {
+func HashMechanismFromCrypto(mech crypto.Hash) (uint, error) {
 	switch mech {
 	case crypto.SHA1:
 		return pkcs11.CKM_SHA_1, nil
@@ -198,7 +201,7 @@ func HashMechanismFromCrypto(mech crypto.Hash) (int, error) {
 }
 
 // HashMechanismToString stringifies supported hash mechanisms.
-func HashMechanismToString(mech int) string {
+func HashMechanismToString(mech uint) string {
 	switch mech {
 	case pkcs11.CKM_SHA_1, pkcs11.CKG_MGF1_SHA1:
 		return "SHA1"
@@ -216,7 +219,7 @@ func HashMechanismToString(mech int) string {
 }
 
 // HashMechanismToMgf gets the CKG_MGF1_SHA* for a CKM_SHA*.
-func HashMechanismToMgf(mech int) (int, error) {
+func HashMechanismToMgf(mech uint) (uint, error) {
 	switch mech {
 	case pkcs11.CKM_SHA_1:
 		return pkcs11.CKG_MGF1_SHA1, nil

@@ -75,13 +75,13 @@ func (k *ExternalKey) Signer(ctx context.Context, options ...wrapping.Option) (c
 		base := baseSignerDecrypter{ctx: ctx, client: k.client, obj: priv}
 		switch key.mechanism {
 		case pkcs11.CKM_ECDSA:
-			public, err := session.ExportEcdsaPublicKey(pub)
+			public, err := session.ExportECDSAPublicKey(pub)
 			if err != nil {
 				return fmt.Errorf("failed to export ECDSA public key: %w", err)
 			}
 			signer = &ecdsaSigner{baseSignerDecrypter: base, public: public}
 		case pkcs11.CKM_RSA_PKCS_OAEP:
-			public, err := session.ExportRsaPublicKey(pub)
+			public, err := session.ExportRSAPublicKey(pub)
 			if err != nil {
 				return fmt.Errorf("failed to export RSA public key: %w", err)
 			}
@@ -116,7 +116,7 @@ func (k *ExternalKey) Decrypter(ctx context.Context, options ...wrapping.Option)
 		base := baseSignerDecrypter{ctx: ctx, client: k.client, obj: priv}
 		switch key.mechanism {
 		case pkcs11.CKM_RSA_PKCS_OAEP:
-			public, err := session.ExportRsaPublicKey(pub)
+			public, err := session.ExportRSAPublicKey(pub)
 			if err != nil {
 				return fmt.Errorf("failed to export RSA public key: %w", err)
 			}
@@ -160,7 +160,7 @@ func (e *ecdsaSigner) Public() crypto.PublicKey {
 
 func (e *ecdsaSigner) Sign(_ io.Reader, digest []byte, _ crypto.SignerOpts) (signature []byte, err error) {
 	err = e.client.WithSession(e.ctx, func(session *Session) error {
-		signature, err = session.SignEcdsa(e.obj, digest)
+		signature, err = session.SignECDSA(e.obj, digest)
 		return err
 	})
 	return signature, err
@@ -175,24 +175,49 @@ func (e *rsaSignerDecrypter) Public() crypto.PublicKey {
 	return e.public
 }
 
-func (r *rsaSignerDecrypter) Sign(_ io.Reader, digest []byte, _ crypto.SignerOpts) ([]byte, error) {
-	return nil, fmt.Errorf("unimplemented")
+func (r *rsaSignerDecrypter) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
+	switch o := opts.(type) {
+	case *rsa.PSSOptions:
+		var hash uint
+		hash, err = HashMechanismFromCrypto(o.Hash)
+		if err != nil {
+			return nil, err
+		}
+		saltLength := o.SaltLength
+		if o.SaltLength == rsa.PSSSaltLengthAuto || o.SaltLength == rsa.PSSSaltLengthEqualsHash {
+			saltLength = o.Hash.Size()
+		}
+		if saltLength < 0 {
+			return nil, fmt.Errorf("invalid salt length: %d", saltLength)
+		}
+		err = r.client.WithSession(r.ctx, func(s *Session) error {
+			signature, err = s.SignRSAPSS(r.obj, digest, hash, uint(saltLength))
+			return err
+		})
+	default:
+		err = r.client.WithSession(r.ctx, func(s *Session) error {
+			signature, err = s.SignRSAPKCS1v15(r.obj, digest)
+			return err
+		})
+	}
+	return signature, err
 }
 
 func (r *rsaSignerDecrypter) Decrypt(_ io.Reader, msg []byte, opts crypto.DecrypterOpts) (plaintext []byte, err error) {
 	switch o := opts.(type) {
 	case *rsa.OAEPOptions:
-		hash, err := HashMechanismFromCrypto(o.Hash)
+		var hash uint
+		hash, err = HashMechanismFromCrypto(o.Hash)
 		if err != nil {
 			return nil, err
 		}
 		err = r.client.WithSession(r.ctx, func(s *Session) error {
-			var err error
-			plaintext, err = s.DecryptRsaOaep(r.obj, msg, hash)
+			plaintext, err = s.DecryptRSAOAEP(r.obj, msg, hash)
 			return err
 		})
 	default:
-		// TODO: Do we want to support PKCS#1 v1.5 here, given the use is general-purpose and not scoped to sealing?
+		// Do we want to support PKCS#1 v1.5 decryption here, given the use is general-purpose and
+		// not scoped to sealing? FWIW we also don't support PKCS#1 v1.5 encryption anywhere, so...
 		err = fmt.Errorf("unsupported RSA options")
 	}
 	return plaintext, err
