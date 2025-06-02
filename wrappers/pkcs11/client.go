@@ -272,6 +272,19 @@ func (s *Session) DecryptRSAOAEP(obj pkcs11.ObjectHandle, ciphertext []byte, has
 	return plaintext, nil
 }
 
+// DecryptRSAPKCS1v15 decrypts ciphertext VIA CKM_RSA_PKCS with the CKK_RSA key referenced by obj.
+func (s *Session) DecryptRSAPKCS1v15(obj pkcs11.ObjectHandle, ciphertext []byte) ([]byte, error) {
+	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS, nil)}
+	if err := s.ctx.DecryptInit(s.handle, mech, obj); err != nil {
+		return nil, fmt.Errorf("failed to pkcs11 DecryptInit: %w", err)
+	}
+	plaintext, err := s.ctx.Decrypt(s.handle, ciphertext)
+	if err != nil {
+		return nil, fmt.Errorf("failed to pkcs11 Decrypt: %w", err)
+	}
+	return plaintext, nil
+}
+
 // DecryptAESGcm decrypts ciphertext via CKM_AES_GCM with the CKK_AES key referenced by obj.
 func (s *Session) DecryptAESGcm(obj pkcs11.ObjectHandle, ciphertext, nonce []byte) ([]byte, error) {
 	params := pkcs11.NewGCMParams(nonce, nil, CryptoAesGcmOverhead*8)
@@ -439,7 +452,8 @@ func (s *Session) SignRSAPSS(obj pkcs11.ObjectHandle, digest []byte, hash, saltL
 }
 
 // SignRSAPKCS1v15 signs a digest via CKM_RSA_PKCS with the CKK_RSA key referenced by obj.
-func (s *Session) SignRSAPKCS1v15(obj pkcs11.ObjectHandle, digest []byte) ([]byte, error) {
+func (s *Session) SignRSAPKCS1v15(obj pkcs11.ObjectHandle, digest []byte, hashPrefix []byte) ([]byte, error) {
+	digest = append(hashPrefix, digest...)
 	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS, nil)}
 	if err := s.ctx.SignInit(s.handle, mech, obj); err != nil {
 		return nil, fmt.Errorf("failed to pkcs#11 SignInit: %w", err)
@@ -448,6 +462,5 @@ func (s *Session) SignRSAPKCS1v15(obj pkcs11.ObjectHandle, digest []byte) ([]byt
 	if err != nil {
 		return nil, fmt.Errorf("failed to pkcs#11 Sign: %w", err)
 	}
-
 	return signature, nil
 }
