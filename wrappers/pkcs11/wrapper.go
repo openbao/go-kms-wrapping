@@ -146,7 +146,7 @@ func (k *Wrapper) SetConfig(ctx context.Context, options ...wrapping.Option) (*w
 	// Finally, collect all the metadata for WrapperConfig.
 	metadata := make(map[string]string)
 	metadata["lib"] = k.client.module.path
-	metadata["slot"] = strconv.FormatUint(uint64(k.client.pool.slot), 10)
+	metadata["slot"] = "0x" + strconv.FormatUint(uint64(k.client.pool.slot), 16)
 	if opts.tokenLabel != "" {
 		metadata["token_label"] = string(opts.tokenLabel)
 	}
