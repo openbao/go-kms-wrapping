@@ -7,8 +7,9 @@ package pkcs11
 import (
 	"context"
 	"os"
-	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // This test executes real calls. The calls themselves should be free,
@@ -28,22 +29,14 @@ func TestAccPkcs11Wrapper_Lifecycle(t *testing.T) {
 
 	s := NewWrapper()
 	_, err := s.SetConfig(context.Background())
-	if err != nil {
-		t.Fatalf("err : %s", err)
-	}
+	require.NoError(t, err)
 
 	input := []byte("foo")
 	swi, err := s.Encrypt(context.Background(), input)
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
+	require.NoError(t, err)
 
 	pt, err := s.Decrypt(context.Background(), swi)
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
+	require.NoError(t, err)
 
-	if !reflect.DeepEqual(input, pt) {
-		t.Fatalf("expected %s, got %s", input, pt)
-	}
+	require.Equal(t, input, pt)
 }
