@@ -33,7 +33,7 @@ type clientOptions struct {
 	maxSessions int
 }
 
-// keyOptions are the options relevant for key configuration.
+// keyOptions are the options relevant for key configuration and usage.
 type keyOptions struct {
 	keyId     string
 	keyLabel  string
@@ -83,7 +83,7 @@ func sortOpts(opts []wrapping.Option) (*wrapping.Options, []ClientOption, []KeyO
 	return global, clientOpts, keyOpts, nil
 }
 
-// clientOptsFromConfigMap gets a clientOptions  from a config map.
+// clientOptsFromConfigMap gets a clientOptions from a config map.
 func clientOptsFromConfigMap(config map[string]string) (*clientOptions, error) {
 	var opts clientOptions
 	for key, val := range config {
@@ -91,7 +91,7 @@ func clientOptsFromConfigMap(config map[string]string) (*clientOptions, error) {
 		case "lib":
 			opts.lib = val
 		case "slot":
-			slot, err := ParseSlotNumber(val)
+			slot, err := parseSlotNumber(val)
 			if err != nil {
 				return nil, err
 			}
@@ -209,9 +209,9 @@ func mergeConfigMapWithEnv(config map[string]string) {
 	}
 }
 
-// getExternalKeyOpts evaluates options that apply to an ExternalKey.
+// getHubOpts evaluates options that apply to a Hub.
 // Environment variables are never read.
-func getExternalKeyOpts(opts []wrapping.Option) (*clientOptions, error) {
+func getHubOpts(opts []wrapping.Option) (*clientOptions, error) {
 	globalOpts, clientOpts, _, err := sortOpts(opts)
 	if err != nil {
 		return nil, err
@@ -229,7 +229,7 @@ func getExternalKeyOpts(opts []wrapping.Option) (*clientOptions, error) {
 }
 
 // getSignerDecrypterOpts evaluates options that apply
-// to signers/decrypters derived from an ExternalKey.
+// to signers/decrypters derived from a Hub.
 // Environment variables are never read.
 func getSignerDecrypterOpts(opts []wrapping.Option) (*keyOptions, error) {
 	globalOpts, _, keyOpts, err := sortOpts(opts)
