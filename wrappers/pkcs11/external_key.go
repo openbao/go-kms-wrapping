@@ -15,142 +15,8 @@ import (
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
 
-// ExternalKey is a wrapping.ExternalKey that uses PKCS#11.
-type ExternalKey struct {
-	client *Client
-}
-
-var (
-	// Ensure that we implement both ExternalKey and InitFinalizer correctly
-	_ wrapping.ExternalKey   = (*ExternalKey)(nil)
-	_ wrapping.InitFinalizer = (*ExternalKey)(nil)
-)
-
-// NewExternalKey returns a new uninitialized and unconfigured ExternalKey.
-func NewExternalKey() *ExternalKey {
-	return &ExternalKey{}
-}
-
-// Init initializes the ExternalKey. It is currently a no-op.
-func (k *ExternalKey) Init(_ context.Context, _ ...wrapping.Option) error {
-	return nil
-}
-
-// Finalize finalizes the ExternalKey and closes its client.
-func (k *ExternalKey) Finalize(_ context.Context, _ ...wrapping.Option) error {
-	return k.client.Close()
-}
-
-// SetConfig configures the client used by the ExternalKey.
-func (k *ExternalKey) SetConfig(_ context.Context, options ...wrapping.Option) error {
-	opts, err := getExternalKeyOpts(options)
-	if err != nil {
-		return err
-	}
-	client, err := NewClient(opts.lib, opts.slotNumber, opts.tokenLabel, opts.pin, opts.maxSessions)
-	if err != nil {
-		return err
-	}
-	k.client = client
-	return nil
-}
-
-// Signer gets a crypto.Signer backed by a private key via PKCS#11.
-func (k *ExternalKey) Signer(ctx context.Context, options ...wrapping.Option) (crypto.Signer, error) {
-	opts, err := getSignerDecrypterOpts(options)
-	if err != nil {
-		return nil, err
-	}
-	key, err := NewKey(opts.keyId, opts.keyLabel, opts.mechanism)
-	if err != nil {
-		return nil, err
-	}
-
-	var signer crypto.Signer
-	err = k.client.WithSession(ctx, func(session *Session) error {
-		priv, pub, err := session.FindSigningKeyPair(key)
-		if err != nil {
-			return err
-		}
-
-		base := baseSignerDecrypter{ctx: ctx, client: k.client, obj: priv}
-		switch key.mechanism {
-		case pkcs11.CKM_ECDSA:
-			public, err := session.ExportECDSAPublicKey(pub)
-			if err != nil {
-				return fmt.Errorf("failed to export ECDSA public key: %w", err)
-			}
-			signer = &ecdsaSigner{baseSignerDecrypter: base, public: public}
-		case pkcs11.CKM_RSA_PKCS_PSS, pkcs11.CKM_RSA_PKCS:
-			public, err := session.ExportRSAPublicKey(pub)
-			if err != nil {
-				return fmt.Errorf("failed to export RSA public key: %w", err)
-			}
-			signer = &rsaSignerDecrypter{
-				baseSignerDecrypter: base,
-				public:              public,
-				mechanism:           key.mechanism,
-			}
-		default:
-			return fmt.Errorf("unsupported mechanism: %s", MechanismToString(key.mechanism))
-		}
-
-		return nil
-	})
-
-	return signer, err
-}
-
-// Decrypter gets a crypto.Decrypter backed by a private key via PKCS#11.
-func (k *ExternalKey) Decrypter(ctx context.Context, options ...wrapping.Option) (crypto.Decrypter, error) {
-	opts, err := getSignerDecrypterOpts(options)
-	if err != nil {
-		return nil, err
-	}
-	key, err := NewKey(opts.keyId, opts.keyLabel, opts.mechanism)
-	if err != nil {
-		return nil, err
-	}
-
-	var decrypter crypto.Decrypter
-	err = k.client.WithSession(ctx, func(session *Session) error {
-		priv, pub, err := session.FindDecryptionKeyPair(key)
-		if err != nil {
-			return err
-
-		}
-		base := baseSignerDecrypter{ctx: ctx, client: k.client, obj: priv}
-		switch key.mechanism {
-		case pkcs11.CKM_RSA_PKCS_OAEP:
-			public, err := session.ExportRSAPublicKey(pub)
-			if err != nil {
-				return fmt.Errorf("failed to export RSA public key: %w", err)
-			}
-			decrypter = &rsaSignerDecrypter{
-				baseSignerDecrypter: base,
-				public:              public,
-				mechanism:           key.mechanism,
-			}
-		default:
-			return fmt.Errorf("unsupported mechanism: %s", MechanismToString(key.mechanism))
-		}
-
-		return nil
-	})
-
-	return decrypter, err
-}
-
-var (
-	// Ensure that all signers implement crypto.Signer
-	_ crypto.Signer = (*ecdsaSigner)(nil)
-	_ crypto.Signer = (*rsaSignerDecrypter)(nil)
-	// Ensure that rsaSignerDecrypter is additionally a crypto.Decrypter
-	_ crypto.Decrypter = (*rsaSignerDecrypter)(nil)
-)
-
-// baseSignerDecrypter is common to all crypto.Signer and crypto.Decrypter implementations.
-type baseSignerDecrypter struct {
+// baseExternalKey is common to all ExternalKey implementations.
+type baseExternalKey struct {
 	// Context for session cancellation
 	ctx context.Context
 	// Client to perform operations
@@ -161,14 +27,35 @@ type baseSignerDecrypter struct {
 
 // ecdsaSigner implements crypto.Signer for ECDSA keys.
 type ecdsaSigner struct {
-	baseSignerDecrypter
+	baseExternalKey
 	public *ecdsa.PublicKey
 }
 
-// Public is the crypto.Signer Public() implementation for ecdsaSigner.
-func (e *ecdsaSigner) Public() crypto.PublicKey {
-	return e.public
+// rsaSignerDecrypter implements crypto.Signer/Decrypter for RSA keys.
+type rsaSignerDecrypter struct {
+	baseExternalKey
+	public *rsa.PublicKey
 }
+
+// All the type assertions.
+var (
+	_ wrapping.ExternalKey = (*baseExternalKey)(nil)
+	_ crypto.Signer        = (*ecdsaSigner)(nil)
+	_ crypto.Signer        = (*rsaSignerDecrypter)(nil)
+	_ crypto.Decrypter     = (*rsaSignerDecrypter)(nil)
+)
+
+func (b *baseExternalKey) Signer() (crypto.Signer, bool)          { return nil, false }
+func (b *baseExternalKey) Decrypter() (crypto.Decrypter, bool)    { return nil, false }
+func (e *ecdsaSigner) Signer() (crypto.Signer, bool)              { return e, true }
+func (r *rsaSignerDecrypter) Signer() (crypto.Signer, bool)       { return r, true }
+func (r *rsaSignerDecrypter) Decrypter() (crypto.Decrypter, bool) { return r, true }
+
+// Public is the crypto.Signer Public() implementation for ecdsaSigner.
+func (e *ecdsaSigner) Public() crypto.PublicKey { return e.public }
+
+// Public is the crypto.Signer/Decrypter Public() implementation for rsaSignerDecrypter.
+func (e *rsaSignerDecrypter) Public() crypto.PublicKey { return e.public }
 
 // Sign is the crypto.Signer Sign(...) implementation for ecdsaSigner.
 func (e *ecdsaSigner) Sign(_ io.Reader, digest []byte, _ crypto.SignerOpts) (signature []byte, err error) {
@@ -177,18 +64,6 @@ func (e *ecdsaSigner) Sign(_ io.Reader, digest []byte, _ crypto.SignerOpts) (sig
 		return err
 	})
 	return signature, err
-}
-
-// ecdsaSigner implements crypto.Signer/Decrypter for RSA keys.
-type rsaSignerDecrypter struct {
-	baseSignerDecrypter
-	public    *rsa.PublicKey
-	mechanism uint
-}
-
-// Public is the crypto.Signer/Decrypter Public() implementation for rsaSignerDecrypter.
-func (e *rsaSignerDecrypter) Public() crypto.PublicKey {
-	return e.public
 }
 
 // Adapted from crypto/internal/fips140/rsa:
@@ -214,12 +89,8 @@ var hashPKCS1v15Prefixes = map[crypto.Hash][]byte{
 func (r *rsaSignerDecrypter) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
 	switch o := opts.(type) {
 	case *rsa.PSSOptions:
-		if r.mechanism != pkcs11.CKM_RSA_PKCS_PSS {
-			return nil, fmt.Errorf("forbidden mechanism, this signer is meant for: %s",
-				MechanismToString(r.mechanism))
-		}
 		var hash uint
-		hash, err = HashMechanismFromCrypto(o.Hash)
+		hash, err = hashMechanismFromCrypto(o.Hash)
 		if err != nil {
 			return nil, err
 		}
@@ -238,10 +109,6 @@ func (r *rsaSignerDecrypter) Sign(_ io.Reader, digest []byte, opts crypto.Signer
 			return err
 		})
 	default:
-		if r.mechanism != pkcs11.CKM_RSA_PKCS {
-			return nil, fmt.Errorf("forbidden mechanism, this signer is meant for: %s",
-				MechanismToString(r.mechanism))
-		}
 		hashPrefix, ok := hashPKCS1v15Prefixes[o.HashFunc()]
 		if !ok {
 			return nil, fmt.Errorf("unknown hash function")
@@ -254,15 +121,12 @@ func (r *rsaSignerDecrypter) Sign(_ io.Reader, digest []byte, opts crypto.Signer
 	return signature, err
 }
 
+// Sign is the crypto.Decrypter Decrypt(...) implementation for rsaSignerDecrypter.
 func (r *rsaSignerDecrypter) Decrypt(_ io.Reader, msg []byte, opts crypto.DecrypterOpts) (plaintext []byte, err error) {
 	switch o := opts.(type) {
 	case *rsa.OAEPOptions:
-		if r.mechanism != pkcs11.CKM_RSA_PKCS_OAEP {
-			return nil, fmt.Errorf("forbidden mechanism, this decrypter is meant for: %s",
-				MechanismToString(r.mechanism))
-		}
 		var hash uint
-		hash, err = HashMechanismFromCrypto(o.Hash)
+		hash, err = hashMechanismFromCrypto(o.Hash)
 		if err != nil {
 			return nil, err
 		}

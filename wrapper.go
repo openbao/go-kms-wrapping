@@ -16,10 +16,10 @@ type HmacComputer interface {
 
 type InitFinalizer interface {
 	// Init allows performing any necessary setup calls before using a
-	// Wrapper or ExternalKey.
+	// Wrapper or Hub.
 	Init(ctx context.Context, options ...Option) error
 
-	// Finalize can be called when all usage of a Wrapper or ExternalKey
+	// Finalize can be called when all usage of a Wrapper or Hub
 	// is done if any cleanup or finalization is required.
 	Finalize(ctx context.Context, options ...Option) error
 }
@@ -55,22 +55,30 @@ type KeyExporter interface {
 	KeyBytes(context.Context) ([]byte, error)
 }
 
-// ExternalKey is an interface where supporting implementations enable access
-// to cryptographic operations via the standard library's crypto.Signer and
-// crypto.Decrypter interfaces.
-type ExternalKey interface {
-	// SetConfig applies the given options to an ExternalKey.
+// Hub is a hub for keys within a certain pool, e.g. a
+// PKCS#11 token slot. Specific keys with varying capabilities can
+// be accessed using GetKey.
+type Hub interface {
+	// SetConfig applies the given options to a Hub.
 	// WithConfigMap will almost certainly be required to be passed in to
 	// provide wrapper-specific configuration. Supported options will be
-	// ones for general client configuration and not bound to a specific
-	// key. To access keys after setting the configuration, see GetKey.
+	// ones for general client configuration. Key-level configuration is
+	// passed to GetKey.
 	SetConfig(ctx context.Context, options ...Option) error
-	// Signer retrieves a crypto.Signer.
-	// Supported options will let you bind to a specific key in the KMS,
-	// generic client-level configuration is passed in SetConfig.
-	Signer(ctx context.Context, options ...Option) (crypto.Signer, error)
-	// Decrypter retrieves a crypto.Decrypter.
-	// Supported options will let you bind to a specific key in the KMS,
-	// generic client-level configuration is passed in SetConfig.
-	Decrypter(ctx context.Context, options ...Option) (crypto.Decrypter, error)
+	// GetKey gets an opaque ExternalKey.
+	// Supported options will let you bind to a specific key in the KMS.
+	// Generic client-level configuration is passed in SetConfig.
+	GetKey(ctx context.Context, options ...Option) (ExternalKey, error)
+}
+
+// ExternalKey is an opaque key that may support the following interfaces:
+//   - crypto.Signer
+//   - crypto.Decrypter
+//
+// You may type-assert an ExternalKey into either of these interfaces,
+// however you should prefer the explicit Signer and Decrypter methods
+// to retain support for type assertions over gRPC connections with go-plugin.
+type ExternalKey interface {
+	Signer() (crypto.Signer, bool)
+	Decrypter() (crypto.Decrypter, bool)
 }
