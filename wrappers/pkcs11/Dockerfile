@@ -17,14 +17,12 @@ RUN true && \
 	export BAO_HSM_PIN=4321 && \
 	export BAO_HSM_LIB=/usr/lib/x86_64-linux-gnu/softhsm/libsofthsm2.so && \
 	export BAO_HSM_KEY_LABEL=bao-root-key-aes && \
-	export BAO_HSM_MECHANISM=CKM_AES_GCM && \
     pkcs11-tool --module "$BAO_HSM_LIB" --token-label "$BAO_HSM_TOKEN_LABEL" --so-pin 1234 --pin 4321 --keygen --key-type aes:32 --label "$BAO_HSM_KEY_LABEL" && \
 	pkcs11-tool --module "$BAO_HSM_LIB" --token-label "$BAO_HSM_TOKEN_LABEL" --so-pin 1234 --pin 4321 --show-info && \
 	cd /go-kms-wrapping/wrappers/pkcs11 && \
 	export VAULT_ACC=true && \
 	go test -v ./... && \
 	export BAO_HSM_KEY_LABEL=bao-root-key-rsa && \
-	export BAO_HSM_MECHANISM=CKM_RSA_PKCS_OAEP && \
 	export BAO_HSM_RSA_OAEP_HASH="SHA1" && \
 	pkcs11-tool --module "$BAO_HSM_LIB" --token-label "$BAO_HSM_TOKEN_LABEL" --so-pin 1234 --pin 4321 --keypairgen --key-type rsa:4096 --label "$BAO_HSM_KEY_LABEL" && \
 	go test -v ./... && \
@@ -43,14 +41,12 @@ RUN true && \
 	export BAO_HSM_PIN=4321 && \
 	export BAO_HSM_LIB=/usr/lib/x86_64-linux-gnu/softhsm/libsofthsm2.so && \
 	export BAO_HSM_KEY_LABEL=bao-root-key-aes && \
-	export BAO_HSM_MECHANISM=CKM_AES_GCM && \
     pkcs11-tool --module "$BAO_HSM_LIB" --slot "$BAO_HSM_SLOT" --so-pin 1234 --pin 4321 --keygen --key-type aes:32 --label "$BAO_HSM_KEY_LABEL" && \
 	pkcs11-tool --module "$BAO_HSM_LIB" --slot "$BAO_HSM_SLOT" --so-pin 1234 --pin 4321 --show-info && \
 	cd /go-kms-wrapping/wrappers/pkcs11 && \
 	export VAULT_ACC=true && \
 	go test -v ./... && \
 	export BAO_HSM_KEY_LABEL=bao-root-key-rsa && \
-	export BAO_HSM_MECHANISM=CKM_RSA_PKCS_OAEP && \
 	export BAO_HSM_RSA_OAEP_HASH="SHA1" && \
 	pkcs11-tool --module "$BAO_HSM_LIB" --slot "$BAO_HSM_SLOT" --so-pin 1234 --pin 4321 --keypairgen --key-type rsa:4096 --label "$BAO_HSM_KEY_LABEL" && \
 	go test -v ./... && \
