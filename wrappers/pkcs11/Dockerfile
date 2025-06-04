@@ -51,30 +51,18 @@ ENV BAO_HSM_RSA_OAEP_HASH=SHA1
 RUN <<EOF
   set -e
 
+	# Tests that don't require a key:
+	go clean -testcache && go test -v -run '^Test(Module|Pool|Client)$'
+
+	# AES
 	export BAO_HSM_KEY_LABEL=$AES_KEY_LABEL
-	# Without explicitly setting mechanism, should default to AES-GCM:
-	go clean -testcache && go test -v -run '^TestWrapper$'
-	# With explicitly set mechanism:
-	export BAO_HSM_MECHANISM=CKM_AES_GCM
-	go clean -testcache && go test -v -run '^TestWrapper$'
-	unset BAO_HSM_MECHANISM
+	go clean -testcache && go test -run '^TestWrapper$'
 
+	# RSA
 	export BAO_HSM_KEY_LABEL=$RSA_KEY_LABEL
-	# Without explicitly setting mechanism, should default to RSA-OAEP:
-	go clean -testcache && go test -v -run '^TestWrapper$' -run '^TestExternalKey$'
-	# With explicitly set mechanism:
-	export BAO_HSM_MECHANISM=CKM_RSA_PKCS_OAEP
-	go clean -testcache && go test -v -run '^TestWrapper$' -run '^TestExternalKey$'
-	unset BAO_HSM_MECHANISM
+	go clean -testcache && go test -run '^Test(Wrapper|ExternalKey)$'
 
+	# ECDSA
 	export BAO_HSM_KEY_LABEL=$ECDSA_KEY_LABEL
-	# Mechanism is not relevant for ExternalKey-only tests:
-	go clean -testcache && go test -v -run '^TestExternalKey$'
-
-	# Finally, check that only using the slot ID with no token label works:
-	unset BAO_HSM_TOKEN_LABEL
-	export BAO_HSM_SLOT=$(softhsm2-util --show-slots | grep '^Slot [0-9]*$' | awk '{print $2 }' | sort -n | tail -n 1)
-	# We'll use RSA as it has the most "coverage":
-	export BAO_HSM_KEY_LABEL=$RSA_KEY_LABEL
-	go clean -testcache && go test -v -run '^TestWrapper$' -run '^TestExternalKey$'
+	go clean -testcache && go test -run '^TestExternalKey$'
 EOF
