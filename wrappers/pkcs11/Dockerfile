@@ -5,7 +5,7 @@ FROM docker.io/golang:latest
 
 # Install required packages:
 RUN apt update && \
-	DEBIAN_FRONTEND="noninteractive" apt install -y --no-install-recommends golang-go softhsm2 opensc
+	DEBIAN_FRONTEND="noninteractive" apt install -y --no-install-recommends softhsm2 opensc
 
 ENV SO_PIN=1234
 ENV BAO_HSM_LIB=/usr/lib/softhsm/libsofthsm2.so
@@ -52,7 +52,7 @@ RUN <<EOF
   set -e
 
 	# Tests that don't require a key:
-	go clean -testcache && go test -v -run '^Test(Module|Pool|Client)$'
+	go clean -testcache && go test -run '^Test(Module|Pool|Client)$'
 
 	# AES
 	export BAO_HSM_KEY_LABEL=$AES_KEY_LABEL
