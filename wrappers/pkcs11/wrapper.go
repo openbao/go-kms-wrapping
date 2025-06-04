@@ -65,31 +65,21 @@ func (k *Wrapper) SetConfig(ctx context.Context, options ...wrapping.Option) (*w
 	if err != nil {
 		return nil, err
 	}
+
 	id, label, err := parseIDLabel(opts.keyId, opts.keyLabel)
 	if err != nil {
 		return nil, err
 	}
 
-	// Parse mechanism/key type, may be unset for now and automatically
-	// determined after fetching the key(s):
-	var mechanism, keytype *uint
-	if opts.mechanism != "" {
-		// This only parses mechanisms supported by Wrapper.
-		m, t, err := mechanismFromString(opts.mechanism)
-		if err != nil {
-			return nil, err
-		}
-		mechanism = &m
-		keytype = &t
+	// Mechanism/key type may be unset for now and determined automatically based the on keys that are found:
+	mechanism, keytype, err := maybeMechanismFromString(opts.mechanism)
+	if err != nil {
+		return nil, err
 	}
 
-	// Parse hash mechanism:
-	k.hash = DefaultRSAOAEPHash
-	if opts.hash != "" {
-		k.hash, err = hashMechanismFromString(opts.hash)
-		if err != nil {
-			return nil, err
-		}
+	k.hash, err = hashMechanismFromStringOrDefault(opts.hash)
+	if err != nil {
+		return nil, err
 	}
 
 	k.client, err = NewClient(opts.lib, opts.slotNumber, opts.tokenLabel, opts.pin, opts.maxSessions)
@@ -119,18 +109,17 @@ func (k *Wrapper) SetConfig(ctx context.Context, options ...wrapping.Option) (*w
 		// Key type was unknown before, now it is certain.
 		keytype = &t
 		switch t {
-		case pkcs11.CKK_RSA:
-			// Fallthrough and fetch the other key half, too.
 		case pkcs11.CKK_AES:
 			// We're done.
 			k.encryptor = k.decryptor
 			return nil
+		case pkcs11.CKK_RSA:
+			// Fetch the public key half.
+			k.encryptor, err = session.FindEncryptionKey(id, label, keytype)
+			return err
 		default:
 			return fmt.Errorf("unsupported key type: %d", *keytype)
 		}
-		// Fetch the public key half.
-		k.encryptor, err = session.FindEncryptionKey(id, label, keytype)
-		return err
 	}); err != nil {
 		return nil, err
 	}
@@ -144,9 +133,16 @@ func (k *Wrapper) SetConfig(ctx context.Context, options ...wrapping.Option) (*w
 	}
 
 	// Finally, collect all the metadata for WrapperConfig.
+	metadata := k.collectMetadata(opts)
+	return &wrapping.WrapperConfig{Metadata: metadata}, nil
+}
+
+// collectMetadata collects a metadata map for wrapping.WrapperConfig.
+func (k *Wrapper) collectMetadata(opts *wrapperOptions) map[string]string {
 	metadata := make(map[string]string)
-	metadata["lib"] = k.client.module.path
-	metadata["slot"] = "0x" + strconv.FormatUint(uint64(k.client.pool.slot), 16)
+	metadata["lib"] = k.client.Module()
+	// pkcs11-tool shows the slot number in hex, this makes it easy to compare:
+	metadata["slot"] = "0x" + strconv.FormatUint(uint64(k.client.Slot()), 16)
 	if opts.tokenLabel != "" {
 		metadata["token_label"] = string(opts.tokenLabel)
 	}
@@ -162,7 +158,7 @@ func (k *Wrapper) SetConfig(ctx context.Context, options ...wrapping.Option) (*w
 	if k.mechanism == pkcs11.CKM_RSA_PKCS_OAEP {
 		metadata["rsa_oaep_hash"] = hashMechanismToString(k.hash)
 	}
-	return &wrapping.WrapperConfig{Metadata: metadata}, nil
+	return metadata
 }
 
 // Encrypt encrypts plaintext via PKCS#11. The supported mechanisms are RSA-OAEP and AES-GCM.

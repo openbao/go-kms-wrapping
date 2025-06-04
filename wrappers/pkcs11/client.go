@@ -108,6 +108,16 @@ func (c *Client) Close() error {
 	return nil
 }
 
+// Module returns the module path the client initialized on.
+func (c *Client) Module() string {
+	return c.module.path
+}
+
+// Slot returns the token slot number the client initialized on.
+func (c *Client) Slot() uint {
+	return c.pool.slot
+}
+
 // WithSession takes a function f that is passed a session.
 func (c *Client) WithSession(ctx context.Context, f func(*Session) error) error {
 	handle, err := c.pool.Get(ctx)
