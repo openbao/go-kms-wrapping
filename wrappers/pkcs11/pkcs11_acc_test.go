@@ -10,8 +10,11 @@ import (
 	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/rsa"
+	"fmt"
 	"os"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 	"github.com/stretchr/testify/require"
@@ -90,7 +93,7 @@ func TestModule(t *testing.T) {
 }
 
 // TestPool ensures that the session pool implementation
-// handles concurrency as expected.
+// handles concurrency and cancellation as expected.
 //
 // Required environment variables:
 //   - BAO_HSM_LIB
@@ -111,20 +114,141 @@ func TestPool(t *testing.T) {
 	slot, err := module.FindSlot(opts.slotNumber, opts.tokenLabel)
 	require.NoError(t, err)
 
-	pool, err := NewPool(slot, opts.pin, 0)
+	t.Run("basic functionality", func(t *testing.T) {
+		ctx := context.Background()
+		pool, err := NewPool(slot, opts.pin, 0)
+		require.NoError(t, err)
 
-	err = pool.Close()
-	require.NoError(t, err)
+		session, err := pool.Get(ctx)
+		require.NoError(t, err)
+		require.Equal(t, pool.size, 1)
+
+		session2, err := pool.Get(ctx)
+		require.NoError(t, err)
+		require.Equal(t, pool.size, 2)
+
+		pool.Put(session2)
+		// Stays at size 2
+		require.Equal(t, pool.size, 2)
+
+		session3, err := pool.Get(ctx)
+		require.NoError(t, err)
+		// Re-uses session created for session2
+		require.Equal(t, pool.size, 2)
+		// Never do this outside of tests! session2 is a no-go here.
+		require.Equal(t, session2, session3)
+
+		pool.Put(session)
+		pool.Put(session3)
+
+		err = pool.Close()
+		require.NoError(t, err)
+	})
+
+	t.Run("context cancellation", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		pool, err := NewPool(slot, opts.pin, 1)
+		require.NoError(t, err)
+
+		// Take the only session
+		session, err := pool.Get(ctx)
+		require.NoError(t, err)
+
+		result := make(chan error)
+		go func() {
+			// Take another session, should block
+			_, err := pool.Get(ctx)
+			result <- err
+		}()
+
+		cancel()
+		require.ErrorIs(t, <-result, context.Canceled)
+
+		pool.Put(session)
+		err = pool.Close()
+		require.NoError(t, err)
+	})
+
+	t.Run("wait before closing", func(t *testing.T) {
+		ctx := context.Background()
+		pool, err := NewPool(slot, opts.pin, 0)
+		require.NoError(t, err)
+
+		session1, err := pool.Get(ctx)
+		require.NoError(t, err)
+
+		session2, err := pool.Get(ctx)
+		require.NoError(t, err)
+
+		pool.Put(session1)
+
+		returned := atomic.Bool{}
+		results := make(chan error)
+
+		go func() {
+			err := pool.Close()
+			results <- err
+			if !returned.Load() {
+				results <- fmt.Errorf("pool was closed before session returned")
+			} else {
+				results <- nil
+			}
+		}()
+
+		// Give it some time before we return the session
+		<-time.After(time.Millisecond * 10)
+		pool.Put(session2)
+		returned.Store(true)
+
+		require.NoError(t, <-results)
+		require.NoError(t, <-results)
+	})
+
+	t.Run("limits concurrency", func(t *testing.T) {
+		ctx := context.Background()
+		pool, err := NewPool(slot, opts.pin, 10)
+		require.NoError(t, err)
+
+		concurrency := atomic.Int64{}
+		results := make(chan error)
+
+		for range pool.cap * 10 {
+			go func() {
+				session, err := pool.Get(ctx)
+				if err != nil {
+					results <- err
+					return
+				}
+
+				concurrency.Add(1)
+				defer pool.Put(session)
+				defer concurrency.Add(-1)
+
+				if c := concurrency.Load(); c > int64(pool.cap) {
+					results <- fmt.Errorf("max concurrency exceeded: %d/%d", c, pool.cap)
+					return
+				}
+
+				results <- nil
+			}()
+		}
+
+		for range pool.cap * 10 {
+			require.NoError(t, <-results)
+		}
+	})
 }
 
-// TestClient ensures that the session pool implementation
-// handles concurrency as expected.
+// TestClient ensures that the client ensures it is unique w.r.t.
+// the token slot it operates against.
+//
+// The majority of client functionality is better tested in below
+// TestWrapper and TestExternalKey tests.
 //
 // Required environment variables:
 //   - BAO_HSM_LIB
 //   - BAO_HSM_TOKEN_LABEL or BAO_HSM_SLOT
 //   - BAO_HSM_PIN
-//   - BAO_HSM_KEY_LABEL or BAO_HSM_KEY_ID
 func TestClient(t *testing.T) {
 	if os.Getenv("VAULT_ACC") == "" && os.Getenv("KMS_ACC_TESTS") == "" {
 		t.SkipNow()
@@ -140,6 +264,9 @@ func TestClient(t *testing.T) {
 		_, err := NewClient(opts.lib, opts.slotNumber, opts.tokenLabel, opts.pin, 0)
 		require.Error(t, err)
 	})
+
+	// Optimally we would be able to verify that we _can_ create a client for a different slot,
+	// but that complicates test setup to a degree where I'd prefer not to.
 
 	err = client.Close()
 	require.NoError(t, err)
