@@ -12,31 +12,43 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// This test executes real calls. The calls themselves should be free,
+// Tests in this file execute real calls. The calls themselves should be free,
 // but the KMS key used is generally not free.
 //
-// To run this test, the following env variables need to be set:
-//   - BAO_HSM_SLOT
-//   - BAO_HSM_PIN
+// To run these tests, the following env variables need to be set:
 //   - BAO_HSM_LIB
-//   - BAO_HSM_KEY_LABEL
-//   - BAO_HSM_KEY_ID
-//   - BAO_HSM_MECHANISM
-func TestAccPkcs11Wrapper_Lifecycle(t *testing.T) {
+//   - BAO_HSM_TOKEN_LABEL or BAO_HSM_SLOT
+//   - BAO_HSM_PIN
+//   - BAO_HSM_KEY_LABEL or BAO_HSM_KEY_ID
+
+func TestWrapper(t *testing.T) {
 	if os.Getenv("VAULT_ACC") == "" && os.Getenv("KMS_ACC_TESTS") == "" {
 		t.SkipNow()
 	}
 
-	s := NewWrapper()
-	_, err := s.SetConfig(context.Background())
+	ctx := context.Background()
+	k := NewWrapper()
+
+	err := k.Init(ctx)
 	require.NoError(t, err)
 
-	input := []byte("foo")
-	swi, err := s.Encrypt(context.Background(), input)
+	_, err = k.SetConfig(ctx)
 	require.NoError(t, err)
 
-	pt, err := s.Decrypt(context.Background(), swi)
+	plaintext := []byte("foo")
+	ciphertext, err := k.Encrypt(ctx, plaintext)
 	require.NoError(t, err)
 
-	require.Equal(t, input, pt)
+	decrypted, err := k.Decrypt(ctx, ciphertext)
+	require.NoError(t, err)
+	require.Equal(t, plaintext, decrypted)
+
+	err = k.Finalize(ctx)
+	require.NoError(t, err)
+}
+
+func TestExternalKey(t *testing.T) {
+	if os.Getenv("VAULT_ACC") == "" && os.Getenv("KMS_ACC_TESTS") == "" {
+		t.SkipNow()
+	}
 }
