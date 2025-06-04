@@ -15,29 +15,29 @@ import (
 )
 
 // mechanismFromString parses supported mechanisms from a string.
-func mechanismFromString(mech string) (uint, uint, error) {
-	mech = strings.ToUpper(mech)
-	switch mech {
+func mechanismFromString(input string) (uint, uint, error) {
+	input = strings.ToUpper(input)
+	switch input {
 	case "CKM_AES_GCM", "AES_GCM":
 		return pkcs11.CKM_AES_GCM, pkcs11.CKK_AES, nil
 	case "CKM_RSA_PKCS_OAEP", "RSA_PKCS_OAEP":
 		return pkcs11.CKM_RSA_PKCS_OAEP, pkcs11.CKK_RSA, nil
 	// Deprecated mechanisms
 	case "CKM_AES_CBC_PAD", "AES_CBC_PAD", "CKM_RSA_PKCS", "RSA_PKCS":
-		return 0, 0, fmt.Errorf("deprecated mechanism: %s", mech)
+		return 0, 0, fmt.Errorf("deprecated mechanism: %s", input)
 	}
 
 	var err error
 	var id uint64
 
-	if strings.HasPrefix(mech, "0x") {
-		id, err = strconv.ParseUint(mech[2:], 16, 32)
+	if strings.HasPrefix(input, "0x") {
+		id, err = strconv.ParseUint(input[2:], 16, 32)
 	} else {
-		id, err = strconv.ParseUint(mech, 10, 32)
+		id, err = strconv.ParseUint(input, 10, 32)
 	}
 
 	if err != nil {
-		return 0, 0, fmt.Errorf("unsupported mechanism: %s", mech)
+		return 0, 0, fmt.Errorf("unsupported mechanism: %s", input)
 	}
 
 	switch uint(id) {
@@ -46,10 +46,23 @@ func mechanismFromString(mech string) (uint, uint, error) {
 	case pkcs11.CKM_RSA_PKCS_OAEP:
 		return pkcs11.CKM_RSA_PKCS_OAEP, pkcs11.CKK_RSA, nil
 	case pkcs11.CKM_AES_CBC, pkcs11.CKM_AES_CBC_PAD, pkcs11.CKM_RSA_PKCS:
-		return 0, 0, fmt.Errorf("deprecated mechanism: %s", mech)
+		return 0, 0, fmt.Errorf("deprecated mechanism: %s", input)
 	default:
-		return 0, 0, fmt.Errorf("unsupported mechanism: %s", mech)
+		return 0, 0, fmt.Errorf("unsupported mechanism: %s", input)
 	}
+}
+
+// maybeMechanismFromString calls mechanismFromString, but returns
+// nil values if the input is empty.
+func maybeMechanismFromString(input string) (*uint, *uint, error) {
+	if input == "" {
+		return nil, nil, nil
+	}
+	mechanism, keytype, err := mechanismFromString(input)
+	if err != nil {
+		return nil, nil, err
+	}
+	return &mechanism, &keytype, nil
 }
 
 // mechanismToString stringifies supported mechanisms.
@@ -89,10 +102,10 @@ func isAsymmetricKeyType(keytype uint) bool {
 	}
 }
 
-// hashMechanismFromStringarses supported hash mechanisms from a string.
-func hashMechanismFromString(mech string) (uint, error) {
-	mech = strings.ToUpper(mech)
-	switch mech {
+// hashMechanismFromString parses supported hash mechanisms from a string.
+func hashMechanismFromString(input string) (uint, error) {
+	input = strings.ToUpper(input)
+	switch input {
 	case "SHA1":
 		return pkcs11.CKM_SHA_1, nil
 	case "SHA224":
@@ -104,13 +117,24 @@ func hashMechanismFromString(mech string) (uint, error) {
 	case "SHA512":
 		return pkcs11.CKM_SHA512, nil
 	default:
-		return 0, fmt.Errorf("unsupported hash mechanism: %s", mech)
+		return 0, fmt.Errorf("unsupported hash mechanism: %s", input)
+	}
+}
+
+// hashMechanismFromStringOrDefault calls hashMechanismFromString,
+// but returns DefaultRSAOAEPHash if the input is empty.
+func hashMechanismFromStringOrDefault(input string) (uint, error) {
+	switch input {
+	case "":
+		return DefaultRSAOAEPHash, nil
+	default:
+		return hashMechanismFromString(input)
 	}
 }
 
 // hashMechanismFromCrypto converts a crypto.Hash to the PKCS#11 equivalent.
-func hashMechanismFromCrypto(mech crypto.Hash) (uint, error) {
-	switch mech {
+func hashMechanismFromCrypto(hash crypto.Hash) (uint, error) {
+	switch hash {
 	case crypto.SHA1:
 		return pkcs11.CKM_SHA_1, nil
 	case crypto.SHA224:
@@ -122,7 +146,7 @@ func hashMechanismFromCrypto(mech crypto.Hash) (uint, error) {
 	case crypto.SHA512:
 		return pkcs11.CKM_SHA512, nil
 	default:
-		return 0, fmt.Errorf("unsupported hash mechanism: %s", mech)
+		return 0, fmt.Errorf("unsupported hash mechanism: %s", hash)
 	}
 }
 
@@ -167,15 +191,15 @@ func hashMechanismToString(mech uint) string {
 // parseSlotNumber parses a HSM slot number/ID from a string.
 // Both Hex values (prefixed with "0x") and decimal values are supported.
 // A slot number may be nil (= not specified).
-func parseSlotNumber(value string) (uint, error) {
+func parseSlotNumber(input string) (uint, error) {
 	var slot uint64
 	var err error
 
-	value = strings.ToLower(value)
-	if strings.HasPrefix(value, "0x") {
-		slot, err = strconv.ParseUint(value[2:], 16, 32)
+	input = strings.ToLower(input)
+	if strings.HasPrefix(input, "0x") {
+		slot, err = strconv.ParseUint(input[2:], 16, 32)
 	} else {
-		slot, err = strconv.ParseUint(value, 10, 32)
+		slot, err = strconv.ParseUint(input, 10, 32)
 	}
 
 	if err != nil {
