@@ -1,53 +1,80 @@
-FROM ubuntu:latest
+# syntax=docker/dockerfile:1
+# check=skip=SecretsUsedInArgOrEnv
+
+FROM docker.io/golang:latest
+
+# Install required packages:
+RUN apt update && \
+	DEBIAN_FRONTEND="noninteractive" apt install -y --no-install-recommends golang-go softhsm2 opensc
+
+ENV SO_PIN=1234
+ENV BAO_HSM_LIB=/usr/lib/softhsm/libsofthsm2.so
+
+ENV BAO_HSM_PIN=4321
+ENV BAO_HSM_TOKEN_LABEL=openbao/go-kms-wrapping
+
+# We'll create an AES, RSA and ECDSA key each.
+ENV AES_KEY_LABEL=bao-aes
+ENV RSA_KEY_LABEL=bao-rsa
+ENV ECDSA_KEY_LABEL=bao-ecdsa
+
+RUN <<EOF
+  set -e
+
+	# Initialize a slot, --slot 0 will allocate some random slot, not 0!
+	softhsm2-util --init-token --slot 0 --label "$BAO_HSM_TOKEN_LABEL" --so-pin "$SO_PIN" --pin "$BAO_HSM_PIN"
+
+	# Create our keys:
+	pkcs11-tool --module "$BAO_HSM_LIB" --token-label "$BAO_HSM_TOKEN_LABEL" --so-pin "$SO_PIN" --pin "$BAO_HSM_PIN" \
+		--keygen --key-type aes:32 --label "$AES_KEY_LABEL"
+	pkcs11-tool --module "$BAO_HSM_LIB" --token-label "$BAO_HSM_TOKEN_LABEL" --so-pin "$SO_PIN" --pin "$BAO_HSM_PIN" \
+		--keypairgen --key-type rsa:4096 --label "$RSA_KEY_LABEL"
+	pkcs11-tool --module "$BAO_HSM_LIB" --token-label "$BAO_HSM_TOKEN_LABEL" --so-pin "$SO_PIN" --pin "$BAO_HSM_PIN" \
+		--keypairgen --key-type ec:prime256v1 --label "$ECDSA_KEY_LABEL"
+EOF
+
+WORKDIR /go-kms-wrapping
+COPY ./go.mod ./go.sum .
+
+WORKDIR /go-kms-wrapping/wrappers/pkcs11
+COPY ./wrappers/pkcs11/go.mod ./wrappers/pkcs11/go.sum .
+
+RUN go mod download
 
 COPY . /go-kms-wrapping
 
+ENV KMS_ACC_TESTS=true
 
-# Set up SoftHSM, generate a key, and run tests.
-#
-# uses BAO_HSM_TOKEN_LABEL.
-RUN true && \
-	apt update && \
-	DEBIAN_FRONTEND="noninteractive" apt install -y softhsm2 libsofthsm2 golang-go opensc ca-certificates && \
-	mkdir /softhsm && \
-	export SOFTHSM2_CONF=/go-kms-wrapping/wrappers/pkcs11/softhsm2.conf && \
-	softhsm2-util --init-token --slot 0 --label "OpenBao g-k-w" --so-pin 1234 --pin 4321 && \
-	softhsm2-util --show-slots && \
-	export BAO_HSM_TOKEN_LABEL="OpenBao g-k-w" && \
-	export BAO_HSM_PIN=4321 && \
-	export BAO_HSM_LIB=/usr/lib/x86_64-linux-gnu/softhsm/libsofthsm2.so && \
-	export BAO_HSM_KEY_LABEL=bao-root-key-aes && \
-    pkcs11-tool --module "$BAO_HSM_LIB" --token-label "$BAO_HSM_TOKEN_LABEL" --so-pin 1234 --pin 4321 --keygen --key-type aes:32 --label "$BAO_HSM_KEY_LABEL" && \
-	pkcs11-tool --module "$BAO_HSM_LIB" --token-label "$BAO_HSM_TOKEN_LABEL" --so-pin 1234 --pin 4321 --show-info && \
-	cd /go-kms-wrapping/wrappers/pkcs11 && \
-	export VAULT_ACC=true && \
-	go test -v ./... && \
-	export BAO_HSM_KEY_LABEL=bao-root-key-rsa && \
-	export BAO_HSM_RSA_OAEP_HASH="SHA1" && \
-	pkcs11-tool --module "$BAO_HSM_LIB" --token-label "$BAO_HSM_TOKEN_LABEL" --so-pin 1234 --pin 4321 --keypairgen --key-type rsa:4096 --label "$BAO_HSM_KEY_LABEL" && \
-	go test -v ./... && \
-	true
+# SoftHSM only supports SHA1.
+ENV BAO_HSM_RSA_OAEP_HASH=SHA1
 
-# Set up SoftHSM, generate a key, and run tests.
-#
-# Uses a new BAO_HSM_SLOT.
-RUN true && \
-	rm -rf /softhsm && \
-	mkdir /softhsm && \
-	export SOFTHSM2_CONF=/go-kms-wrapping/wrappers/pkcs11/softhsm2.conf && \
-	softhsm2-util --init-token --slot 0 --label "OpenBao g-k-w" --so-pin 1234 --pin 4321 && \
-	softhsm2-util --show-slots && \
-	export BAO_HSM_SLOT="$(softhsm2-util --show-slots | grep '^Slot [0-9]*$' | awk '{print $2 }' | sort -n | tail -n 1)" && \
-	export BAO_HSM_PIN=4321 && \
-	export BAO_HSM_LIB=/usr/lib/x86_64-linux-gnu/softhsm/libsofthsm2.so && \
-	export BAO_HSM_KEY_LABEL=bao-root-key-aes && \
-    pkcs11-tool --module "$BAO_HSM_LIB" --slot "$BAO_HSM_SLOT" --so-pin 1234 --pin 4321 --keygen --key-type aes:32 --label "$BAO_HSM_KEY_LABEL" && \
-	pkcs11-tool --module "$BAO_HSM_LIB" --slot "$BAO_HSM_SLOT" --so-pin 1234 --pin 4321 --show-info && \
-	cd /go-kms-wrapping/wrappers/pkcs11 && \
-	export VAULT_ACC=true && \
-	go test -v ./... && \
-	export BAO_HSM_KEY_LABEL=bao-root-key-rsa && \
-	export BAO_HSM_RSA_OAEP_HASH="SHA1" && \
-	pkcs11-tool --module "$BAO_HSM_LIB" --slot "$BAO_HSM_SLOT" --so-pin 1234 --pin 4321 --keypairgen --key-type rsa:4096 --label "$BAO_HSM_KEY_LABEL" && \
-	go test -v ./... && \
-	true
+RUN <<EOF
+  set -e
+
+	export BAO_HSM_KEY_LABEL=$AES_KEY_LABEL
+	# Without explicitly setting mechanism, should default to AES-GCM:
+	go clean -testcache && go test -v -run '^TestWrapper$'
+	# With explicitly set mechanism:
+	export BAO_HSM_MECHANISM=CKM_AES_GCM
+	go clean -testcache && go test -v -run '^TestWrapper$'
+	unset BAO_HSM_MECHANISM
+
+	export BAO_HSM_KEY_LABEL=$RSA_KEY_LABEL
+	# Without explicitly setting mechanism, should default to RSA-OAEP:
+	go clean -testcache && go test -v -run '^TestWrapper$' -run '^TestExternalKey$'
+	# With explicitly set mechanism:
+	export BAO_HSM_MECHANISM=CKM_RSA_PKCS_OAEP
+	go clean -testcache && go test -v -run '^TestWrapper$' -run '^TestExternalKey$'
+	unset BAO_HSM_MECHANISM
+
+	export BAO_HSM_KEY_LABEL=$ECDSA_KEY_LABEL
+	# Mechanism is not relevant for ExternalKey-only tests:
+	go clean -testcache && go test -v -run '^TestExternalKey$'
+
+	# Finally, check that only using the slot ID with no token label works:
+	unset BAO_HSM_TOKEN_LABEL
+	export BAO_HSM_SLOT=$(softhsm2-util --show-slots | grep '^Slot [0-9]*$' | awk '{print $2 }' | sort -n | tail -n 1)
+	# We'll use RSA as it has the most "coverage":
+	export BAO_HSM_KEY_LABEL=$RSA_KEY_LABEL
+	go clean -testcache && go test -v -run '^TestWrapper$' -run '^TestExternalKey$'
+EOF
