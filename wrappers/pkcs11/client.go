@@ -24,9 +24,9 @@ const (
 
 // Client is a high-level PKCS#11 client wrapping a specific token slot.
 type Client struct {
-	ctx    *pkcs11.Ctx
-	module *Module
-	pool   *Pool
+	ctx  *pkcs11.Ctx
+	mod  *module
+	pool *sessionPool
 }
 
 // Session is a session that is lent out by the client via WithSession.
@@ -59,58 +59,61 @@ var (
 func NewClient(
 	modulePath string, slotNumber *uint, tokenLabel, pin string, maxSessions int,
 ) (*Client, error) {
-	module, err := OpenModule(modulePath)
+	mod, err := openModule(modulePath)
 	if err != nil {
 		return nil, err
 	}
 
-	slot, err := module.FindSlot(slotNumber, tokenLabel)
+	slot, err := mod.FindSlot(slotNumber, tokenLabel)
 	if err != nil {
-		module.Close()
+		mod.Close()
 		return nil, err
 	}
 
 	slotGuardsLock.Lock()
 	defer slotGuardsLock.Unlock()
 
-	guard := slotGuard{module: module.path, slot: slot.id}
+	guard := slotGuard{module: mod.path, slot: slot.id}
 	if _, ok := slotGuards[guard]; ok {
-		module.Close()
+		mod.Close()
 		return nil, fmt.Errorf("slot %d of module %q is already in use by another client",
 			slot.id, modulePath)
 	}
 	slotGuards[guard] = true
 
-	pool, err := NewPool(slot, pin, maxSessions)
+	pool, err := newSessionPool(slot, pin, maxSessions)
 	if err != nil {
-		module.Close()
+		mod.Close()
 		return nil, err
 	}
 
-	return &Client{ctx: module.ctx, module: module, pool: pool}, nil
+	return &Client{ctx: mod.ctx, mod: mod, pool: pool}, nil
 }
 
 // Close discards the client's resources.
-func (c *Client) Close() error {
-	if err := c.pool.Close(); err != nil {
+func (c *Client) Close(ctx context.Context) error {
+	err := c.pool.Close(ctx)
+
+	// We always want to free up the slot, regardless of errors.
+	slotGuardsLock.Lock()
+	guard := slotGuard{module: c.mod.path, slot: c.pool.slot}
+	delete(slotGuards, guard)
+	slotGuardsLock.Unlock()
+
+	if err != nil {
 		return err
 	}
-
-	// Important: Close the module _after_ closing the pool.
-	c.module.Close()
-
-	slotGuardsLock.Lock()
-	defer slotGuardsLock.Unlock()
-
-	guard := slotGuard{module: c.module.path, slot: c.pool.slot}
-	delete(slotGuards, guard)
+	// Closing the module is only safe if the pool exited successfully.
+	// Otherwise, we cannot guarantee that potentially freeing the module won't cause
+	// nil pointer dereferences.
+	c.mod.Close()
 
 	return nil
 }
 
 // Module returns the module path the client initialized on.
 func (c *Client) Module() string {
-	return c.module.path
+	return c.mod.path
 }
 
 // Slot returns the token slot number the client initialized on.

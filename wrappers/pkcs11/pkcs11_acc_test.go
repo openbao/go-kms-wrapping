@@ -35,12 +35,12 @@ func TestModule(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("reference counting", func(t *testing.T) {
-		module, err := OpenModule(opts.lib)
+		module, err := openModule(opts.lib)
 		require.NoError(t, err)
 		require.Equal(t, module.refs, 1)
 		require.Equal(t, len(moduleCache), 1)
 
-		module2, err := OpenModule(opts.lib)
+		module2, err := openModule(opts.lib)
 		require.NoError(t, err)
 		require.Equal(t, module.refs, 2)
 
@@ -55,7 +55,7 @@ func TestModule(t *testing.T) {
 		module.Close()
 		require.Equal(t, len(moduleCache), 0)
 
-		module3, err := OpenModule(opts.lib)
+		module3, err := openModule(opts.lib)
 		require.NoError(t, err)
 		require.Equal(t, module3.refs, 1)
 
@@ -69,7 +69,7 @@ func TestModule(t *testing.T) {
 	})
 
 	t.Run("slot resolution", func(t *testing.T) {
-		module, err := OpenModule(opts.lib)
+		module, err := openModule(opts.lib)
 		require.NoError(t, err)
 		defer module.Close()
 
@@ -107,7 +107,7 @@ func TestPool(t *testing.T) {
 	opts, err := getWrapperOpts(nil)
 	require.NoError(t, err)
 
-	module, err := OpenModule(opts.lib)
+	module, err := openModule(opts.lib)
 	require.NoError(t, err)
 	defer module.Close()
 
@@ -116,7 +116,7 @@ func TestPool(t *testing.T) {
 
 	t.Run("basic functionality", func(t *testing.T) {
 		ctx := context.Background()
-		pool, err := NewPool(slot, opts.pin, 0)
+		pool, err := newSessionPool(slot, opts.pin, 0)
 		require.NoError(t, err)
 
 		session, err := pool.Get(ctx)
@@ -141,13 +141,17 @@ func TestPool(t *testing.T) {
 		pool.Put(session)
 		pool.Put(session3)
 
-		err = pool.Close()
+		err = pool.Close(ctx)
 		require.NoError(t, err)
+
+		// Pool is closed, should error
+		_, err = pool.Get(ctx)
+		require.Error(t, err)
 	})
 
 	t.Run("context cancellation", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
-		pool, err := NewPool(slot, opts.pin, 1)
+		pool, err := newSessionPool(slot, opts.pin, 1)
 		require.NoError(t, err)
 
 		// Take the only session
@@ -165,13 +169,13 @@ func TestPool(t *testing.T) {
 		require.ErrorIs(t, <-result, context.Canceled)
 
 		pool.Put(session)
-		err = pool.Close()
+		err = pool.Close(context.Background())
 		require.NoError(t, err)
 	})
 
 	t.Run("wait before closing", func(t *testing.T) {
 		ctx := context.Background()
-		pool, err := NewPool(slot, opts.pin, 0)
+		pool, err := newSessionPool(slot, opts.pin, 0)
 		require.NoError(t, err)
 
 		session1, err := pool.Get(ctx)
@@ -186,7 +190,7 @@ func TestPool(t *testing.T) {
 		results := make(chan error)
 
 		go func() {
-			err := pool.Close()
+			err := pool.Close(ctx)
 			results <- err
 			if !returned.Load() {
 				results <- fmt.Errorf("pool was closed before session returned")
@@ -206,7 +210,7 @@ func TestPool(t *testing.T) {
 
 	t.Run("limits concurrency", func(t *testing.T) {
 		ctx := context.Background()
-		pool, err := NewPool(slot, opts.pin, 10)
+		pool, err := newSessionPool(slot, opts.pin, 10)
 		require.NoError(t, err)
 
 		concurrency := atomic.Int64{}
@@ -268,7 +272,7 @@ func TestClient(t *testing.T) {
 	// Optimally we would be able to verify that we _can_ create a client for a different slot,
 	// but that complicates test setup to a degree where I'd prefer not to.
 
-	err = client.Close()
+	err = client.Close(context.Background())
 	require.NoError(t, err)
 }
 
