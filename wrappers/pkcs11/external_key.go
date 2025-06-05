@@ -58,7 +58,9 @@ func (e *ecdsaSigner) Public() crypto.PublicKey { return e.public }
 func (e *rsaSignerDecrypter) Public() crypto.PublicKey { return e.public }
 
 // Sign is the crypto.Signer Sign(...) implementation for ecdsaSigner.
-func (e *ecdsaSigner) Sign(_ io.Reader, digest []byte, _ crypto.SignerOpts) (signature []byte, err error) {
+func (e *ecdsaSigner) Sign(
+	_ io.Reader, digest []byte, _ crypto.SignerOpts,
+) (signature []byte, err error) {
 	err = e.client.WithSession(e.ctx, func(session *Session) error {
 		signature, err = session.SignECDSA(e.obj, digest)
 		return err
@@ -86,7 +88,9 @@ var hashPKCS1v15Prefixes = map[crypto.Hash][]byte{
 }
 
 // Sign is the crypto.Signer Sign(...) implementation for rsaSignerDecrypter.
-func (r *rsaSignerDecrypter) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
+func (r *rsaSignerDecrypter) Sign(
+	_ io.Reader, digest []byte, opts crypto.SignerOpts,
+) (signature []byte, err error) {
 	switch o := opts.(type) {
 	case *rsa.PSSOptions:
 		var hash uint
@@ -122,7 +126,9 @@ func (r *rsaSignerDecrypter) Sign(_ io.Reader, digest []byte, opts crypto.Signer
 }
 
 // Sign is the crypto.Decrypter Decrypt(...) implementation for rsaSignerDecrypter.
-func (r *rsaSignerDecrypter) Decrypt(_ io.Reader, msg []byte, opts crypto.DecrypterOpts) (plaintext []byte, err error) {
+func (r *rsaSignerDecrypter) Decrypt(
+	_ io.Reader, msg []byte, opts crypto.DecrypterOpts,
+) (plaintext []byte, err error) {
 	switch o := opts.(type) {
 	case *rsa.OAEPOptions:
 		var hash uint

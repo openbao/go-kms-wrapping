@@ -150,6 +150,25 @@ func hashMechanismFromCrypto(hash crypto.Hash) (uint, error) {
 	}
 }
 
+// hashMechanismToCrypto converts a PKCS#11 hash mechanism to the crypto.Hash equivalent.
+func hashMechanismToCrypto(mech uint) crypto.Hash {
+	switch mech {
+	case pkcs11.CKM_SHA_1:
+		return crypto.SHA1
+	case pkcs11.CKM_SHA224:
+		return crypto.SHA224
+	case pkcs11.CKM_SHA256:
+		return crypto.SHA256
+	case pkcs11.CKM_SHA384:
+		return crypto.SHA384
+	case pkcs11.CKM_SHA512:
+		return crypto.SHA512
+	default:
+		// Unreachable, only called on previously resolved hash mechanism.
+		panic("internal error: unknown hash mechanism")
+	}
+}
+
 // hashMechanismToMgf gets the CKG_MGF1_SHA* for a CKM_SHA*.
 func hashMechanismToMgf(mech uint) uint {
 	switch mech {
@@ -213,9 +232,7 @@ func parseSlotNumber(input string) (uint, error) {
 func parseIDLabel(id, label string) ([]byte, []byte, error) {
 	var byteID, byteLabel []byte = nil, nil
 
-	if strings.HasPrefix(id, "0x") {
-		id = id[2:]
-	}
+	id = strings.TrimPrefix(id, "0x")
 	if decoded, err := hex.DecodeString(id); err == nil && len(decoded) != 0 {
 		byteID = decoded
 	}
@@ -244,5 +261,17 @@ func bytesToUint(value []byte) (uint64, error) {
 		return binary.NativeEndian.Uint64(value), nil
 	default:
 		return 0, fmt.Errorf("cannot convert byte slice of length %d to uint", len(value))
+	}
+}
+
+// parseBool parses a boolean value from a string.
+func parseBool(value string) (bool, error) {
+	switch strings.ToLower(value) {
+	case "true", "1":
+		return true, nil
+	case "false", "0":
+		return false, nil
+	default:
+		return false, fmt.Errorf("failed to parse boolean value: %s", value)
 	}
 }

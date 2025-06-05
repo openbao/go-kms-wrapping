@@ -13,15 +13,16 @@ import (
 )
 
 const (
-	EnvHsmWrapperLib         = "BAO_HSM_LIB"
-	EnvHsmWrapperSlot        = "BAO_HSM_SLOT"
-	EnvHsmWrapperTokenLabel  = "BAO_HSM_TOKEN_LABEL"
-	EnvHsmWrapperPin         = "BAO_HSM_PIN"
-	EnvHsmWrapperMaxParallel = "BAO_HSM_MAX_PARALLEL"
-	EnvHsmWrapperKeyId       = "BAO_HSM_KEY_ID"
-	EnvHsmWrapperKeyLabel    = "BAO_HSM_KEY_LABEL"
-	EnvHsmWrapperMechanism   = "BAO_HSM_MECHANISM"
-	EnvHsmWrapperRsaOaepHash = "BAO_HSM_RSA_OAEP_HASH"
+	EnvHsmWrapperLib                = "BAO_HSM_LIB"
+	EnvHsmWrapperSlot               = "BAO_HSM_SLOT"
+	EnvHsmWrapperTokenLabel         = "BAO_HSM_TOKEN_LABEL"
+	EnvHsmWrapperPin                = "BAO_HSM_PIN"
+	EnvHsmWrapperMaxParallel        = "BAO_HSM_MAX_PARALLEL"
+	EnvHsmWrapperKeyId              = "BAO_HSM_KEY_ID"
+	EnvHsmWrapperKeyLabel           = "BAO_HSM_KEY_LABEL"
+	EnvHsmWrapperMechanism          = "BAO_HSM_MECHANISM"
+	EnvHsmWrapperRsaOaepHash        = "BAO_HSM_RSA_OAEP_HASH"
+	EnvHsmWrapperSoftwareEncryption = "BAO_HSM_SOFTWARE_ENCRYPTION"
 )
 
 // clientOptions are the options relevant for client configuration.
@@ -39,6 +40,7 @@ type keyOptions struct {
 	keyLabel  string
 	mechanism string
 	hash      string
+	soft      bool
 }
 
 // wrapperOptions are the options relevant for wrapper configuration.
@@ -53,6 +55,19 @@ type (
 	// KeyOption is used to set key-related options.
 	KeyOption func(*keyOptions) error
 )
+
+// defaultClientOptions returns a new clientOptions with defaults set.
+func defaultClientOptions() *clientOptions {
+	var opts clientOptions
+	return &opts
+}
+
+// defaultKeyOptions returns a new keyOptions with defaults set.
+func defaultKeyOptions() *keyOptions {
+	var opts keyOptions
+	opts.soft = true
+	return &opts
+}
 
 // sortOpts sorts a list of wrapping.Option into three buckets.
 func sortOpts(opts []wrapping.Option) (*wrapping.Options, []ClientOption, []KeyOption, error) {
@@ -85,7 +100,7 @@ func sortOpts(opts []wrapping.Option) (*wrapping.Options, []ClientOption, []KeyO
 
 // clientOptsFromConfigMap gets a clientOptions from a config map.
 func clientOptsFromConfigMap(config map[string]string) (*clientOptions, error) {
-	var opts clientOptions
+	opts := defaultClientOptions()
 	for key, val := range config {
 		switch key {
 		case "lib":
@@ -112,12 +127,12 @@ func clientOptsFromConfigMap(config map[string]string) (*clientOptions, error) {
 			return nil, fmt.Errorf(`deprecated config option: "token", use "token_label" instead`)
 		}
 	}
-	return &opts, nil
+	return opts, nil
 }
 
 // keyOptsFromConfigMap gets a keyOptions with from a config map.
 func keyOptsFromConfigMap(config map[string]string) (*keyOptions, error) {
-	var opts keyOptions
+	opts := defaultKeyOptions()
 	for key, val := range config {
 		switch key {
 		case "key_id":
@@ -128,11 +143,17 @@ func keyOptsFromConfigMap(config map[string]string) (*keyOptions, error) {
 			opts.mechanism = val
 		case "rsa_oaep_hash":
 			opts.hash = val
+		case "software_encryption":
+			soft, err := parseBool(val)
+			if err != nil {
+				return nil, err
+			}
+			opts.soft = soft
 		case "key":
 			return nil, fmt.Errorf(`deprecated config option: "key", use "key_label" instead`)
 		}
 	}
-	return &opts, nil
+	return opts, nil
 }
 
 // getWrapperOpts evaluates options that apply to a Wrapper.
@@ -206,6 +227,9 @@ func mergeConfigMapWithEnv(config map[string]string) {
 	}
 	if env := api.ReadBaoVariable(EnvHsmWrapperRsaOaepHash); env != "" {
 		config["rsa_oaep_hash"] = env
+	}
+	if env := api.ReadBaoVariable(EnvHsmWrapperSoftwareEncryption); env != "" {
+		config["software_encryption"] = env
 	}
 }
 
@@ -334,6 +358,16 @@ func WithHash(hash string) wrapping.Option {
 	return func() any {
 		return KeyOption(func(o *keyOptions) error {
 			o.hash = hash
+			return nil
+		})
+	}
+}
+
+// WithSoftwareEncryption enables/disables software encryption for asymmetric keys.
+func WithSoftwareEncryption(value bool) wrapping.Option {
+	return func() any {
+		return KeyOption(func(o *keyOptions) error {
+			o.soft = value
 			return nil
 		})
 	}
