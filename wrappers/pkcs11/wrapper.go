@@ -127,10 +127,12 @@ func (k *Wrapper) SetConfig(
 			if err != nil {
 				return err
 			}
-			// No software encryption, no need to fetch public key.
+			// No software encryption, no need to extract public key.
 			if !opts.soft {
 				return nil
 			}
+			// Encrypt(...) will check for a non-nil pubkey and use it for software encryption,
+			// else fall back to hardware encryption via encryptor.
 			k.pubkey, err = session.ExportRSAPublicKey(k.encryptor)
 			return err
 		default:
