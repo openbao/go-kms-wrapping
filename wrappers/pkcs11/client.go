@@ -221,8 +221,11 @@ func (s *Session) GetKeyType(obj pkcs11.ObjectHandle) (uint, error) {
 	return uint(keytype), nil
 }
 
-// EncryptRSAOAEP encrypts plaintext via CKM_RSA_PKCS_OAEP with the CKK_RSA key referenced by obj.
-func (s *Session) EncryptRSAOAEP(obj pkcs11.ObjectHandle, plaintext []byte, hash uint) ([]byte, error) {
+// EncryptRSAOAEP encrypts plaintext via CKM_RSA_PKCS_OAEP with the
+// CKK_RSA public key referenced by obj.
+func (s *Session) EncryptRSAOAEP(
+	obj pkcs11.ObjectHandle, plaintext []byte, hash uint,
+) ([]byte, error) {
 	mgf := hashMechanismToMgf(hash)
 	params := pkcs11.NewOAEPParams(hash, mgf, pkcs11.CKZ_DATA_SPECIFIED, nil)
 	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS_OAEP, params)}
@@ -269,8 +272,11 @@ func (s *Session) EncryptAESGCM(obj pkcs11.ObjectHandle, plaintext []byte) ([]by
 	return ciphertext, nonce, nil
 }
 
-// DecryptRSAOAEP decrypts ciphertext via CKM_RSA_PKCS_OAEP with the CKK_RSA key referenced by obj.
-func (s *Session) DecryptRSAOAEP(obj pkcs11.ObjectHandle, ciphertext []byte, hash uint) ([]byte, error) {
+// DecryptRSAOAEP decrypts ciphertext via CKM_RSA_PKCS_OAEP with the CKK_RSA
+// private key referenced by obj.
+func (s *Session) DecryptRSAOAEP(
+	obj pkcs11.ObjectHandle, ciphertext []byte, hash uint,
+) ([]byte, error) {
 	mgf := hashMechanismToMgf(hash)
 	params := pkcs11.NewOAEPParams(hash, mgf, pkcs11.CKZ_DATA_SPECIFIED, nil)
 	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS_OAEP, params)}
@@ -285,7 +291,8 @@ func (s *Session) DecryptRSAOAEP(obj pkcs11.ObjectHandle, ciphertext []byte, has
 	return plaintext, nil
 }
 
-// DecryptRSAPKCS1v15 decrypts ciphertext VIA CKM_RSA_PKCS with the CKK_RSA key referenced by obj.
+// DecryptRSAPKCS1v15 decrypts ciphertext VIA CKM_RSA_PKCS with the
+// CKK_RSA private key referenced by obj.
 func (s *Session) DecryptRSAPKCS1v15(obj pkcs11.ObjectHandle, ciphertext []byte) ([]byte, error) {
 	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS, nil)}
 	if err := s.ctx.DecryptInit(s.handle, mech, obj); err != nil {

@@ -56,7 +56,8 @@ func NewPool(slot *Slot, pin string, cap int) (*Pool, error) {
 	// Create an initial session to log the application in.
 	session, err := slot.ctx.OpenSession(slot.id, pkcs11.CKF_SERIAL_SESSION)
 	if err != nil {
-		return nil, fmt.Errorf("session pool: failed to create new session for slot %d: %w", slot.id, err)
+		return nil, fmt.Errorf("session pool: failed to create new session for slot %d: %w",
+			slot.id, err)
 	}
 	if err := slot.ctx.Login(session, pkcs11.CKU_USER, pin); err != nil {
 		return nil, fmt.Errorf("session pool: failed to log into slot %d: %w", slot.id, err)
@@ -98,7 +99,8 @@ func (p *Pool) Get(ctx context.Context) (pkcs11.SessionHandle, error) {
 		// Open a new session, a read-only session is enough for our purposes.
 		session, err := p.ctx.OpenSession(p.slot, pkcs11.CKF_SERIAL_SESSION)
 		if err != nil {
-			return 0, fmt.Errorf("session pool: failed to create new session for slot %d: %w", p.slot, err)
+			return 0, fmt.Errorf("session pool: failed to create new session for slot %d: %w",
+				p.slot, err)
 		}
 		p.size++
 		return session, nil
