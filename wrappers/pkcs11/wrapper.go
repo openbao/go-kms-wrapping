@@ -5,6 +5,9 @@ package pkcs11
 
 import (
 	"context"
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
 	"fmt"
 	"strconv"
 
@@ -23,6 +26,8 @@ type Wrapper struct {
 	// Handle to the encryption/decryption key(s),
 	// equal for symmetric keys
 	encryptor, decryptor pkcs11.ObjectHandle
+	// Exported public key in case we are using software encryption for asymmetric keys.
+	pubkey crypto.PublicKey
 }
 
 var (
@@ -60,7 +65,9 @@ func (k *Wrapper) KeyId(_ context.Context) (string, error) {
 }
 
 // SetConfig configures the client and key used by the Wrapper.
-func (k *Wrapper) SetConfig(ctx context.Context, options ...wrapping.Option) (*wrapping.WrapperConfig, error) {
+func (k *Wrapper) SetConfig(
+	ctx context.Context, options ...wrapping.Option,
+) (*wrapping.WrapperConfig, error) {
 	opts, err := getWrapperOpts(options)
 	if err != nil {
 		return nil, err
@@ -71,7 +78,8 @@ func (k *Wrapper) SetConfig(ctx context.Context, options ...wrapping.Option) (*w
 		return nil, err
 	}
 
-	// Mechanism/key type may be unset for now and determined automatically based the on keys that are found:
+	// Mechanism/key type may be unset for now and determined automatically based
+	// the on keys that are found:
 	mechanism, keytype, err := maybeMechanismFromString(opts.mechanism)
 	if err != nil {
 		return nil, err
@@ -116,6 +124,14 @@ func (k *Wrapper) SetConfig(ctx context.Context, options ...wrapping.Option) (*w
 		case pkcs11.CKK_RSA:
 			// Fetch the public key half.
 			k.encryptor, err = session.FindEncryptionKey(id, label, keytype)
+			if err != nil {
+				return err
+			}
+			// No software encryption, no need to fetch public key.
+			if !opts.soft {
+				return nil
+			}
+			k.pubkey, err = session.ExportRSAPublicKey(k.encryptor)
 			return err
 		default:
 			return fmt.Errorf("unsupported key type: %d", *keytype)
@@ -162,13 +178,20 @@ func (k *Wrapper) collectMetadata(opts *wrapperOptions) map[string]string {
 }
 
 // Encrypt encrypts plaintext via PKCS#11. The supported mechanisms are RSA-OAEP and AES-GCM.
-func (k *Wrapper) Encrypt(ctx context.Context, plaintext []byte, _ ...wrapping.Option) (*wrapping.BlobInfo, error) {
+func (k *Wrapper) Encrypt(
+	ctx context.Context, plaintext []byte, _ ...wrapping.Option,
+) (*wrapping.BlobInfo, error) {
 	var ret wrapping.BlobInfo
 	err := k.client.WithSession(ctx, func(session *Session) error {
 		var err error
 		switch k.mechanism {
 		case pkcs11.CKM_RSA_PKCS_OAEP:
-			ret.Ciphertext, err = session.EncryptRSAOAEP(k.encryptor, plaintext, k.hash)
+			if pub, ok := k.pubkey.(*rsa.PublicKey); ok && pub != nil {
+				h := hashMechanismToCrypto(k.hash).New()
+				ret.Ciphertext, err = rsa.EncryptOAEP(h, rand.Reader, pub, plaintext, nil)
+			} else {
+				ret.Ciphertext, err = session.EncryptRSAOAEP(k.encryptor, plaintext, k.hash)
+			}
 		case pkcs11.CKM_AES_GCM:
 			ret.Ciphertext, ret.Iv, err = session.EncryptAESGCM(k.encryptor, plaintext)
 		default:
@@ -180,7 +203,9 @@ func (k *Wrapper) Encrypt(ctx context.Context, plaintext []byte, _ ...wrapping.O
 }
 
 // Decrypt decrypts ciphertext via PKCS#11. The supported mechanisms are RSA-OAEP and AES-GCM.
-func (k *Wrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, _ ...wrapping.Option) ([]byte, error) {
+func (k *Wrapper) Decrypt(
+	ctx context.Context, in *wrapping.BlobInfo, _ ...wrapping.Option,
+) ([]byte, error) {
 	var plaintext []byte
 	err := k.client.WithSession(ctx, func(session *Session) error {
 		var err error
