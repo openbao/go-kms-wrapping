@@ -33,8 +33,8 @@ func (k *Hub) Init(_ context.Context, _ ...wrapping.Option) error {
 }
 
 // Finalize finalizes the Hub and closes its client.
-func (k *Hub) Finalize(_ context.Context, _ ...wrapping.Option) error {
-	return k.client.Close()
+func (k *Hub) Finalize(ctx context.Context, _ ...wrapping.Option) error {
+	return k.client.Close(ctx)
 }
 
 // SetConfig configures the client used by the Hub.

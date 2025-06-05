@@ -49,8 +49,8 @@ func (k *Wrapper) Init(_ context.Context, _ ...wrapping.Option) error {
 }
 
 // Finalize finalizes the Wrapper and closes its client.
-func (k *Wrapper) Finalize(_ context.Context, _ ...wrapping.Option) error {
-	k.client.Close()
+func (k *Wrapper) Finalize(ctx context.Context, _ ...wrapping.Option) error {
+	k.client.Close(ctx)
 	return nil
 }
 

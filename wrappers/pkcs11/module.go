@@ -12,15 +12,15 @@ import (
 	"github.com/miekg/pkcs11"
 )
 
-// Module is a reference-counted PKCS#11 context.
-type Module struct {
+// module is a reference-counted PKCS#11 context.
+type module struct {
 	ctx  *pkcs11.Ctx
 	refs int
 	path string
 }
 
-// Slot is a PKCS#11 slot with pre-fetched TokenInfo.
-type Slot struct {
+// slot is a PKCS#11 slot with pre-fetched TokenInfo.
+type slot struct {
 	ctx  *pkcs11.Ctx
 	info *pkcs11.TokenInfo
 	id   uint
@@ -28,13 +28,13 @@ type Slot struct {
 
 var (
 	// moduleCache caches modules by path.
-	moduleCache = make(map[string]*Module)
+	moduleCache = make(map[string]*module)
 	// moduleCacheLock guards moduleCache.
 	moduleCacheLock = sync.Mutex{}
 )
 
-// OpenModule opens and initializes a PKCS#11 module, incrementing its reference count.
-func OpenModule(path string) (*Module, error) {
+// openModule opens and initializes a PKCS#11 module, incrementing its reference count.
+func openModule(path string) (*module, error) {
 	if path == "" {
 		return nil, fmt.Errorf("module path must be set")
 	}
@@ -74,13 +74,13 @@ func OpenModule(path string) (*Module, error) {
 		return nil, fmt.Errorf("failed to initialize module %q: %w", path, err)
 	}
 
-	module := &Module{ctx: ctx, refs: 1, path: path}
-	moduleCache[path] = module
-	return module, nil
+	m := &module{ctx: ctx, refs: 1, path: path}
+	moduleCache[path] = m
+	return m, nil
 }
 
 // Close decrements the module's reference count, freeing it if the count reaches zero.
-func (m *Module) Close() {
+func (m *module) Close() {
 	moduleCacheLock.Lock()
 	defer moduleCacheLock.Unlock()
 
@@ -98,7 +98,7 @@ func (m *Module) Close() {
 }
 
 // FindSlot finds the slot corresponding to slotNumber and tokenLabel.
-func (m *Module) FindSlot(slotNumber *uint, tokenLabel string) (*Slot, error) {
+func (m *module) FindSlot(slotNumber *uint, tokenLabel string) (*slot, error) {
 	if slotNumber == nil && tokenLabel == "" {
 		return nil, fmt.Errorf("at least one of slot number, token label must be set")
 	}
@@ -115,7 +115,7 @@ func (m *Module) FindSlot(slotNumber *uint, tokenLabel string) (*Slot, error) {
 				id, err)
 		}
 		if (slotNumber != nil && id == *slotNumber) || info.Label == tokenLabel {
-			return &Slot{ctx: m.ctx, id: id, info: &info}, err
+			return &slot{ctx: m.ctx, id: id, info: &info}, err
 		}
 	}
 
