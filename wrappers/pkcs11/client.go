@@ -382,8 +382,10 @@ func (s *Session) ExportECDSAPublicKey(obj pkcs11.ObjectHandle) (*ecdsa.PublicKe
 	if curve == nil {
 		return nil, fmt.Errorf("unknown/unsupported elliptic curve")
 	}
-	// Deprecated function, but realistically waiting on https://github.com/golang/go/issues/63963
-	// (i.e., likely Go 1.25) to reasonably replace.
+	// Deprecated function, but realistically waiting on Go 1.25 to reasonably replace.
+	// For more information, see: https://github.com/golang/go/issues/63963
+	// Below should work with Go 1.25:
+	// return ecdsa.ParseUncompressedPublicKey(curve, point)
 	x, y := elliptic.Unmarshal(curve, point)
 	if x == nil || y == nil {
 		return nil, fmt.Errorf("failed to unmarshal elliptic curve point")
