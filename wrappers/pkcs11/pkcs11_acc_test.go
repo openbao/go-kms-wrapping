@@ -440,7 +440,6 @@ func testDecrypter(t *testing.T, decrypter crypto.Decrypter) {
 			require.NotNil(t, decrypted)
 			require.NotEmpty(t, decrypted)
 			require.Equal(t, decrypted, plaintext)
-
 		})
 
 		t.Run("PKCS#1 v1.5", func(t *testing.T) {

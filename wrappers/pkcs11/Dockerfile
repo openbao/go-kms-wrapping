@@ -5,7 +5,7 @@ FROM docker.io/golang:latest
 
 # Install required packages:
 RUN apt update && \
-	DEBIAN_FRONTEND="noninteractive" apt install -y --no-install-recommends softhsm2 opensc
+  DEBIAN_FRONTEND="noninteractive" apt install -y --no-install-recommends softhsm2 opensc
 
 ENV SO_PIN=1234
 ENV BAO_HSM_LIB=/usr/lib/softhsm/libsofthsm2.so
@@ -34,10 +34,10 @@ RUN <<EOF
 EOF
 
 WORKDIR /go-kms-wrapping
-COPY ./go.mod ./go.sum .
+COPY ./go.mod ./go.sum ./
 
 WORKDIR /go-kms-wrapping/wrappers/pkcs11
-COPY ./wrappers/pkcs11/go.mod ./wrappers/pkcs11/go.sum .
+COPY ./wrappers/pkcs11/go.mod ./wrappers/pkcs11/go.sum ./
 
 RUN go mod download
 
