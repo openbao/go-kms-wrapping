@@ -16,15 +16,15 @@ import (
 
 // mechanismFromString parses supported mechanisms from a string.
 func mechanismFromString(input string) (uint, uint, error) {
-	input = strings.ToUpper(input)
-	switch input {
+	upper := strings.ToUpper(input)
+	switch upper {
 	case "CKM_AES_GCM", "AES_GCM":
 		return pkcs11.CKM_AES_GCM, pkcs11.CKK_AES, nil
 	case "CKM_RSA_PKCS_OAEP", "RSA_PKCS_OAEP":
 		return pkcs11.CKM_RSA_PKCS_OAEP, pkcs11.CKK_RSA, nil
 	// Deprecated mechanisms
 	case "CKM_AES_CBC_PAD", "AES_CBC_PAD", "CKM_RSA_PKCS", "RSA_PKCS":
-		return 0, 0, fmt.Errorf("deprecated mechanism: %s", input)
+		return 0, 0, fmt.Errorf("deprecated mechanism: %s", upper)
 	}
 
 	var err error
@@ -46,7 +46,7 @@ func mechanismFromString(input string) (uint, uint, error) {
 	case pkcs11.CKM_RSA_PKCS_OAEP:
 		return pkcs11.CKM_RSA_PKCS_OAEP, pkcs11.CKK_RSA, nil
 	case pkcs11.CKM_AES_CBC, pkcs11.CKM_AES_CBC_PAD, pkcs11.CKM_RSA_PKCS:
-		return 0, 0, fmt.Errorf("deprecated mechanism: %s", input)
+		return 0, 0, fmt.Errorf("deprecated mechanism: %s", upper)
 	default:
 		return 0, 0, fmt.Errorf("unsupported mechanism: %s", input)
 	}
@@ -104,8 +104,7 @@ func isAsymmetricKeyType(keytype uint) bool {
 
 // hashMechanismFromString parses supported hash mechanisms from a string.
 func hashMechanismFromString(input string) (uint, error) {
-	input = strings.ToUpper(input)
-	switch input {
+	switch strings.ToUpper(input) {
 	case "SHA1":
 		return pkcs11.CKM_SHA_1, nil
 	case "SHA224":
