@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"math"
 	"math/big"
-	"sync"
 
 	"github.com/miekg/pkcs11"
 )
@@ -36,53 +35,18 @@ type Session struct {
 	handle pkcs11.SessionHandle
 }
 
-// slotGuard is used to ensure that at most one client can operate on a
-// certain module's slot. This is important for multi-tenancy as login
-// state in PKCS#11 is per-application, not per-session.
-// We try our best to resolve and deduplicate the module path, but
-// ultimately it is up to the administrator that configures module paths
-// to ensure security.
-type slotGuard struct {
-	// Path of the module file
-	module string
-	// Slot number to use
-	slot uint
-}
-
-var (
-	// slotGuards tracks all in-use slots.
-	slotGuards = make(map[slotGuard]bool)
-	// slotGuardsLock guards slotGuards.
-	slotGuardsLock = sync.Mutex{}
-)
-
 // NewClient creates a new client and initializes the underlying PKCS#11 module.
 func NewClient(
 	modulePath string, slotNumber *uint, tokenLabel, pin string, maxParallel uint,
 ) (*Client, error) {
-	mod, err := openModule(modulePath)
+	mod, info, err := acquireSlot(modulePath, slotNumber, tokenLabel)
 	if err != nil {
 		return nil, err
 	}
 
-	slot, err := mod.FindSlot(slotNumber, tokenLabel)
+	pool, err := newSessionPool(mod.ctx, info, pin, maxParallel)
 	if err != nil {
-		return nil, errors.Join(err, mod.Close())
-	}
-
-	slotGuardsLock.Lock()
-	defer slotGuardsLock.Unlock()
-
-	guard := slotGuard{module: mod.path, slot: slot.id}
-	if _, ok := slotGuards[guard]; ok {
-		return nil, errors.Join(fmt.Errorf("slot %d of module %q is already in use by another client",
-			slot.id, modulePath), mod.Close())
-	}
-	slotGuards[guard] = true
-
-	pool, err := newSessionPool(slot, pin, maxParallel)
-	if err != nil {
-		return nil, errors.Join(err, mod.Close())
+		return nil, errors.Join(err, mod.releaseSlot(info.ID))
 	}
 
 	return &Client{ctx: mod.ctx, mod: mod, pool: pool}, nil
@@ -90,17 +54,7 @@ func NewClient(
 
 // Close discards the client's resources.
 func (c *Client) Close() error {
-	// Closing the pool only fails if CloseAllSessions or Logout fail.
-	// It's still okay to close the module afterwards.
-	err := c.pool.Close()
-
-	// We always want to free up the slot, regardless of errors.
-	slotGuardsLock.Lock()
-	guard := slotGuard{module: c.mod.path, slot: c.pool.slot}
-	delete(slotGuards, guard)
-	slotGuardsLock.Unlock()
-
-	return errors.Join(err, c.mod.Close())
+	return errors.Join(c.pool.close(), c.mod.releaseSlot(c.pool.slot))
 }
 
 // Module returns the module path the client initialized on.
@@ -115,12 +69,12 @@ func (c *Client) Slot() uint {
 
 // WithSession takes a function f that is passed a session.
 func (c *Client) WithSession(ctx context.Context, f func(*Session) error) error {
-	handle, err := c.pool.Get(ctx)
+	handle, err := c.pool.get(ctx)
 	if err != nil {
 		return err
 	}
 	session := &Session{ctx: c.ctx, handle: handle}
-	return errors.Join(f(session), c.pool.Put(handle))
+	return errors.Join(f(session), c.pool.put(handle))
 }
 
 // FindKey finds a key based on key ID, label and other template attributes.

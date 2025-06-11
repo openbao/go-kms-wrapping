@@ -21,7 +21,7 @@ import (
 type sessionPool struct {
 	// Associated pkcs11.Ctx
 	ctx *pkcs11.Ctx
-	// HSM slot that the pool manages
+	// Token slot that the pool manages
 	slot uint
 	// Handle to persistently logged in session
 	persistent pkcs11.SessionHandle
@@ -43,15 +43,15 @@ const DefaultMaxParallel = 1024
 // newSessionPool creates a new session pool for a slot.
 // A maxSessions value may be specified to override DefaultMaxSessions,
 // or set to a value less than 1 to use DefaultMaxSessions.
-func newSessionPool(slot *slot, pin string, maxParallel uint) (*sessionPool, error) {
+func newSessionPool(ctx *pkcs11.Ctx, info *tokenInfo, pin string, maxParallel uint) (*sessionPool, error) {
 	if maxParallel == 0 {
 		maxParallel = DefaultMaxParallel
 	}
 
-	switch slot.info.MaxSessionCount {
+	switch info.MaxSessionCount {
 	case pkcs11.CK_UNAVAILABLE_INFORMATION, pkcs11.CK_EFFECTIVELY_INFINITE:
 	default:
-		maxParallel = min(maxParallel, slot.info.MaxSessionCount)
+		maxParallel = min(maxParallel, info.MaxSessionCount)
 	}
 
 	if maxParallel < 2 {
@@ -60,32 +60,30 @@ func newSessionPool(slot *slot, pin string, maxParallel uint) (*sessionPool, err
 	}
 
 	// Create our persistent session to keep the the application logged in.
-	session, err := slot.ctx.OpenSession(slot.id, pkcs11.CKF_SERIAL_SESSION)
+	session, err := ctx.OpenSession(info.ID, pkcs11.CKF_SERIAL_SESSION)
 	if err != nil {
-		return nil, fmt.Errorf("session pool: failed to create new session for slot %d: %w",
-			slot.id, err)
+		return nil, fmt.Errorf("session pool: failed to create new session for slot %d: %w", info.ID, err)
 	}
-	if loginErr := slot.ctx.Login(session, pkcs11.CKU_USER, pin); loginErr != nil {
-		loginErr = fmt.Errorf("session pool: failed to log into slot %d: %w", slot.id, loginErr)
-		closeErr := slot.ctx.CloseSession(session)
+	if loginErr := ctx.Login(session, pkcs11.CKU_USER, pin); loginErr != nil {
+		loginErr = fmt.Errorf("session pool: failed to log into slot %d: %w", info.ID, loginErr)
+		closeErr := ctx.CloseSession(session)
 		return nil, errors.Join(loginErr, closeErr)
 	}
 
 	var m sync.Mutex
 	p := &sessionPool{
-		ctx:        slot.ctx,
-		slot:       slot.id,
+		ctx:        ctx,
+		slot:       info.ID,
 		persistent: session,
 		max:        maxParallel - 1, // Minus the persistent session.
 		cond:       sync.NewCond(&m),
 	}
-
 	return p, nil
 }
 
-// Get takes a fresh session from the pool, waiting for available capacity.
+// get takes a fresh session from the pool, waiting for available capacity.
 // Context cancellation is respected when waiting for session capacity.
-func (p *sessionPool) Get(ctx context.Context) (pkcs11.SessionHandle, error) {
+func (p *sessionPool) get(ctx context.Context) (pkcs11.SessionHandle, error) {
 	// Wait for available capacity.
 	p.cond.L.Lock()
 	defer p.cond.L.Unlock()
@@ -112,9 +110,9 @@ func (p *sessionPool) Get(ctx context.Context) (pkcs11.SessionHandle, error) {
 	return session, nil
 }
 
-// Put returns a session to the pool, closing it.
+// put returns a session to the pool, closing it.
 // The caller must ensure that a session is only ever returned once.
-func (p *sessionPool) Put(session pkcs11.SessionHandle) error {
+func (p *sessionPool) put(session pkcs11.SessionHandle) error {
 	p.cond.L.Lock()
 	p.size--
 	p.cond.L.Unlock()
@@ -126,9 +124,9 @@ func (p *sessionPool) Put(session pkcs11.SessionHandle) error {
 	return nil
 }
 
-// Close marks the pool as closed and waits for all sessions to return.
+// close marks the pool as closed and waits for all sessions to return.
 // Once the the closing process begins, no further sessions can be acquired.
-func (p *sessionPool) Close() error {
+func (p *sessionPool) close() error {
 	p.cond.L.Lock()
 	defer p.cond.L.Unlock()
 	p.closed = true
