@@ -31,7 +31,7 @@ type clientOptions struct {
 	slotNumber  *uint
 	tokenLabel  string
 	pin         string
-	maxSessions int
+	maxParallel uint
 }
 
 // keyOptions are the options relevant for key configuration and usage.
@@ -115,12 +115,12 @@ func clientOptsFromConfigMap(config map[string]string) (*clientOptions, error) {
 			opts.tokenLabel = val
 		case "pin":
 			opts.pin = val
-		case "max_parallel": // Called "max_parallel" for compability with upstream
-			sessions, err := strconv.ParseInt(val, 10, 32)
+		case "max_parallel":
+			sessions, err := strconv.ParseUint(val, 10, 32)
 			if err != nil {
-				return nil, fmt.Errorf("failed to parse max sessions value: %w", err)
+				return nil, fmt.Errorf("failed to parse max_parallel value: %w", err)
 			}
-			opts.maxSessions = int(sessions)
+			opts.maxParallel = uint(sessions)
 		case "module":
 			return nil, fmt.Errorf(`deprecated config option: "module", use "lib" instead`)
 		case "token":
@@ -312,12 +312,12 @@ func WithPin(pin string) wrapping.Option {
 	}
 }
 
-// WithMaxSessions sets the maximum concurrent sessions against the the token slot.
-// Set to a value less than 1 to automatically choose the limit.
-func WithMaxSessions(sessions int) wrapping.Option {
+// WithMaxParallel sets the maximum concurrent sessions against the the token slot.
+// Set to 0 to automatically determine the limit.
+func WithMaxParallel(sessions uint) wrapping.Option {
 	return func() any {
 		return ClientOption(func(o *clientOptions) error {
-			o.maxSessions = sessions
+			o.maxParallel = sessions
 			return nil
 		})
 	}
