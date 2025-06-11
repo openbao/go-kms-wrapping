@@ -48,24 +48,28 @@ ENV KMS_ACC_TESTS=true
 # SoftHSM only supports SHA1.
 ENV BAO_HSM_RSA_OAEP_HASH=SHA1
 
+# To pass options such as -race
+ARG TESTFLAGS
+ENV TESTFLAGS=${TESTFLAGS}
+
 RUN <<EOF
   set -e
 
 	# Tests that don't require a key:
-	go clean -testcache && go test -run '^Test(Module|Pool|Client)$'
+	go clean -testcache && go test -run '^TestPool$' ${TESTFLAGS}
 
 	# AES
 	export BAO_HSM_KEY_LABEL=$AES_KEY_LABEL
-	go clean -testcache && go test -run '^TestWrapper$'
+	go clean -testcache && go test -run '^TestWrapper$' ${TESTFLAGS}
 
 	# RSA
 	export BAO_HSM_KEY_LABEL=$RSA_KEY_LABEL
-	go clean -testcache && go test -run '^Test(Wrapper|ExternalKey)$'
+	go clean -testcache && go test -run '^Test(Wrapper|ExternalKey)$' ${TESTFLAGS}
 
 	# RSA with hardware encryption
-	BAO_HSM_SOFTWARE_ENCRYPTION=0 go clean -testcache && go test -run '^TestWrapper$'
+	BAO_HSM_SOFTWARE_ENCRYPTION=0 go clean -testcache && go test -run '^TestWrapper$' ${TESTFLAGS}
 
 	# ECDSA
 	export BAO_HSM_KEY_LABEL=$ECDSA_KEY_LABEL
-	go clean -testcache && go test -run '^TestExternalKey$'
+	go clean -testcache && go test -run '^TestExternalKey$' ${TESTFLAGS}
 EOF

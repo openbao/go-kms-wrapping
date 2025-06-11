@@ -20,78 +20,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestModule ensures that shared library reference counting and
-// slot resolution work as expected.
-//
-// Required environment variables:
-//   - BAO_HSM_LIB
-//   - BAO_HSM_TOKEN_LABEL or BAO_HSM_SLOT
-func TestModule(t *testing.T) {
-	if os.Getenv("VAULT_ACC") == "" && os.Getenv("KMS_ACC_TESTS") == "" {
-		t.SkipNow()
-	}
-
-	opts, err := getWrapperOpts(nil)
-	require.NoError(t, err)
-
-	t.Run("reference counting", func(t *testing.T) {
-		module, err := openModule(opts.lib)
-		require.NoError(t, err)
-		require.Equal(t, module.refs, 1)
-		require.Equal(t, len(moduleCache), 1)
-
-		module2, err := openModule(opts.lib)
-		require.NoError(t, err)
-		require.Equal(t, module.refs, 2)
-
-		// Pointer should be equal:
-		require.True(t, module == module2)
-		// The internal ctx pointer, too
-		require.True(t, module.ctx == module2.ctx)
-
-		module2.Close()
-		require.Equal(t, module.refs, 1)
-
-		module.Close()
-		require.Equal(t, len(moduleCache), 0)
-
-		module3, err := openModule(opts.lib)
-		require.NoError(t, err)
-		require.Equal(t, module3.refs, 1)
-
-		// Should be a new pointer now
-		require.False(t, module == module3)
-		// The internal ctx pointer, too
-		require.False(t, module.ctx == module3.ctx)
-
-		module3.Close()
-		require.Equal(t, len(moduleCache), 0)
-	})
-
-	t.Run("slot resolution", func(t *testing.T) {
-		module, err := openModule(opts.lib)
-		require.NoError(t, err)
-		defer module.Close()
-
-		t.Run("complains about lack of parameters", func(t *testing.T) {
-			_, err := module.FindSlot(nil, "")
-			require.Error(t, err)
-		})
-
-		t.Run("find existing slot", func(t *testing.T) {
-			slot, err := module.FindSlot(opts.slotNumber, opts.tokenLabel)
-			require.NoError(t, err)
-
-			if opts.slotNumber != nil {
-				require.Equal(t, slot.id, *opts.slotNumber)
-			}
-			if opts.tokenLabel != "" {
-				require.Equal(t, slot.info.Label, opts.tokenLabel)
-			}
-		})
-	})
-}
-
 // TestPool ensures that the session pool implementation
 // handles concurrency and cancellation as expected.
 //
@@ -107,87 +35,84 @@ func TestPool(t *testing.T) {
 	opts, err := getWrapperOpts(nil)
 	require.NoError(t, err)
 
-	module, err := openModule(opts.lib)
+	mod, info, err := acquireSlot(opts.lib, opts.slotNumber, opts.tokenLabel)
 	require.NoError(t, err)
-	defer func() { require.NoError(t, module.Close()) }()
-
-	slot, err := module.FindSlot(opts.slotNumber, opts.tokenLabel)
-	require.NoError(t, err)
+	defer func() { require.NoError(t, mod.releaseSlot(info.ID)) }()
 
 	t.Run("basic functionality", func(t *testing.T) {
 		ctx := context.Background()
-		pool, err := newSessionPool(slot, opts.pin, 0)
+		pool, err := newSessionPool(mod.ctx, info, opts.pin, 0)
 		require.NoError(t, err)
 
-		session, err := pool.Get(ctx)
+		session, err := pool.get(ctx)
 		require.NoError(t, err)
 		require.Equal(t, pool.size, uint(1))
 
-		session2, err := pool.Get(ctx)
+		session2, err := pool.get(ctx)
 		require.NoError(t, err)
 		require.Equal(t, pool.size, uint(2))
 
-		pool.Put(session2)
+		pool.put(session2)
 		require.Equal(t, pool.size, uint(1))
 
-		session3, err := pool.Get(ctx)
+		session3, err := pool.get(ctx)
 		require.NoError(t, err)
 		require.Equal(t, pool.size, uint(2))
 
-		pool.Put(session)
-		pool.Put(session3)
+		pool.put(session)
+		pool.put(session3)
 		require.Equal(t, pool.size, uint(0))
 
-		err = pool.Close()
+		err = pool.close()
 		require.NoError(t, err)
 
 		// Pool is closed, should error
-		_, err = pool.Get(ctx)
+		_, err = pool.get(ctx)
 		require.Error(t, err)
 	})
 
 	t.Run("context cancellation", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 
-		pool, err := newSessionPool(slot, opts.pin, 2)
+		pool, err := newSessionPool(mod.ctx, info, opts.pin, 2)
 		require.NoError(t, err)
-		defer func() { require.NoError(t, pool.Close()) }()
+		defer func() { require.NoError(t, pool.close()) }()
 
 		// Take the only session
-		session, err := pool.Get(ctx)
+		session, err := pool.get(ctx)
 		require.NoError(t, err)
 
 		result := make(chan error)
 		go func() {
 			// Take another session, should block
-			_, err := pool.Get(ctx)
+			_, err := pool.get(ctx)
 			result <- err
 		}()
 
 		cancel()
 		require.ErrorIs(t, <-result, context.Canceled)
 
-		pool.Put(session)
+		pool.put(session)
 	})
 
 	t.Run("wait before closing", func(t *testing.T) {
 		ctx := context.Background()
-		pool, err := newSessionPool(slot, opts.pin, 0)
+		pool, err := newSessionPool(mod.ctx, info, opts.pin, 0)
 		require.NoError(t, err)
 
-		session1, err := pool.Get(ctx)
+		session1, err := pool.get(ctx)
 		require.NoError(t, err)
 
-		session2, err := pool.Get(ctx)
+		session2, err := pool.get(ctx)
 		require.NoError(t, err)
 
-		pool.Put(session1)
+		pool.put(session1)
 
 		returned := atomic.Bool{}
 		results := make(chan error)
 
 		go func() {
-			err := pool.Close()
+			err := pool.close()
 			results <- err
 			if !returned.Load() {
 				results <- fmt.Errorf("pool was closed before session returned")
@@ -198,7 +123,7 @@ func TestPool(t *testing.T) {
 
 		// Give it some time before we return the session
 		<-time.After(time.Millisecond * 10)
-		pool.Put(session2)
+		pool.put(session2)
 		returned.Store(true)
 
 		require.NoError(t, <-results)
@@ -208,16 +133,16 @@ func TestPool(t *testing.T) {
 	t.Run("limits concurrency", func(t *testing.T) {
 		ctx := context.Background()
 
-		pool, err := newSessionPool(slot, opts.pin, 10)
+		pool, err := newSessionPool(mod.ctx, info, opts.pin, 10)
 		require.NoError(t, err)
-		defer func() { require.NoError(t, pool.Close()) }()
+		defer func() { require.NoError(t, pool.close()) }()
 
 		concurrency := atomic.Uint64{}
 		results := make(chan error)
 
 		for range pool.max * 10 {
 			go func() {
-				session, err := pool.Get(ctx)
+				session, err := pool.get(ctx)
 				if err != nil {
 					results <- err
 					return
@@ -230,7 +155,7 @@ func TestPool(t *testing.T) {
 				}
 
 				concurrency.Add(^uint64(0))
-				results <- pool.Put(session)
+				results <- pool.put(session)
 			}()
 		}
 
@@ -238,39 +163,6 @@ func TestPool(t *testing.T) {
 			require.NoError(t, <-results)
 		}
 	})
-}
-
-// TestClient ensures that the client ensures it is unique w.r.t.
-// the token slot it operates against.
-//
-// The majority of client functionality is better tested in below
-// TestWrapper and TestExternalKey tests.
-//
-// Required environment variables:
-//   - BAO_HSM_LIB
-//   - BAO_HSM_TOKEN_LABEL or BAO_HSM_SLOT
-//   - BAO_HSM_PIN
-func TestClient(t *testing.T) {
-	if os.Getenv("VAULT_ACC") == "" && os.Getenv("KMS_ACC_TESTS") == "" {
-		t.SkipNow()
-	}
-
-	opts, err := getWrapperOpts(nil)
-	require.NoError(t, err)
-
-	client, err := NewClient(opts.lib, opts.slotNumber, opts.tokenLabel, opts.pin, 0)
-	require.NoError(t, err)
-
-	t.Run("cannot create more than one client for same slot", func(t *testing.T) {
-		_, err := NewClient(opts.lib, opts.slotNumber, opts.tokenLabel, opts.pin, 0)
-		require.Error(t, err)
-	})
-
-	// Optimally we would be able to verify that we _can_ create a client for a different slot,
-	// but that complicates test setup to a degree where I'd prefer not to.
-
-	err = client.Close()
-	require.NoError(t, err)
 }
 
 // TestWrapper tests the lifecycle of a Wrapper.
@@ -306,9 +198,16 @@ func TestWrapper(t *testing.T) {
 
 	err = wrapper.Finalize(ctx)
 	require.NoError(t, err)
+
+	// Pool is cleaned up properly?
+	require.Zero(t, wrapper.client.pool.size)
+
+	// Module is cleaned up properly?
+	require.Zero(t, len(modules))
+	require.Zero(t, len(wrapper.client.mod.slots))
 }
 
-// TestWrapper tests the lifecycle of an ExternalKey via a Hub.
+// TestExternalKey tests the lifecycle of an ExternalKey via a Hub.
 //
 // Required environment variables:
 //   - BAO_HSM_LIB
@@ -361,6 +260,13 @@ func TestExternalKey(t *testing.T) {
 
 	err = hub.Finalize(ctx)
 	require.NoError(t, err)
+
+	// Pool is cleaned up properly?
+	require.Zero(t, hub.client.pool.size)
+
+	// Module is cleaned up properly?
+	require.Zero(t, len(modules))
+	require.Zero(t, len(hub.client.mod.slots))
 }
 
 // testSigner ensures that a crypto.Signer works as expected.
