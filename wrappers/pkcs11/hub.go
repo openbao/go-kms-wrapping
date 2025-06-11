@@ -28,35 +28,33 @@ func NewHub() *Hub {
 }
 
 // Init initializes the Hub. It is currently a no-op.
-func (k *Hub) Init(_ context.Context, _ ...wrapping.Option) error {
+func (h *Hub) Init(_ context.Context, _ ...wrapping.Option) error {
 	return nil
 }
 
 // Finalize finalizes the Hub and closes its client.
-func (k *Hub) Finalize(ctx context.Context, _ ...wrapping.Option) error {
-	return k.client.Close(ctx)
+func (h *Hub) Finalize(_ context.Context, _ ...wrapping.Option) error {
+	return h.client.Close()
 }
 
 // SetConfig configures the client used by the Hub.
-func (k *Hub) SetConfig(_ context.Context, options ...wrapping.Option) error {
+func (h *Hub) SetConfig(_ context.Context, options ...wrapping.Option) error {
 	opts, err := getHubOpts(options)
 	if err != nil {
 		return err
 	}
-	client, err := NewClient(opts.lib, opts.slotNumber, opts.tokenLabel, opts.pin, opts.maxSessions)
+	client, err := NewClient(opts.lib, opts.slotNumber, opts.tokenLabel, opts.pin, opts.maxParallel)
 	if err != nil {
 		return err
 	}
-	k.client = client
+	h.client = client
 	return nil
 }
 
 // GetKey returns an opaque key backed by PKCS#11.
 // This key may be a crypto.Signer and/or a crypto.Decrypter.
 // Currently supported key types are ECDSA and RSA.
-func (k *Hub) GetKey(
-	ctx context.Context, options ...wrapping.Option,
-) (wrapping.ExternalKey, error) {
+func (h *Hub) GetKey(ctx context.Context, options ...wrapping.Option) (wrapping.ExternalKey, error) {
 	opts, err := getSignerDecrypterOpts(options)
 	if err != nil {
 		return nil, err
@@ -67,7 +65,7 @@ func (k *Hub) GetKey(
 	}
 
 	var ret wrapping.ExternalKey
-	err = k.client.WithSession(ctx, func(session *Session) error {
+	err = h.client.WithSession(ctx, func(session *Session) error {
 		priv, pub, err := session.FindKeyPair(id, label)
 		if err != nil {
 			return err
@@ -77,7 +75,7 @@ func (k *Hub) GetKey(
 			return err
 		}
 
-		base := baseExternalKey{ctx: ctx, client: k.client, obj: priv}
+		base := baseExternalKey{ctx: ctx, client: h.client, obj: priv}
 		switch keytype {
 		case pkcs11.CKK_EC:
 			public, err := session.ExportECDSAPublicKey(pub)

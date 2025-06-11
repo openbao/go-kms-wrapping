@@ -9,6 +9,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rsa"
 	"encoding/asn1"
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -57,7 +58,7 @@ var (
 
 // NewClient creates a new client and initializes the underlying PKCS#11 module.
 func NewClient(
-	modulePath string, slotNumber *uint, tokenLabel, pin string, maxSessions int,
+	modulePath string, slotNumber *uint, tokenLabel, pin string, maxParallel uint,
 ) (*Client, error) {
 	mod, err := openModule(modulePath)
 	if err != nil {
@@ -66,8 +67,7 @@ func NewClient(
 
 	slot, err := mod.FindSlot(slotNumber, tokenLabel)
 	if err != nil {
-		mod.Close()
-		return nil, err
+		return nil, errors.Join(err, mod.Close())
 	}
 
 	slotGuardsLock.Lock()
@@ -75,24 +75,24 @@ func NewClient(
 
 	guard := slotGuard{module: mod.path, slot: slot.id}
 	if _, ok := slotGuards[guard]; ok {
-		mod.Close()
-		return nil, fmt.Errorf("slot %d of module %q is already in use by another client",
-			slot.id, modulePath)
+		return nil, errors.Join(fmt.Errorf("slot %d of module %q is already in use by another client",
+			slot.id, modulePath), mod.Close())
 	}
 	slotGuards[guard] = true
 
-	pool, err := newSessionPool(slot, pin, maxSessions)
+	pool, err := newSessionPool(slot, pin, maxParallel)
 	if err != nil {
-		mod.Close()
-		return nil, err
+		return nil, errors.Join(err, mod.Close())
 	}
 
 	return &Client{ctx: mod.ctx, mod: mod, pool: pool}, nil
 }
 
 // Close discards the client's resources.
-func (c *Client) Close(ctx context.Context) error {
-	err := c.pool.Close(ctx)
+func (c *Client) Close() error {
+	// Closing the pool only fails if CloseAllSessions or Logout fail.
+	// It's still okay to close the module afterwards.
+	err := c.pool.Close()
 
 	// We always want to free up the slot, regardless of errors.
 	slotGuardsLock.Lock()
@@ -100,15 +100,7 @@ func (c *Client) Close(ctx context.Context) error {
 	delete(slotGuards, guard)
 	slotGuardsLock.Unlock()
 
-	if err != nil {
-		return err
-	}
-	// Closing the module is only safe if the pool exited successfully.
-	// Otherwise, we cannot guarantee that potentially freeing the module won't cause
-	// nil pointer dereferences.
-	c.mod.Close()
-
-	return nil
+	return errors.Join(err, c.mod.Close())
 }
 
 // Module returns the module path the client initialized on.
@@ -125,12 +117,10 @@ func (c *Client) Slot() uint {
 func (c *Client) WithSession(ctx context.Context, f func(*Session) error) error {
 	handle, err := c.pool.Get(ctx)
 	if err != nil {
-		return nil
+		return err
 	}
-	defer c.pool.Put(handle)
-
 	session := &Session{ctx: c.ctx, handle: handle}
-	return f(session)
+	return errors.Join(f(session), c.pool.Put(handle))
 }
 
 // FindKey finds a key based on key ID, label and other template attributes.

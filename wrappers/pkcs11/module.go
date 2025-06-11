@@ -80,7 +80,7 @@ func openModule(path string) (*module, error) {
 }
 
 // Close decrements the module's reference count, freeing it if the count reaches zero.
-func (m *module) Close() {
+func (m *module) Close() error {
 	moduleCacheLock.Lock()
 	defer moduleCacheLock.Unlock()
 
@@ -89,12 +89,20 @@ func (m *module) Close() {
 		panic("internal error: closing module that is not known to module cache")
 	}
 
+	var err error
 	if updated := m.refs - 1; updated == 0 {
+		err = m.ctx.Finalize()
+		if err != nil {
+			err = fmt.Errorf("failed to pkcs#11 Finalize: %w", err)
+		}
+		// Destroy even if Finalize failed. If Finalize failed because some network connection is broken,
+		// chances are the HSM has already forgotten about us anyways.
 		m.ctx.Destroy()
 		delete(moduleCache, m.path)
 	} else {
 		m.refs = updated
 	}
+	return err
 }
 
 // FindSlot finds the slot corresponding to slotNumber and tokenLabel.

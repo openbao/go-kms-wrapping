@@ -49,9 +49,8 @@ func (k *Wrapper) Init(_ context.Context, _ ...wrapping.Option) error {
 }
 
 // Finalize finalizes the Wrapper and closes its client.
-func (k *Wrapper) Finalize(ctx context.Context, _ ...wrapping.Option) error {
-	k.client.Close(ctx)
-	return nil
+func (k *Wrapper) Finalize(_ context.Context, _ ...wrapping.Option) error {
+	return k.client.Close()
 }
 
 // Type returns the type of the wrapper.
@@ -65,9 +64,7 @@ func (k *Wrapper) KeyId(_ context.Context) (string, error) {
 }
 
 // SetConfig configures the client and key used by the Wrapper.
-func (k *Wrapper) SetConfig(
-	ctx context.Context, options ...wrapping.Option,
-) (*wrapping.WrapperConfig, error) {
+func (k *Wrapper) SetConfig(ctx context.Context, options ...wrapping.Option) (*wrapping.WrapperConfig, error) {
 	opts, err := getWrapperOpts(options)
 	if err != nil {
 		return nil, err
@@ -90,7 +87,7 @@ func (k *Wrapper) SetConfig(
 		return nil, err
 	}
 
-	k.client, err = NewClient(opts.lib, opts.slotNumber, opts.tokenLabel, opts.pin, opts.maxSessions)
+	k.client, err = NewClient(opts.lib, opts.slotNumber, opts.tokenLabel, opts.pin, opts.maxParallel)
 	if err != nil {
 		return nil, err
 	}
@@ -180,9 +177,7 @@ func (k *Wrapper) collectMetadata(opts *wrapperOptions) map[string]string {
 }
 
 // Encrypt encrypts plaintext via PKCS#11. The supported mechanisms are RSA-OAEP and AES-GCM.
-func (k *Wrapper) Encrypt(
-	ctx context.Context, plaintext []byte, _ ...wrapping.Option,
-) (*wrapping.BlobInfo, error) {
+func (k *Wrapper) Encrypt(ctx context.Context, plaintext []byte, _ ...wrapping.Option) (*wrapping.BlobInfo, error) {
 	var ret wrapping.BlobInfo
 	err := k.client.WithSession(ctx, func(session *Session) error {
 		var err error
@@ -205,9 +200,7 @@ func (k *Wrapper) Encrypt(
 }
 
 // Decrypt decrypts ciphertext via PKCS#11. The supported mechanisms are RSA-OAEP and AES-GCM.
-func (k *Wrapper) Decrypt(
-	ctx context.Context, in *wrapping.BlobInfo, _ ...wrapping.Option,
-) ([]byte, error) {
+func (k *Wrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, _ ...wrapping.Option) ([]byte, error) {
 	var plaintext []byte
 	err := k.client.WithSession(ctx, func(session *Session) error {
 		var err error
