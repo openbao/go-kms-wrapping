@@ -57,30 +57,25 @@ func (s *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 	s.logger = opts.withLogger
 
 	// Load keys, identifiers from environments or options.
-	var currentKey, previousKey string
+	currentKey := opts.withCurrentKey
+	previousKey := opts.withPreviousKey
 
-	if os.Getenv(EnvBaoCurrentKeyValueName) != "" && !opts.Options.WithDisallowEnvVars {
-		currentKey = os.Getenv(EnvBaoCurrentKeyValueName)
-	} else {
-		currentKey = opts.withCurrentKey
-	}
+	s.currentKeyId = opts.withCurrentKeyId
+	s.previousKeyId = opts.withPreviousKeyId
 
-	if os.Getenv(EnvBaoCurrentKeyIdentifierName) != "" && !opts.Options.WithDisallowEnvVars {
-		s.currentKeyId = os.Getenv(EnvBaoCurrentKeyIdentifierName)
-	} else {
-		s.currentKeyId = opts.withCurrentKeyId
-	}
-
-	if os.Getenv(EnvBaoPreviousKeyValueName) != "" && !opts.Options.WithDisallowEnvVars {
-		previousKey = os.Getenv(EnvBaoPreviousKeyValueName)
-	} else {
-		previousKey = opts.withPreviousKey
-	}
-
-	if os.Getenv(EnvBaoPreviousKeyIdentifierName) != "" && !opts.Options.WithDisallowEnvVars {
-		s.previousKeyId = os.Getenv(EnvBaoPreviousKeyIdentifierName)
-	} else {
-		s.previousKeyId = opts.withPreviousKeyId
+	if !opts.Options.WithDisallowEnvVars {
+		if env := os.Getenv(EnvBaoCurrentKeyValueName); env != "" {
+			currentKey = env
+		}
+		if env := os.Getenv(EnvBaoPreviousKeyValueName); env != "" {
+			previousKey = env
+		}
+		if env := os.Getenv(EnvBaoCurrentKeyIdentifierName); env != "" {
+			s.currentKeyId = env
+		}
+		if env := os.Getenv(EnvBaoPreviousKeyIdentifierName); env != "" {
+			s.previousKeyId = env
+		}
 	}
 
 	// Current key information
