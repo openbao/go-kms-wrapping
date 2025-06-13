@@ -16,8 +16,8 @@ import (
 // exceeds a maximum number of sessions. sessionPool assumes that sessions are cheap (as they
 // should be in a sane PKCS#11 implementation) and thus skips the hassle of storing sessions:
 // we only keep a single persistent session to maintain login state (OpenSession should be
-// cheap, Login should be expensive), all "working sessions" are short-lived and closed once
-// the caller returns it.
+// cheap, Login could be expensive), all "working sessions" are short-lived and closed once
+// the caller returns them.
 type sessionPool struct {
 	// Associated pkcs11.Ctx
 	ctx *pkcs11.Ctx
@@ -41,8 +41,8 @@ type sessionPool struct {
 const DefaultMaxParallel = 1024
 
 // newSessionPool creates a new session pool for a slot.
-// A maxSessions value may be specified to override DefaultMaxSessions,
-// or set to a value less than 1 to use DefaultMaxSessions.
+// The maxParallel value may be lowered to the MaxSessionCount reported
+// by the HSM if necessary. Set maxParallel to 0 to use DefaultMaxParallel.
 func newSessionPool(ctx *pkcs11.Ctx, info *tokenInfo, pin string, maxParallel uint) (*sessionPool, error) {
 	if maxParallel == 0 {
 		maxParallel = DefaultMaxParallel
@@ -55,19 +55,20 @@ func newSessionPool(ctx *pkcs11.Ctx, info *tokenInfo, pin string, maxParallel ui
 	}
 
 	if maxParallel < 2 {
-		return nil, fmt.Errorf("session pool: need to create at least 2 sessions, but max_parallel is %d",
+		return nil, fmt.Errorf("need to create at least 2 sessions, but only allowed to create %d",
 			maxParallel)
 	}
 
 	// Create our persistent session to keep the the application logged in.
 	session, err := ctx.OpenSession(info.ID, pkcs11.CKF_SERIAL_SESSION)
 	if err != nil {
-		return nil, fmt.Errorf("session pool: failed to create new session for slot %d: %w", info.ID, err)
+		return nil, fmt.Errorf("failed to pkcs#11 OpenSession: %w", err)
 	}
-	if loginErr := ctx.Login(session, pkcs11.CKU_USER, pin); loginErr != nil {
-		loginErr = fmt.Errorf("session pool: failed to log into slot %d: %w", info.ID, loginErr)
-		closeErr := ctx.CloseSession(session)
-		return nil, errors.Join(loginErr, closeErr)
+	if err := ctx.Login(session, pkcs11.CKU_USER, pin); err != nil {
+		return nil, errors.Join(
+			wrapErr(err, "failed to pkcs#11 Login"),
+			wrapErr(ctx.CloseSession(session), "failed to pkcs#11 CloseSession"),
+		)
 	}
 
 	var m sync.Mutex
@@ -97,6 +98,7 @@ func (p *sessionPool) get(ctx context.Context) (pkcs11.SessionHandle, error) {
 		default:
 			p.cond.Wait()
 		}
+		// Since we called Wait(), the pool might have closed.
 		if p.closed {
 			return 0, fmt.Errorf("session pool is closed")
 		}
@@ -116,7 +118,7 @@ func (p *sessionPool) put(session pkcs11.SessionHandle) error {
 	p.cond.L.Lock()
 	p.size--
 	p.cond.L.Unlock()
-	// The best thing we can do if CloseSession fails is assume that is is closed regardless.
+	// The best thing we can do if CloseSession fails is assume that it is closed regardless.
 	defer p.cond.Signal()
 	if err := p.ctx.CloseSession(session); err != nil {
 		return fmt.Errorf("failed to pkcs#11 CloseSession: %w", err)
@@ -124,9 +126,9 @@ func (p *sessionPool) put(session pkcs11.SessionHandle) error {
 	return nil
 }
 
-// close marks the pool as closed and waits for all sessions to return.
-// Once the the closing process begins, no further sessions can be acquired.
+// close marks the pool as closed and waits for all sessions to be returned via put(...).
 func (p *sessionPool) close() error {
+	// Close and drain the pool:
 	p.cond.L.Lock()
 	defer p.cond.L.Unlock()
 	p.closed = true
@@ -134,16 +136,11 @@ func (p *sessionPool) close() error {
 		p.cond.Wait()
 	}
 
-	logoutErr := p.ctx.Logout(p.persistent)
-	if logoutErr != nil {
-		logoutErr = fmt.Errorf("failed to pkcs#11 Logout: %w", logoutErr)
-	}
-	// Use CloseAllSessions rather than closing just the persistent session for good measure.
-	// PKCS#11 says this should also cause a logout but in practice that isn't the case,
-	// see Google KMS (https://github.com/GoogleCloudPlatform/kms-integrations) for example.
-	closeErr := p.ctx.CloseAllSessions(p.slot)
-	if closeErr != nil {
-		closeErr = fmt.Errorf("failed to pkcs#11 CloseAllSessions: %w", closeErr)
-	}
-	return errors.Join(logoutErr, closeErr)
+	return errors.Join(
+		wrapErr(p.ctx.Logout(p.persistent), "failed to pkcs#11 Logout"),
+		// Use CloseAllSessions rather than closing just the persistent session for good measure.
+		// PKCS#11 says this should also cause a logout but in practice that isn't the case,
+		// see Google KMS (https://github.com/GoogleCloudPlatform/kms-integrations) for example.
+		wrapErr(p.ctx.CloseAllSessions(p.slot), "failed to pkcs#11 CloseAllSessions"),
+	)
 }

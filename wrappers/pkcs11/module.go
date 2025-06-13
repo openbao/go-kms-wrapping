@@ -134,13 +134,13 @@ func (m *module) findSlot(number *uint, label string) (*tokenInfo, error) {
 
 	ids, err := m.ctx.GetSlotList(true)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list slots: %w", err)
+		return nil, fmt.Errorf("failed to pkcs#11 GetSlotList: %w", err)
 	}
 
 	for _, id := range ids {
 		info, err := m.ctx.GetTokenInfo(id)
 		if err != nil {
-			return nil, fmt.Errorf("failed to fetch token info for slot %d: %w",
+			return nil, fmt.Errorf("failed to pkcs#11 GetTokenInfo on slot %d: %w",
 				id, err)
 		}
 		if (number != nil && id == *number) || info.Label == label {
