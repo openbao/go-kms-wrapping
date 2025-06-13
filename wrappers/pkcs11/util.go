@@ -274,3 +274,16 @@ func parseBool(value string) (bool, error) {
 		return false, fmt.Errorf("failed to parse boolean value: %s", value)
 	}
 }
+
+// wrapErr is fmt.Errorf("message: %w", err), but returns nil
+// if the error to be wrapped is nil. This cleans up some
+// PKCS#11 error handling control flow where a failed call
+// makes us make another fallible call for cleanup, and
+// we need to errors.Join(...) both errors at the end.
+func wrapErr(err error, format string, args ...any) error {
+	if err != nil {
+		return fmt.Errorf(format+": %w", append(args, err)...)
+	} else {
+		return nil
+	}
+}
