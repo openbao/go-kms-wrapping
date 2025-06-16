@@ -196,8 +196,6 @@ func (s *Session) EncryptAESGCM(obj pkcs11.ObjectHandle, plaintext []byte) ([]by
 		return nil, nil, err
 	}
 
-	// Some HSMs will ignore the given nonce and generate their own.
-	// That's why we need to manually free the GCM parameters.
 	params := pkcs11.NewGCMParams(nonce, nil, CryptoAesGcmOverhead*8)
 	defer params.Free()
 
@@ -207,14 +205,7 @@ func (s *Session) EncryptAESGCM(obj pkcs11.ObjectHandle, plaintext []byte) ([]by
 		return nil, nil, err
 	}
 
-	// Some HSMs (CloudHSM) do not read the nonce/IV and generate their own.
-	// Since it's appended, we need to extract it.
-	if len(ciphertext) == CryptoAesGcmNonceSize+len(plaintext)+CryptoAesGcmOverhead {
-		nonce = ciphertext[len(ciphertext)-CryptoAesGcmNonceSize:]
-		ciphertext = ciphertext[:len(ciphertext)-CryptoAesGcmNonceSize]
-	}
-
-	return ciphertext, nonce, nil
+	return ciphertext, params.IV(), nil
 }
 
 // decrypt performs the generic DecryptInit -> Decrypt flow.
