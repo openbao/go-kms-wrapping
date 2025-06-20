@@ -55,7 +55,7 @@ type KeyExporter interface {
 	KeyBytes(context.Context) ([]byte, error)
 }
 
-// CryptoProvider provides access to a set of keys within a certain pool,
+// CryptoProvider provides access to a set of keys within a certain provider,
 // e.g. a PKCS#11 token slot. Specific keys with varying capabilities can
 // be accessed using GetKey.
 type CryptoProvider interface {
