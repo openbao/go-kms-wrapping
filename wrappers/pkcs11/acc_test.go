@@ -207,7 +207,7 @@ func TestWrapper(t *testing.T) {
 	require.Zero(t, len(wrapper.client.mod.slots))
 }
 
-// TestExternalKey tests the lifecycle of an ExternalKey via a Hub.
+// TestExternalKey tests the lifecycle of an ExternalKey via a Provider.
 //
 // Required environment variables:
 //   - BAO_HSM_LIB
@@ -224,16 +224,16 @@ func TestExternalKey(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	hub := NewHub()
+	provider := NewProvider()
 
-	// Hub never configures itself based on the environment, we'll do that manually:
+	// Provider never configures itself based on the environment, we'll do that manually:
 	config := make(map[string]string)
 	mergeConfigMapWithEnv(config)
 
-	err := hub.SetConfig(ctx, wrapping.WithConfigMap(config))
+	err := provider.SetConfig(ctx, wrapping.WithConfigMap(config))
 	require.NoError(t, err)
 
-	key, err := hub.GetKey(ctx, wrapping.WithConfigMap(config))
+	key, err := provider.GetKey(ctx, wrapping.WithConfigMap(config))
 	require.NoError(t, err)
 	require.NotNil(t, key)
 
@@ -258,15 +258,15 @@ func TestExternalKey(t *testing.T) {
 		}
 	})
 
-	err = hub.Finalize(ctx)
+	err = provider.Finalize(ctx)
 	require.NoError(t, err)
 
 	// Pool is cleaned up properly?
-	require.Zero(t, hub.client.pool.size)
+	require.Zero(t, provider.client.pool.size)
 
 	// Module is cleaned up properly?
 	require.Zero(t, len(modules))
-	require.Zero(t, len(hub.client.mod.slots))
+	require.Zero(t, len(provider.client.mod.slots))
 }
 
 // testSigner ensures that a crypto.Signer works as expected.

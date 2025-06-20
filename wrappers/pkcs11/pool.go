@@ -43,7 +43,9 @@ const DefaultMaxParallel = 1024
 // newSessionPool creates a new session pool for a slot.
 // The maxParallel value may be lowered to the MaxSessionCount reported
 // by the HSM if necessary. Set maxParallel to 0 to use DefaultMaxParallel.
-func newSessionPool(ctx *pkcs11.Ctx, info *tokenInfo, pin string, maxParallel uint) (*sessionPool, error) {
+func newSessionPool(
+	ctx *pkcs11.Ctx, info *tokenInfo, pin string, maxParallel uint,
+) (*sessionPool, error) {
 	if maxParallel == 0 {
 		maxParallel = DefaultMaxParallel
 	}

@@ -15,8 +15,8 @@ import (
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
 
-// baseExternalKey is common to all ExternalKey implementations.
-type baseExternalKey struct {
+// baseKey is common to all ExternalKey implementations.
+type baseKey struct {
 	// Context for session cancellation
 	ctx context.Context
 	// Client to perform operations
@@ -27,34 +27,37 @@ type baseExternalKey struct {
 
 // ecdsaSigner implements crypto.Signer for ECDSA keys.
 type ecdsaSigner struct {
-	baseExternalKey
+	baseKey
 	public *ecdsa.PublicKey
 }
 
 // rsaSignerDecrypter implements crypto.Signer/Decrypter for RSA keys.
 type rsaSignerDecrypter struct {
-	baseExternalKey
+	baseKey
 	public *rsa.PublicKey
 }
 
 // All the type assertions.
 var (
-	_ wrapping.ExternalKey = (*baseExternalKey)(nil)
+	_ wrapping.ExternalKey = (*baseKey)(nil)
 	_ crypto.Signer        = (*ecdsaSigner)(nil)
 	_ crypto.Signer        = (*rsaSignerDecrypter)(nil)
 	_ crypto.Decrypter     = (*rsaSignerDecrypter)(nil)
 )
 
-func (b *baseExternalKey) Signer() (crypto.Signer, bool)          { return nil, false }
-func (b *baseExternalKey) Decrypter() (crypto.Decrypter, bool)    { return nil, false }
-func (e *ecdsaSigner) Signer() (crypto.Signer, bool)              { return e, true }
+func (b *baseKey) Signer() (crypto.Signer, bool)       { return nil, false }
+func (b *baseKey) Decrypter() (crypto.Decrypter, bool) { return nil, false }
+
+func (e *ecdsaSigner) Signer() (crypto.Signer, bool) { return e, true }
+
 func (r *rsaSignerDecrypter) Signer() (crypto.Signer, bool)       { return r, true }
 func (r *rsaSignerDecrypter) Decrypter() (crypto.Decrypter, bool) { return r, true }
 
 // Public is the crypto.Signer Public() implementation for ecdsaSigner.
 func (e *ecdsaSigner) Public() crypto.PublicKey { return e.public }
 
-// Public is the crypto.Signer/Decrypter Public() implementation for rsaSignerDecrypter.
+// Public is the crypto.Signer/Decrypter Public() implementation for
+// rsaSignerDecrypter.
 func (e *rsaSignerDecrypter) Public() crypto.PublicKey { return e.public }
 
 // Sign is the crypto.Signer Sign(...) implementation for ecdsaSigner.
@@ -68,8 +71,7 @@ func (e *ecdsaSigner) Sign(
 	return signature, err
 }
 
-// Adapted from crypto/internal/fips140/rsa:
-// TODO: Do we really need all of these?
+// Adapted from crypto/internal/fips140/rsa. TODO: Do we really need all of these?
 var hashPKCS1v15Prefixes = map[crypto.Hash][]byte{
 	crypto.MD5:        {0x30, 0x20, 0x30, 0x0c, 0x06, 0x08, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x02, 0x05, 0x05, 0x00, 0x04, 0x10},
 	crypto.SHA1:       {0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2b, 0x0e, 0x03, 0x02, 0x1a, 0x05, 0x00, 0x04, 0x14},
@@ -88,7 +90,9 @@ var hashPKCS1v15Prefixes = map[crypto.Hash][]byte{
 }
 
 // Sign is the crypto.Signer Sign(...) implementation for rsaSignerDecrypter.
-func (r *rsaSignerDecrypter) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
+func (r *rsaSignerDecrypter) Sign(
+	_ io.Reader, digest []byte, opts crypto.SignerOpts,
+) (signature []byte, err error) {
 	switch o := opts.(type) {
 	case *rsa.PSSOptions:
 		var hash uint
@@ -97,9 +101,6 @@ func (r *rsaSignerDecrypter) Sign(_ io.Reader, digest []byte, opts crypto.Signer
 			return nil, err
 		}
 		saltLength := o.SaltLength
-		// PSSSaltLengthAuto: "When signing in FIPS 140-3 mode, the salt length
-		// is capped at the length of the hash function used in the signature."
-		// Let's just do the same as FIPS 140-3 here then.
 		if o.SaltLength == rsa.PSSSaltLengthAuto || o.SaltLength == rsa.PSSSaltLengthEqualsHash {
 			saltLength = o.Hash.Size()
 		}
@@ -124,7 +125,9 @@ func (r *rsaSignerDecrypter) Sign(_ io.Reader, digest []byte, opts crypto.Signer
 }
 
 // Sign is the crypto.Decrypter Decrypt(...) implementation for rsaSignerDecrypter.
-func (r *rsaSignerDecrypter) Decrypt(_ io.Reader, msg []byte, opts crypto.DecrypterOpts) (plaintext []byte, err error) {
+func (r *rsaSignerDecrypter) Decrypt(
+	_ io.Reader, msg []byte, opts crypto.DecrypterOpts,
+) (plaintext []byte, err error) {
 	switch o := opts.(type) {
 	case *rsa.OAEPOptions:
 		var hash uint

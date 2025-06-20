@@ -156,9 +156,9 @@ func keyOptsFromConfigMap(config map[string]string) (*keyOptions, error) {
 	return opts, nil
 }
 
-// getWrapperOpts evaluates options that apply to a Wrapper.
-// Environment variables are read unless disallowed via WithDisallowEnvVars.
-// The slot pin may be read via wrapping.ParsePaths if applicable.
+// getWrapperOpts evaluates options that apply to a Wrapper. Environment
+// variables are read unless disallowed via WithDisallowEnvVars. The slot pin
+// may be read via wrapping.ParsePaths if applicable.
 func getWrapperOpts(opts []wrapping.Option) (*wrapperOptions, error) {
 	globalOpts, clientOpts, keyOpts, err := sortOpts(opts)
 	if err != nil {
@@ -233,9 +233,9 @@ func mergeConfigMapWithEnv(config map[string]string) {
 	}
 }
 
-// getHubOpts evaluates options that apply to a Hub.
-// Environment variables are never read.
-func getHubOpts(opts []wrapping.Option) (*clientOptions, error) {
+// getProviderOpts evaluates options that apply to a Provider. Environment
+// variables are never read.
+func getProviderOpts(opts []wrapping.Option) (*clientOptions, error) {
 	globalOpts, clientOpts, _, err := sortOpts(opts)
 	if err != nil {
 		return nil, err
@@ -252,9 +252,8 @@ func getHubOpts(opts []wrapping.Option) (*clientOptions, error) {
 	return options, nil
 }
 
-// getSignerDecrypterOpts evaluates options that apply
-// to signers/decrypters derived from a Hub.
-// Environment variables are never read.
+// getSignerDecrypterOpts evaluates options that apply to signers/decrypters
+// derived from a Provider. Environment variables are never read.
 func getSignerDecrypterOpts(opts []wrapping.Option) (*keyOptions, error) {
 	globalOpts, _, keyOpts, err := sortOpts(opts)
 	if err != nil {
@@ -312,8 +311,8 @@ func WithPin(pin string) wrapping.Option {
 	}
 }
 
-// WithMaxParallel sets the maximum concurrent sessions against the the token slot.
-// Set to 0 to automatically determine the limit.
+// WithMaxParallel sets the maximum concurrent sessions against the the token
+// slot. Set to 0 to automatically determine the limit.
 func WithMaxParallel(sessions uint) wrapping.Option {
 	return func() any {
 		return ClientOption(func(o *clientOptions) error {
@@ -363,7 +362,8 @@ func WithHash(hash string) wrapping.Option {
 	}
 }
 
-// WithSoftwareEncryption enables/disables software encryption for asymmetric keys.
+// WithSoftwareEncryption enables/disables software encryption for asymmetric
+// keys.
 func WithSoftwareEncryption(value bool) wrapping.Option {
 	return func() any {
 		return KeyOption(func(o *keyOptions) error {

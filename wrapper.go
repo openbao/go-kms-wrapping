@@ -16,10 +16,10 @@ type HmacComputer interface {
 
 type InitFinalizer interface {
 	// Init allows performing any necessary setup calls before using a
-	// Wrapper or Hub.
+	// Wrapper or CryptoProvider.
 	Init(ctx context.Context, options ...Option) error
 
-	// Finalize can be called when all usage of a Wrapper or Hub
+	// Finalize can be called when all usage of a Wrapper or CryptoProvider
 	// is done if any cleanup or finalization is required.
 	Finalize(ctx context.Context, options ...Option) error
 }
@@ -55,11 +55,11 @@ type KeyExporter interface {
 	KeyBytes(context.Context) ([]byte, error)
 }
 
-// Hub is a hub for keys within a certain pool, e.g. a
-// PKCS#11 token slot. Specific keys with varying capabilities can
+// CryptoProvider provides access to a set of keys within a certain pool,
+// e.g. a PKCS#11 token slot. Specific keys with varying capabilities can
 // be accessed using GetKey.
-type Hub interface {
-	// SetConfig applies the given options to a Hub.
+type CryptoProvider interface {
+	// SetConfig applies the given options to a CryptoProvider.
 	// WithConfigMap will almost certainly be required to be passed in to
 	// provide wrapper-specific configuration. Supported options will be
 	// ones for general client configuration. Key-level configuration is
