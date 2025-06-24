@@ -237,6 +237,10 @@ func TestExternalKey(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, key)
 
+	pkcs11Hash, err := hashMechanismFromStringOrDefault(config["rsa_oaep_hash"])
+	require.NoError(t, err)
+	cryptoHash := hashMechanismToCrypto(pkcs11Hash)
+
 	// Our Signers/Decrypters should handle parallel use fine.
 	t.Run("group", func(t *testing.T) {
 		if signer, ok := key.Signer(); ok {
@@ -252,7 +256,7 @@ func TestExternalKey(t *testing.T) {
 			for range 100 {
 				t.Run("crypto.Decrypter", func(t *testing.T) {
 					t.Parallel()
-					testDecrypter(t, decrypter)
+					testDecrypter(t, decrypter, cryptoHash)
 				})
 			}
 		}
@@ -325,7 +329,7 @@ func testSigner(t *testing.T, signer crypto.Signer) {
 
 // testDecrypter ensures that a crypto.Decrypter works as expected.
 // The key type is automatically detected based on the public key.
-func testDecrypter(t *testing.T, decrypter crypto.Decrypter) {
+func testDecrypter(t *testing.T, decrypter crypto.Decrypter, hash crypto.Hash) {
 	plaintext := []byte("encrypt me!")
 
 	switch pub := decrypter.Public().(type) {
@@ -333,7 +337,6 @@ func testDecrypter(t *testing.T, decrypter crypto.Decrypter) {
 		t.Run("OAEP", func(t *testing.T) {
 			t.Parallel()
 
-			hash := crypto.SHA1
 			ciphertext, err := rsa.EncryptOAEP(hash.New(), rand.Reader, pub, plaintext, nil)
 			require.NoError(t, err)
 
