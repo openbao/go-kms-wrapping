@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"slices"
 
 	"github.com/miekg/pkcs11"
 )
@@ -334,16 +335,41 @@ var (
 	oidNamedCurveP521 = asn1.ObjectIdentifier{1, 3, 132, 0, 35}
 )
 
-// Inlined from crypto/x509:
-func namedCurveFromOID(oid asn1.ObjectIdentifier) elliptic.Curve {
+// Adapted from crypto/x509:
+func namedCurveFromOID(val []byte) (elliptic.Curve, error) {
+	var oid asn1.ObjectIdentifier
+	rest, err := asn1.Unmarshal(val, &oid)
+	if err != nil {
+		return nil, nil
+	}
+	if len(rest) != 0 {
+		return nil, fmt.Errorf("unexpected data remaining unmarshaling elliptic curve parameter bytes")
+	}
+
 	switch {
 	case oid.Equal(oidNamedCurveP224):
-		return elliptic.P224()
+		return elliptic.P224(), nil
 	case oid.Equal(oidNamedCurveP256):
-		return elliptic.P256()
+		return elliptic.P256(), nil
 	case oid.Equal(oidNamedCurveP384):
-		return elliptic.P384()
+		return elliptic.P384(), nil
 	case oid.Equal(oidNamedCurveP521):
+		return elliptic.P521(), nil
+	}
+	return nil, nil
+}
+
+// Some vendors (e.g. Utimaco, CryptoServer 5) store ASCII strings rather than
+// OIDs in EC_PARAMS. Not part of the standard, but not hard to support.
+func namedCurveFromLiteral(val []byte) elliptic.Curve {
+	switch {
+	case slices.Equal(val, []byte("secp224r1")):
+		return elliptic.P224()
+	case slices.Equal(val, []byte("secp256r1")):
+		return elliptic.P256()
+	case slices.Equal(val, []byte("secp384r1")):
+		return elliptic.P384()
+	case slices.Equal(val, []byte("secp521r1")):
 		return elliptic.P521()
 	}
 	return nil
@@ -361,17 +387,19 @@ func (s *Session) ExportECDSAPublicKey(obj pkcs11.ObjectHandle) (*ecdsa.PublicKe
 		return nil, fmt.Errorf("failed to pkcs11 GetAttributeValue: %w", err)
 	}
 
-	var oid asn1.ObjectIdentifier
-	rest, err := asn1.Unmarshal(attrs[0].Value, &oid)
+	curve, err := namedCurveFromOID(attrs[0].Value)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal elliptic curve parameter bytes: %w", err)
+		return nil, err
 	}
-	if len(rest) != 0 {
-		return nil, fmt.Errorf("unexpected data remaining unmarshaling elliptic curve parameter bytes")
+	if curve == nil {
+		curve = namedCurveFromLiteral(attrs[0].Value)
+	}
+	if curve == nil {
+		return nil, fmt.Errorf("unknown/unsupported elliptic curve")
 	}
 
 	var point []byte
-	rest, err = asn1.Unmarshal(attrs[1].Value, &point)
+	rest, err := asn1.Unmarshal(attrs[1].Value, &point)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal elliptic curve point bytes: %w", err)
 	}
@@ -379,10 +407,6 @@ func (s *Session) ExportECDSAPublicKey(obj pkcs11.ObjectHandle) (*ecdsa.PublicKe
 		return nil, fmt.Errorf("unexpected data remaining unmarshaling elliptic curve point bytes")
 	}
 
-	curve := namedCurveFromOID(oid)
-	if curve == nil {
-		return nil, fmt.Errorf("unknown/unsupported elliptic curve")
-	}
 	// Deprecated function, but realistically waiting on Go 1.25 to reasonably
 	// replace. For more information, see https://github.com/golang/go/issues/63963.
 	// Below should work with Go 1.25:
