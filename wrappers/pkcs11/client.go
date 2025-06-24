@@ -364,7 +364,7 @@ func (s *Session) ExportECDSAPublicKey(obj pkcs11.ObjectHandle) (*ecdsa.PublicKe
 	var oid asn1.ObjectIdentifier
 	rest, err := asn1.Unmarshal(attrs[0].Value, &oid)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to unmarshal elliptic curve parameter bytes: %w", err)
 	}
 	if len(rest) != 0 {
 		return nil, fmt.Errorf("unexpected data remaining unmarshaling elliptic curve parameter bytes")
@@ -373,7 +373,7 @@ func (s *Session) ExportECDSAPublicKey(obj pkcs11.ObjectHandle) (*ecdsa.PublicKe
 	var point []byte
 	rest, err = asn1.Unmarshal(attrs[1].Value, &point)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to unmarshal elliptic curve point bytes: %w", err)
 	}
 	if len(rest) != 0 {
 		return nil, fmt.Errorf("unexpected data remaining unmarshaling elliptic curve point bytes")
