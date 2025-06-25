@@ -51,9 +51,9 @@ func (p *Provider) SetConfig(_ context.Context, options ...wrapping.Option) erro
 	return nil
 }
 
-// GetKey returns an opaque key backed by PKCS#11.
-// This key may be a crypto.Signer and/or a crypto.Decrypter.
-// Currently supported key types are ECDSA and RSA.
+// GetKey returns an opaque key backed by PKCS#11. This key may be a
+// crypto.Signer and/or a crypto.Decrypter. Currently supported key types are
+// ECDSA and RSA.
 func (p *Provider) GetKey(ctx context.Context, options ...wrapping.Option) (wrapping.ExternalKey, error) {
 	opts, err := getSignerDecrypterOpts(options)
 	if err != nil {

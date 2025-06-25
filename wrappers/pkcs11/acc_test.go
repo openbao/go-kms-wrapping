@@ -23,6 +23,8 @@ import (
 // TestPool ensures that the session pool implementation
 // handles concurrency and cancellation as expected.
 //
+// No key is required to run this test.
+//
 // Required environment variables:
 //   - BAO_HSM_LIB
 //   - BAO_HSM_TOKEN_LABEL or BAO_HSM_SLOT
@@ -167,15 +169,16 @@ func TestPool(t *testing.T) {
 
 // TestWrapper tests the lifecycle of a Wrapper.
 //
+// This test requires either:
+//   - An AES secret key with CKA_ENCRYPT and CKA_DECRYPT set.
+//   - An RSA key pair where the private key has CKA_DECRYPT
+//     and the public key has CKA_ENCRYPT.
+//
 // Required environment variables:
 //   - BAO_HSM_LIB
 //   - BAO_HSM_TOKEN_LABEL or BAO_HSM_SLOT
 //   - BAO_HSM_PIN
 //   - BAO_HSM_KEY_LABEL or BAO_HSM_KEY_ID
-//
-// Supported key types:
-//   - AES
-//   - RSA
 func TestWrapper(t *testing.T) {
 	if os.Getenv("VAULT_ACC") == "" && os.Getenv("KMS_ACC_TESTS") == "" {
 		t.SkipNow()
@@ -207,18 +210,19 @@ func TestWrapper(t *testing.T) {
 	require.Zero(t, len(wrapper.client.mod.slots))
 }
 
-// TestExternalKey tests the lifecycle of an ExternalKey via a Provider.
+// TestExternalKeySigner tests the
+// NewProvider(...) -> GetKey(...) -> Signer() -> Sign(...)
+// lifecycle.
+//
+// This test requires either an RSA or EC key pair, where
+// the private key must have CKA_SIGN set.
 //
 // Required environment variables:
 //   - BAO_HSM_LIB
 //   - BAO_HSM_TOKEN_LABEL or BAO_HSM_SLOT
 //   - BAO_HSM_PIN
 //   - BAO_HSM_KEY_LABEL or BAO_HSM_KEY_ID
-//
-// Supported key types:
-//   - RSA
-//   - ECDSA
-func TestExternalKey(t *testing.T) {
+func TestExternalKeySigner(t *testing.T) {
 	if os.Getenv("VAULT_ACC") == "" && os.Getenv("KMS_ACC_TESTS") == "" {
 		t.SkipNow()
 	}
@@ -237,28 +241,79 @@ func TestExternalKey(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, key)
 
+	signer, ok := key.Signer()
+	require.True(t, ok)
+
+	// Signers should handle parallel use fine.
+	t.Run("group", func(t *testing.T) {
+		for range 100 {
+			t.Run("crypto.Signer", func(t *testing.T) {
+				t.Parallel()
+				testSigner(t, signer)
+			})
+		}
+	})
+
+	err = provider.Finalize(ctx)
+	require.NoError(t, err)
+
+	// Pool is cleaned up properly?
+	require.Zero(t, provider.client.pool.size)
+
+	// Module is cleaned up properly?
+	require.Zero(t, len(modules))
+	require.Zero(t, len(provider.client.mod.slots))
+}
+
+// TestExternalKeyDecrypter tests the
+// NewProvider(...) -> GetKey(...) -> Decrypter() -> Decrypt(...)
+// lifecycle.
+//
+// This test requires an RSA key pair, where the private key must have
+// CKA_DECRYPT set.
+//
+// Required environment variables:
+//   - BAO_HSM_LIB
+//   - BAO_HSM_TOKEN_LABEL or BAO_HSM_SLOT
+//   - BAO_HSM_PIN
+//   - BAO_HSM_KEY_LABEL or BAO_HSM_KEY_ID
+func TestExternalKeyDecrypter(t *testing.T) {
+	if os.Getenv("VAULT_ACC") == "" && os.Getenv("KMS_ACC_TESTS") == "" {
+		t.SkipNow()
+	}
+
+	ctx := context.Background()
+	provider := NewProvider()
+
+	// Provider never configures itself based on the environment, we'll do that manually:
+	config := make(map[string]string)
+	mergeConfigMapWithEnv(config)
+
+	err := provider.SetConfig(ctx, wrapping.WithConfigMap(config))
+	require.NoError(t, err)
+
+	key, err := provider.GetKey(ctx, wrapping.WithConfigMap(config))
+	require.NoError(t, err)
+	require.NotNil(t, key)
+
+	decrypter, ok := key.Decrypter()
+	require.True(t, ok)
+
+	// Allow overriding the default SHA256 that we test RSA decryption with using
+	// the rsa_oaep_hash parameter that is only used for Wrapper outside of tests.
+	// This is really only here because of SoftHSM which only supports SHA1 with
+	// RSA-OAEP.
 	pkcs11Hash, err := hashMechanismFromStringOrDefault(config["rsa_oaep_hash"])
 	require.NoError(t, err)
 	cryptoHash := hashMechanismToCrypto(pkcs11Hash)
 
-	// Our Signers/Decrypters should handle parallel use fine.
+	// Decrypters should handle parallel use fine.
 	t.Run("group", func(t *testing.T) {
-		if signer, ok := key.Signer(); ok {
-			for range 100 {
-				t.Run("crypto.Signer", func(t *testing.T) {
-					t.Parallel()
-					testSigner(t, signer)
-				})
-			}
-		}
-
-		if decrypter, ok := key.Decrypter(); ok {
-			for range 100 {
-				t.Run("crypto.Decrypter", func(t *testing.T) {
-					t.Parallel()
-					testDecrypter(t, decrypter, cryptoHash)
-				})
-			}
+		for range 100 {
+			t.Run("crypto.Decrypter", func(t *testing.T) {
+				t.Parallel()
+				testDecrypter(t, decrypter, cryptoHash)
+			})
 		}
 	})
 
@@ -298,7 +353,7 @@ func testSigner(t *testing.T, signer crypto.Signer) {
 			t.Parallel()
 
 			opts := &rsa.PSSOptions{
-				Hash:       crypto.SHA256,
+				Hash:       hash,
 				SaltLength: rsa.PSSSaltLengthEqualsHash,
 			}
 

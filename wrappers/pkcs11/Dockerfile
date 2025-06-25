@@ -64,12 +64,12 @@ RUN <<EOF
 
 	# RSA
 	export BAO_HSM_KEY_LABEL=$RSA_KEY_LABEL
-	go clean -testcache && go test -run '^Test(Wrapper|ExternalKey)$' ${TESTFLAGS}
+	go clean -testcache && go test -run '^Test(Wrapper|ExternalKey(Signer|Decrypter))$' ${TESTFLAGS}
 
 	# RSA with hardware encryption
 	BAO_HSM_SOFTWARE_ENCRYPTION=0 go clean -testcache && go test -run '^TestWrapper$' ${TESTFLAGS}
 
 	# ECDSA
 	export BAO_HSM_KEY_LABEL=$ECDSA_KEY_LABEL
-	go clean -testcache && go test -run '^TestExternalKey$' ${TESTFLAGS}
+	go clean -testcache && go test -run '^TestExternalKeySigner$' ${TESTFLAGS}
 EOF
