@@ -8,11 +8,14 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
 	"github.com/miekg/pkcs11"
 )
+
+const DefaultRSAOAEPHash = pkcs11.CKM_SHA256
 
 // mechanismFromString parses supported mechanisms from a string.
 func mechanismFromString(input string) (uint, uint, error) {
@@ -75,30 +78,6 @@ func mechanismToString(mech uint) string {
 	default:
 		// Unreachable, only called on previously resolved mechanism.
 		panic("internal error: unknown mechanism")
-	}
-}
-
-// bestAvailableMechanism returns the best-available
-// encryption/decryption mechanism for a key type.
-func bestAvailableMechanism(keytype uint) uint {
-	switch keytype {
-	case pkcs11.CKK_AES:
-		return pkcs11.CKM_AES_GCM
-	case pkcs11.CKK_RSA:
-		return pkcs11.CKM_RSA_PKCS_OAEP
-	default:
-		// Unreachable, only called on previously validated key type.
-		panic("internal error: unknown mechanism")
-	}
-}
-
-// isAsymmetricKeyType returns whether a key type is asymmetric.
-func isAsymmetricKeyType(keytype uint) bool {
-	switch keytype {
-	case pkcs11.CKK_RSA, pkcs11.CKK_EC:
-		return true
-	default:
-		return false
 	}
 }
 
@@ -206,7 +185,7 @@ func hashMechanismToString(mech uint) string {
 	}
 }
 
-// parseSlotNumber parses a HSM slot number/ID from a string.
+// parseSlotNumber parses a PKCS#11 slot number/ID from a string.
 // Both Hex values (prefixed with "0x") and decimal values are supported.
 // A slot number may be nil (= not specified).
 func parseSlotNumber(input string) (uint, error) {
@@ -248,16 +227,20 @@ func parseIDLabel(id, label string) ([]byte, []byte, error) {
 }
 
 // bytesToUint converts a byte slice of either 1, 2, 4 or 8 bytes to a uint.
-func bytesToUint(value []byte) (uint64, error) {
+func bytesToUint(value []byte) (uint, error) {
 	switch len(value) {
 	case 1:
-		return uint64(value[0]), nil
+		return uint(value[0]), nil
 	case 2:
-		return uint64(binary.NativeEndian.Uint16(value)), nil
+		return uint(binary.NativeEndian.Uint16(value)), nil
 	case 4:
-		return uint64(binary.NativeEndian.Uint32(value)), nil
+		return uint(binary.NativeEndian.Uint32(value)), nil
 	case 8:
-		return binary.NativeEndian.Uint64(value), nil
+		u64 := binary.NativeEndian.Uint64(value)
+		if u64 > math.MaxUint {
+			return 0, fmt.Errorf("value exceeds max uint")
+		}
+		return uint(u64), nil
 	default:
 		return 0, fmt.Errorf("cannot convert byte slice of length %d to uint", len(value))
 	}

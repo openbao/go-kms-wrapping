@@ -207,7 +207,7 @@ func TestWrapper(t *testing.T) {
 
 	// Module is cleaned up properly?
 	require.Zero(t, len(modules))
-	require.Zero(t, len(wrapper.client.mod.slots))
+	require.Zero(t, len(wrapper.client.module.slots))
 }
 
 // TestExternalKeySigner tests the
@@ -262,7 +262,7 @@ func TestExternalKeySigner(t *testing.T) {
 
 	// Module is cleaned up properly?
 	require.Zero(t, len(modules))
-	require.Zero(t, len(provider.client.mod.slots))
+	require.Zero(t, len(provider.client.module.slots))
 }
 
 // TestExternalKeyDecrypter tests the
@@ -325,7 +325,7 @@ func TestExternalKeyDecrypter(t *testing.T) {
 
 	// Module is cleaned up properly?
 	require.Zero(t, len(modules))
-	require.Zero(t, len(provider.client.mod.slots))
+	require.Zero(t, len(provider.client.module.slots))
 }
 
 // testSigner ensures that a crypto.Signer works as expected.

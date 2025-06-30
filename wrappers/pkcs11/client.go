@@ -11,7 +11,6 @@ import (
 	"encoding/asn1"
 	"errors"
 	"fmt"
-	"math"
 	"math/big"
 	"slices"
 
@@ -23,65 +22,62 @@ const (
 	CryptoAesGcmOverhead  = 16
 )
 
-// Client is a high-level PKCS#11 client wrapping a specific token slot.
-type Client struct {
-	ctx  *pkcs11.Ctx
-	mod  *module
-	pool *sessionPool
+// client operates on a certain PKCS#11 slot.
+type client struct {
+	ctx    *pkcs11.Ctx
+	pool   *sessionPool
+	module *module
 }
 
-// Session is a session that is lent out by the client via WithSession.
-type Session struct {
+// session provides access to cryptographic operations. Acquire a session via
+// [[client.do]].
+type session struct {
 	ctx    *pkcs11.Ctx
 	handle pkcs11.SessionHandle
 }
 
-// NewClient creates a new client and initializes the underlying PKCS#11 module.
-func NewClient(
-	modulePath string, slotNumber *uint, tokenLabel, pin string, maxParallel uint,
-) (*Client, error) {
-	mod, info, err := acquireSlot(modulePath, slotNumber, tokenLabel)
+// key is found via [[session.find]] and passed to other methods of [[session]]
+// for cryptographic operations
+type key struct {
+	// Session-scoped handle
+	handle pkcs11.ObjectHandle
+	// Only present for class == CKO_PRIVATE_KEY
+	public *key
+	// Attributes
+	class   uint // CKA_CLASS
+	keytype uint // CKA_KEY_TYPE
+	encrypt bool // CKA_ENCRYPT
+	decrypt bool // CKA_DECRYPT
+	sign    bool // CKA_SIGN
+}
+
+func newClient(opts *clientOptions) (*client, error) {
+	mod, info, err := acquireSlot(opts.lib, opts.slotNumber, opts.tokenLabel)
 	if err != nil {
 		return nil, err
 	}
-
-	pool, err := newSessionPool(mod.ctx, info, pin, maxParallel)
+	pool, err := newSessionPool(mod.ctx, info, opts.pin, opts.maxParallel)
 	if err != nil {
 		return nil, errors.Join(err, mod.releaseSlot(info.ID))
 	}
-
-	return &Client{ctx: mod.ctx, mod: mod, pool: pool}, nil
+	return &client{ctx: mod.ctx, module: mod, pool: pool}, nil
 }
 
-// Close discards the client's resources.
-func (c *Client) Close() error {
-	return errors.Join(c.pool.close(), c.mod.releaseSlot(c.pool.slot))
+func (c *client) close() error {
+	return errors.Join(c.pool.close(), c.module.releaseSlot(c.pool.slot))
 }
 
-// Module returns the module path the client initialized on.
-func (c *Client) Module() string {
-	return c.mod.path
-}
-
-// Slot returns the token slot number the client initialized on.
-func (c *Client) Slot() uint {
-	return c.pool.slot
-}
-
-// WithSession takes a function f that is passed a session.
-func (c *Client) WithSession(ctx context.Context, f func(*Session) error) error {
+func (c *client) do(ctx context.Context, f func(*session) error) error {
 	handle, err := c.pool.get(ctx)
 	if err != nil {
 		return err
 	}
-	session := &Session{ctx: c.ctx, handle: handle}
+	session := &session{ctx: c.ctx, handle: handle}
 	return errors.Join(f(session), c.pool.put(handle))
 }
 
-// FindKey finds a key based on key ID, label and other template attributes.
-func (s *Session) FindKey(
-	id, label []byte, template []*pkcs11.Attribute,
-) (pkcs11.ObjectHandle, error) {
+func (s *session) find(id, label []byte) (*key, error) {
+	var template []*pkcs11.Attribute
 	if id != nil {
 		template = append(template, pkcs11.NewAttribute(pkcs11.CKA_ID, id))
 	}
@@ -89,99 +85,134 @@ func (s *Session) FindKey(
 		template = append(template, pkcs11.NewAttribute(pkcs11.CKA_LABEL, label))
 	}
 
+	// Start out by finding all objects that match our ID + label.
 	if err := s.ctx.FindObjectsInit(s.handle, template); err != nil {
-		return 0, err
+		return nil, fmt.Errorf("failed to pkcs#11 FindObjectsInit: %w", err)
 	}
 	objs, _, err := s.ctx.FindObjects(s.handle, 2)
 	if err != nil {
-		return 0, err
+		return nil, fmt.Errorf("failed to pkcs#11 FindObjects: %w", err)
 	}
 	if err := s.ctx.FindObjectsFinal(s.handle); err != nil {
-		return 0, err
+		return nil, fmt.Errorf("failed to pkcs#11 FindObjectsFinal: %w", err)
 	}
 
-	if len(objs) == 0 {
-		return 0, fmt.Errorf("no key found")
-	}
-	if len(objs) != 1 {
-		return 0, fmt.Errorf("found more than one key")
+	switch len(objs) {
+	case 1, 2: // Either one secret key or a private key + public key.
+	case 0:
+		return nil, fmt.Errorf("no key found")
+	default:
+		return nil, fmt.Errorf("could not find unique secret key or key pair")
 	}
 
-	return objs[0], nil
-}
-
-// FindDecryptionKey finds a key that is capable of encryption.
-func (s *Session) FindEncryptionKey(
-	id, label []byte, keytype *uint,
-) (pkcs11.ObjectHandle, error) {
-	template := []*pkcs11.Attribute{pkcs11.NewAttribute(pkcs11.CKA_ENCRYPT, true)}
-	if keytype != nil {
-		template = append(template, pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, *keytype))
-		if isAsymmetricKeyType(*keytype) {
-			// We can narrow our search down to public keys only.
-			template = append(template, pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PUBLIC_KEY))
+	var keys []*key
+	for _, obj := range objs {
+		key, err := s.resolveKeyAttrs(obj)
+		if err != nil {
+			return nil, err
 		}
+		keys = append(keys, key)
 	}
-	return s.FindKey(id, label, template)
-}
 
-// FindDecryptionKey finds a key that is capable of decryption.
-func (s *Session) FindDecryptionKey(
-	id, label []byte, keytype *uint,
-) (pkcs11.ObjectHandle, error) {
-	template := []*pkcs11.Attribute{pkcs11.NewAttribute(pkcs11.CKA_DECRYPT, true)}
-	if keytype != nil {
-		template = append(template, pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, *keytype))
-		if isAsymmetricKeyType(*keytype) {
-			// We can narrow our search down to private keys only.
-			template = append(template, pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY))
+	// A single secret key:
+	if len(keys) == 1 {
+		if keys[0].class != pkcs11.CKO_SECRET_KEY {
+			return nil, fmt.Errorf("found a single object, expected a secret key (class %d) but got class %d",
+				pkcs11.CKO_SECRET_KEY, keys[0].keytype)
 		}
+		return keys[0], nil
 	}
-	return s.FindKey(id, label, template)
+
+	// A key pair:
+	if keys[0].class == pkcs11.CKO_PRIVATE_KEY && keys[1].class == pkcs11.CKO_PUBLIC_KEY {
+		keys[0].public = keys[1]
+		return keys[0], nil
+	}
+	// The other way around:
+	if keys[0].class == pkcs11.CKO_PUBLIC_KEY && keys[1].class == pkcs11.CKO_PRIVATE_KEY {
+		keys[1].public = keys[0]
+		return keys[1], nil
+	}
+
+	return nil, fmt.Errorf("found two objects, expected public/private key pair (class  %d and %d) but got class %d and %d",
+		pkcs11.CKO_PUBLIC_KEY, pkcs11.CKO_PRIVATE_KEY, keys[0].keytype, keys[1].keytype)
 }
 
-// FindKeyPair finds a public/private key pair.
-func (s *Session) FindKeyPair(
-	id, label []byte,
-) (pkcs11.ObjectHandle, pkcs11.ObjectHandle, error) {
-	template := []*pkcs11.Attribute{pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY)}
-	priv, err := s.FindKey(id, label, template)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to find private key: %w", err)
+func (s *session) resolveKeyAttrs(obj pkcs11.ObjectHandle) (*key, error) {
+	template := []*pkcs11.Attribute{
+		pkcs11.NewAttribute(pkcs11.CKA_CLASS, 0),
+		pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, 0),
 	}
-	template = []*pkcs11.Attribute{pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PUBLIC_KEY)}
-	pub, err := s.FindKey(id, label, template)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to find public key: %w", err)
-	}
-	return priv, pub, nil
-}
 
-// GetKeyType gets the key type (CKK_*) of the key referenced by obj.
-func (s *Session) GetKeyType(obj pkcs11.ObjectHandle) (uint, error) {
-	template := []*pkcs11.Attribute{pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, 0)}
 	attrs, err := s.ctx.GetAttributeValue(s.handle, obj, template)
 	if err != nil {
-		return 0, fmt.Errorf("failed to pkcs11 GetAttributeValue: %w", err)
+		return nil, fmt.Errorf("failed to pkcs#11 GetAttributeValue: %w", err)
 	}
-	keytype, err := bytesToUint(attrs[0].Value)
+
+	class, err := bytesToUint(attrs[0].Value)
 	if err != nil {
-		return 0, fmt.Errorf("failed to read pkcs11 GetAttributeValue response: %w", err)
+		return nil, err
 	}
-	if keytype == uint64(pkcs11.CK_UNAVAILABLE_INFORMATION) {
-		return 0, fmt.Errorf("key type is unavailable information")
+	keytype, err := bytesToUint(attrs[1].Value)
+	if err != nil {
+		return nil, err
 	}
-	if keytype > math.MaxUint {
-		return 0, fmt.Errorf("got key type that exceeds max uint")
+
+	// PKCS#11 is nasty and doesn't let just query for _any_ attribute, instead
+	// we must query only for the select attributes that can be supported by the
+	// object's class.
+	switch class {
+	case pkcs11.CKO_SECRET_KEY:
+		template = []*pkcs11.Attribute{
+			pkcs11.NewAttribute(pkcs11.CKA_ENCRYPT, 0),
+			pkcs11.NewAttribute(pkcs11.CKA_DECRYPT, 0),
+		}
+	case pkcs11.CKO_PRIVATE_KEY:
+		template = []*pkcs11.Attribute{
+			pkcs11.NewAttribute(pkcs11.CKA_DECRYPT, 0),
+			pkcs11.NewAttribute(pkcs11.CKA_SIGN, 0),
+		}
+	case pkcs11.CKO_PUBLIC_KEY:
+		template = []*pkcs11.Attribute{
+			pkcs11.NewAttribute(pkcs11.CKA_ENCRYPT, 0),
+		}
+	default:
+		return nil, fmt.Errorf("found unsupported object of class %d", class)
 	}
-	return uint(keytype), nil
+
+	attrs, err = s.ctx.GetAttributeValue(s.handle, obj, template)
+	if err != nil {
+		return nil, fmt.Errorf("failed to pkcs#11 GetAttributeValue: %w", err)
+	}
+
+	var encrypt, decrypt, sign uint
+	for _, attr := range attrs {
+		val, err := bytesToUint(attr.Value)
+		if err != nil {
+			return nil, err
+		}
+		switch attr.Type {
+		case pkcs11.CKA_ENCRYPT:
+			encrypt = val
+		case pkcs11.CKA_DECRYPT:
+			decrypt = val
+		case pkcs11.CKA_SIGN:
+			sign = val
+		}
+	}
+
+	return &key{
+		handle:  obj,
+		class:   class,
+		keytype: keytype,
+		encrypt: encrypt == 1,
+		decrypt: decrypt == 1,
+		sign:    sign == 1,
+	}, nil
 }
 
-// encrypt performs the generic EncryptInit -> Encrypt flow.
-func (s *Session) encrypt(
-	obj pkcs11.ObjectHandle, mech []*pkcs11.Mechanism, plaintext []byte,
-) ([]byte, error) {
-	if err := s.ctx.EncryptInit(s.handle, mech, obj); err != nil {
+func (s *session) encrypt(k *key, mech []*pkcs11.Mechanism, plaintext []byte) ([]byte, error) {
+	if err := s.ctx.EncryptInit(s.handle, mech, k.handle); err != nil {
 		return nil, fmt.Errorf("failed to pkcs#11 EncryptInit: %w", err)
 	}
 	ciphertext, err := s.ctx.Encrypt(s.handle, plaintext)
@@ -191,44 +222,30 @@ func (s *Session) encrypt(
 	return ciphertext, nil
 }
 
-// EncryptRSAOAEP encrypts plaintext via CKM_RSA_PKCS_OAEP with the CKK_RSA
-// public key referenced by obj.
-func (s *Session) EncryptRSAOAEP(
-	obj pkcs11.ObjectHandle, plaintext []byte, hash uint,
-) ([]byte, error) {
+func (s *session) encryptRSAOAEP(k *key, plaintext []byte, hash uint) ([]byte, error) {
 	mgf := hashMechanismToMgf(hash)
 	params := pkcs11.NewOAEPParams(hash, mgf, pkcs11.CKZ_DATA_SPECIFIED, nil)
 	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS_OAEP, params)}
-	return s.encrypt(obj, mech, plaintext)
+	return s.encrypt(k, mech, plaintext)
 }
 
-// EncryptAESGCM encrypts plaintext via CKM_AES_GCM with the CKK_AES key
-// referenced by obj.
-func (s *Session) EncryptAESGCM(
-	obj pkcs11.ObjectHandle, plaintext []byte,
-) ([]byte, []byte, error) {
+func (s *session) encryptAESGCM(k *key, plaintext []byte) ([]byte, []byte, error) {
 	nonce, err := s.ctx.GenerateRandom(s.handle, CryptoAesGcmNonceSize)
 	if err != nil {
 		return nil, nil, err
 	}
-
 	params := pkcs11.NewGCMParams(nonce, nil, CryptoAesGcmOverhead*8)
 	defer params.Free()
-
 	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_AES_GCM, params)}
-	ciphertext, err := s.encrypt(obj, mech, plaintext)
+	ciphertext, err := s.encrypt(k, mech, plaintext)
 	if err != nil {
 		return nil, nil, err
 	}
-
 	return ciphertext, params.IV(), nil
 }
 
-// decrypt performs the generic DecryptInit -> Decrypt flow.
-func (s *Session) decrypt(
-	obj pkcs11.ObjectHandle, mech []*pkcs11.Mechanism, ciphertext []byte,
-) ([]byte, error) {
-	if err := s.ctx.DecryptInit(s.handle, mech, obj); err != nil {
+func (s *session) decrypt(k *key, mech []*pkcs11.Mechanism, ciphertext []byte) ([]byte, error) {
+	if err := s.ctx.DecryptInit(s.handle, mech, k.handle); err != nil {
 		return nil, fmt.Errorf("failed to pkcs#11 DecryptInit: %w", err)
 	}
 	plaintext, err := s.ctx.Decrypt(s.handle, ciphertext)
@@ -238,42 +255,27 @@ func (s *Session) decrypt(
 	return plaintext, nil
 }
 
-// DecryptRSAOAEP decrypts ciphertext via CKM_RSA_PKCS_OAEP with the CKK_RSA
-// private key referenced by obj.
-func (s *Session) DecryptRSAOAEP(
-	obj pkcs11.ObjectHandle, ciphertext []byte, hash uint,
-) ([]byte, error) {
+func (s *session) decryptRSAOAEP(k *key, ciphertext []byte, hash uint) ([]byte, error) {
 	mgf := hashMechanismToMgf(hash)
 	params := pkcs11.NewOAEPParams(hash, mgf, pkcs11.CKZ_DATA_SPECIFIED, nil)
 	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS_OAEP, params)}
-	return s.decrypt(obj, mech, ciphertext)
+	return s.decrypt(k, mech, ciphertext)
 }
 
-// DecryptRSAPKCS1v15 decrypts ciphertext VIA CKM_RSA_PKCS with the CKK_RSA
-// private key referenced by obj.
-func (s *Session) DecryptRSAPKCS1v15(
-	obj pkcs11.ObjectHandle, ciphertext []byte,
-) ([]byte, error) {
+func (s *session) decryptRSAPKCS1v15(k *key, ciphertext []byte) ([]byte, error) {
 	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS, nil)}
-	return s.decrypt(obj, mech, ciphertext)
+	return s.decrypt(k, mech, ciphertext)
 }
 
-// DecryptAESGcm decrypts ciphertext via CKM_AES_GCM with the CKK_AES key
-// referenced by obj.
-func (s *Session) DecryptAESGCM(
-	obj pkcs11.ObjectHandle, ciphertext, nonce []byte,
-) ([]byte, error) {
+func (s *session) decryptAESGCM(k *key, ciphertext, nonce []byte) ([]byte, error) {
 	params := pkcs11.NewGCMParams(nonce, nil, CryptoAesGcmOverhead*8)
 	defer params.Free()
 	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_AES_GCM, params)}
-	return s.decrypt(obj, mech, ciphertext)
+	return s.decrypt(k, mech, ciphertext)
 }
 
-// sign performs the generic SignInit -> Sign flow.
-func (s *Session) sign(
-	obj pkcs11.ObjectHandle, mech []*pkcs11.Mechanism, digest []byte,
-) ([]byte, error) {
-	if err := s.ctx.SignInit(s.handle, mech, obj); err != nil {
+func (s *session) sign(k *key, mech []*pkcs11.Mechanism, digest []byte) ([]byte, error) {
+	if err := s.ctx.SignInit(s.handle, mech, k.handle); err != nil {
 		return nil, fmt.Errorf("failed to pkcs#11 SignInit: %w", err)
 	}
 	signature, err := s.ctx.Sign(s.handle, digest)
@@ -283,18 +285,15 @@ func (s *Session) sign(
 	return signature, nil
 }
 
-// SignECDSA signs a digest via CKM_ECDSA with the CKK_EC key referenced by obj.
-func (s *Session) SignECDSA(obj pkcs11.ObjectHandle, digest []byte) ([]byte, error) {
+func (s *session) signECDSA(k *key, digest []byte) ([]byte, error) {
 	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_ECDSA, nil)}
-	signature, err := s.sign(obj, mech, digest)
+	signature, err := s.sign(k, mech, digest)
 	if err != nil {
 		return nil, err
 	}
-
 	if len(signature) == 0 || len(signature)%2 != 0 {
 		return nil, fmt.Errorf("ECDSA signature length is invalid: length is %d", len(signature))
 	}
-
 	mid := len(signature) / 2
 	R := &big.Int{}
 	S := &big.Int{}
@@ -306,25 +305,17 @@ func (s *Session) SignECDSA(obj pkcs11.ObjectHandle, digest []byte) ([]byte, err
 	})
 }
 
-// SignRSAPSS signs a digest via CKM_RSA_PKCS_PSS with the CKK_RSA key
-// referenced by obj.
-func (s *Session) SignRSAPSS(
-	obj pkcs11.ObjectHandle, digest []byte, hash, saltLength uint,
-) ([]byte, error) {
+func (s *session) signRSAPSS(k *key, digest []byte, hash, saltLength uint) ([]byte, error) {
 	mgf := hashMechanismToMgf(hash)
 	params := pkcs11.NewPSSParams(hash, mgf, saltLength)
 	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS_PSS, params)}
-	return s.sign(obj, mech, digest)
+	return s.sign(k, mech, digest)
 }
 
-// SignRSAPKCS1v15 signs a digest via CKM_RSA_PKCS with the CKK_RSA key
-// referenced by obj.
-func (s *Session) SignRSAPKCS1v15(
-	obj pkcs11.ObjectHandle, digest []byte, hashPrefix []byte,
-) ([]byte, error) {
+func (s *session) signRSAPKCS1v15(k *key, digest []byte, hashPrefix []byte) ([]byte, error) {
 	digest = append(hashPrefix, digest...)
 	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS, nil)}
-	return s.sign(obj, mech, digest)
+	return s.sign(k, mech, digest)
 }
 
 // Inlined from crypto/x509:
@@ -375,16 +366,14 @@ func namedCurveFromLiteral(val []byte) elliptic.Curve {
 	return nil
 }
 
-// ExportECDSAPublicKey exports an ECDSA public key (provided the curve is known
-// by Go's standard library) from a CKK_EC public key handle.
-func (s *Session) ExportECDSAPublicKey(obj pkcs11.ObjectHandle) (*ecdsa.PublicKey, error) {
+func (s *session) exportECDSAPublicKey(k *key) (*ecdsa.PublicKey, error) {
 	template := []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_EC_PARAMS, nil),
 		pkcs11.NewAttribute(pkcs11.CKA_EC_POINT, nil),
 	}
-	attrs, err := s.ctx.GetAttributeValue(s.handle, obj, template)
+	attrs, err := s.ctx.GetAttributeValue(s.handle, k.handle, template)
 	if err != nil {
-		return nil, fmt.Errorf("failed to pkcs11 GetAttributeValue: %w", err)
+		return nil, fmt.Errorf("failed to pkcs#11 GetAttributeValue: %w", err)
 	}
 
 	curve, err := namedCurveFromOID(attrs[0].Value)
@@ -419,16 +408,14 @@ func (s *Session) ExportECDSAPublicKey(obj pkcs11.ObjectHandle) (*ecdsa.PublicKe
 	return &ecdsa.PublicKey{Curve: curve, X: x, Y: y}, nil
 }
 
-// ExportRSAPublicKey exports an RSA public key from a CKK_RSA public key
-// handle.
-func (s *Session) ExportRSAPublicKey(obj pkcs11.ObjectHandle) (*rsa.PublicKey, error) {
+func (s *session) exportRSAPublicKey(k *key) (*rsa.PublicKey, error) {
 	template := []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_MODULUS, nil),
 		pkcs11.NewAttribute(pkcs11.CKA_PUBLIC_EXPONENT, nil),
 	}
-	attrs, err := s.ctx.GetAttributeValue(s.handle, obj, template)
+	attrs, err := s.ctx.GetAttributeValue(s.handle, k.handle, template)
 	if err != nil {
-		return nil, fmt.Errorf("failed to pkcs11 GetAttributeValue: %w", err)
+		return nil, fmt.Errorf("failed to pkcs#11 GetAttributeValue: %w", err)
 	}
 
 	var n = new(big.Int)
