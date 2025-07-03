@@ -9,7 +9,7 @@ import (
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
 
-// Provider is a [[wrapping.CryptoProvider]] that uses PKCS#11.
+// Provider is a [wrapping.CryptoProvider] that uses PKCS#11.
 type Provider struct {
 	client *client
 }
@@ -44,7 +44,7 @@ func (p *Provider) SetConfig(_ context.Context, options ...wrapping.Option) erro
 	return err
 }
 
-// GetKey returns a [[wrapping.ExternalKey]] backed by PKCS#11.
+// GetKey returns a [wrapping.ExternalKey] backed by PKCS#11.
 func (p *Provider) GetKey(ctx context.Context, options ...wrapping.Option) (wrapping.ExternalKey, error) {
 	opts, err := getSignerDecrypterOpts(options)
 	if err != nil {

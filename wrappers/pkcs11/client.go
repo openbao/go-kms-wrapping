@@ -29,15 +29,15 @@ type client struct {
 	module *module
 }
 
-// session provides access to cryptographic operations. Acquire a session via
-// [[client.do]].
+// session provides access to cryptographic operations.
+// Acquire a session via [client.do].
 type session struct {
 	ctx    *pkcs11.Ctx
 	handle pkcs11.SessionHandle
 }
 
-// key is found via [[session.find]] and passed to other methods of [[session]]
-// for cryptographic operations
+// key is found via [session.find] and passed to other methods
+// of [session] for cryptographic operations.
 type key struct {
 	// Session-scoped handle
 	handle pkcs11.ObjectHandle
@@ -68,12 +68,12 @@ func (c *client) close() error {
 }
 
 func (c *client) do(ctx context.Context, f func(*session) error) error {
-	handle, err := c.pool.get(ctx)
+	handle, err := c.pool.create(ctx)
 	if err != nil {
 		return err
 	}
 	session := &session{ctx: c.ctx, handle: handle}
-	return errors.Join(f(session), c.pool.put(handle))
+	return errors.Join(f(session), c.pool.done(handle))
 }
 
 func (s *session) find(id, label []byte) (*key, error) {
@@ -123,19 +123,25 @@ func (s *session) find(id, label []byte) (*key, error) {
 		return keys[0], nil
 	}
 
-	// A key pair:
-	if keys[0].class == pkcs11.CKO_PRIVATE_KEY && keys[1].class == pkcs11.CKO_PUBLIC_KEY {
-		keys[0].public = keys[1]
-		return keys[0], nil
-	}
-	// The other way around:
-	if keys[0].class == pkcs11.CKO_PUBLIC_KEY && keys[1].class == pkcs11.CKO_PRIVATE_KEY {
-		keys[1].public = keys[0]
-		return keys[1], nil
+	var privateKey *key
+	switch {
+	case keys[0].class == pkcs11.CKO_PRIVATE_KEY && keys[1].class == pkcs11.CKO_PUBLIC_KEY:
+		privateKey = keys[0]
+		privateKey.public = keys[1]
+	case keys[0].class == pkcs11.CKO_PUBLIC_KEY && keys[1].class == pkcs11.CKO_PRIVATE_KEY:
+		privateKey = keys[1]
+		privateKey.public = keys[0]
+	default:
+		return nil, fmt.Errorf("found two objects, expected public/private key pair (class %d and %d) but got class %d and %d",
+			pkcs11.CKO_PUBLIC_KEY, pkcs11.CKO_PRIVATE_KEY, keys[0].keytype, keys[1].keytype)
 	}
 
-	return nil, fmt.Errorf("found two objects, expected public/private key pair (class  %d and %d) but got class %d and %d",
-		pkcs11.CKO_PUBLIC_KEY, pkcs11.CKO_PRIVATE_KEY, keys[0].keytype, keys[1].keytype)
+	if privateKey.keytype != privateKey.public.keytype {
+		return nil, fmt.Errorf("private key type does not match public key type (%d vs %d)",
+			privateKey.keytype, privateKey.public.keytype)
+	}
+
+	return privateKey, nil
 }
 
 func (s *session) resolveKeyAttrs(obj pkcs11.ObjectHandle) (*key, error) {

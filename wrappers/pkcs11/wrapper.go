@@ -15,18 +15,13 @@ import (
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
 
-// Wrapper is a [[wrapping.Wrapper]] that uses PKCS#11.
+// Wrapper is a [wrapping.Wrapper] that uses PKCS#11.
 type Wrapper struct {
-	// PKCS#11 client
-	client *client
-	// Either the symmetric secret key or a private key
-	key *key
-	// Exported public key for software encryption with asymmetric keys.
-	pubkey crypto.PublicKey
-	// Encryption/decryption mechanism, hash for RSA-OAEP
+	client          *client
+	key             *key
+	pubkey          crypto.PublicKey
 	mechanism, hash uint
-	// Key ID
-	keyID string
+	keyID           string
 }
 
 var (
@@ -98,8 +93,7 @@ func (w *Wrapper) SetConfig(ctx context.Context, options ...wrapping.Option) (*w
 		if err != nil {
 			return err
 		}
-
-		// Ensure that the keys we got support encryption and decryption in some way:
+		// Ensure that the key (pair) supports encryption and decryption:
 		switch k.class {
 		case pkcs11.CKO_SECRET_KEY:
 			if !k.encrypt {

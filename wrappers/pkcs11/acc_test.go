@@ -46,30 +46,30 @@ func TestPool(t *testing.T) {
 		pool, err := newSessionPool(mod.ctx, info, opts.pin, 0)
 		require.NoError(t, err)
 
-		session, err := pool.get(ctx)
+		session, err := pool.create(ctx)
 		require.NoError(t, err)
 		require.Equal(t, pool.size, uint(1))
 
-		session2, err := pool.get(ctx)
+		session2, err := pool.create(ctx)
 		require.NoError(t, err)
 		require.Equal(t, pool.size, uint(2))
 
-		pool.put(session2)
+		pool.done(session2)
 		require.Equal(t, pool.size, uint(1))
 
-		session3, err := pool.get(ctx)
+		session3, err := pool.create(ctx)
 		require.NoError(t, err)
 		require.Equal(t, pool.size, uint(2))
 
-		pool.put(session)
-		pool.put(session3)
+		pool.done(session)
+		pool.done(session3)
 		require.Equal(t, pool.size, uint(0))
 
 		err = pool.close()
 		require.NoError(t, err)
 
 		// Pool is closed, should error
-		_, err = pool.get(ctx)
+		_, err = pool.create(ctx)
 		require.Error(t, err)
 	})
 
@@ -81,20 +81,20 @@ func TestPool(t *testing.T) {
 		defer func() { require.NoError(t, pool.close()) }()
 
 		// Take the only session
-		session, err := pool.get(ctx)
+		session, err := pool.create(ctx)
 		require.NoError(t, err)
 
 		result := make(chan error)
 		go func() {
 			// Take another session, should block
-			_, err := pool.get(ctx)
+			_, err := pool.create(ctx)
 			result <- err
 		}()
 
 		cancel()
 		require.ErrorIs(t, <-result, context.Canceled)
 
-		pool.put(session)
+		pool.done(session)
 	})
 
 	t.Run("wait before closing", func(t *testing.T) {
@@ -102,13 +102,13 @@ func TestPool(t *testing.T) {
 		pool, err := newSessionPool(mod.ctx, info, opts.pin, 0)
 		require.NoError(t, err)
 
-		session1, err := pool.get(ctx)
+		session1, err := pool.create(ctx)
 		require.NoError(t, err)
 
-		session2, err := pool.get(ctx)
+		session2, err := pool.create(ctx)
 		require.NoError(t, err)
 
-		pool.put(session1)
+		pool.done(session1)
 
 		returned := atomic.Bool{}
 		results := make(chan error)
@@ -125,7 +125,7 @@ func TestPool(t *testing.T) {
 
 		// Give it some time before we return the session
 		<-time.After(time.Millisecond * 10)
-		pool.put(session2)
+		pool.done(session2)
 		returned.Store(true)
 
 		require.NoError(t, <-results)
@@ -144,7 +144,7 @@ func TestPool(t *testing.T) {
 
 		for range pool.max * 10 {
 			go func() {
-				session, err := pool.get(ctx)
+				session, err := pool.create(ctx)
 				if err != nil {
 					results <- err
 					return
@@ -157,7 +157,7 @@ func TestPool(t *testing.T) {
 				}
 
 				concurrency.Add(^uint64(0))
-				results <- pool.put(session)
+				results <- pool.done(session)
 			}()
 		}
 

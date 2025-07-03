@@ -12,22 +12,22 @@ import (
 	"github.com/miekg/pkcs11"
 )
 
-// sessionPool lends out sessions to a slot, ensuring the amount of concurrent sessions never
-// exceeds a maximum number of sessions. sessionPool assumes that sessions are cheap (as they
-// should be in a sane PKCS#11 implementation) and thus skips the hassle of storing sessions:
-// we only keep a single persistent session to maintain login state (OpenSession should be
-// cheap, Login could be expensive), all "working sessions" are short-lived and closed once
-// the caller returns them.
+// sessionPool creates sessions for a slot, ensuring the amount of concurrent
+// sessions never exceeds the given maximum. sessionPool assumes that sessions
+// are cheap (modern PKCS#11 implementations handle sessions only on the
+// "library side") and thus skips the complexity storing and reusing sessions.
+// We do keep a single persistent session to maintain login state (OpenSession
+// should be cheap and local, but Login likely requires a remote call)
 type sessionPool struct {
 	// Associated pkcs11.Ctx
 	ctx *pkcs11.Ctx
-	// Token slot that the pool manages
+	// Slot number that the pool manages
 	slot uint
 	// Handle to persistently logged in session
 	persistent pkcs11.SessionHandle
-	// Maximum amount of sessions
+	// Maximum sessions
 	max uint
-	// Amount of currently allocated sessions
+	// Number of allocated sessions
 	size uint
 	// Guards and waits for size
 	cond *sync.Cond
@@ -40,9 +40,9 @@ type sessionPool struct {
 // or the reported MaxSessionCount exceeds DefaultMaxParallel.
 const DefaultMaxParallel = 1024
 
-// newSessionPool creates a new session pool for a slot.
-// The maxParallel value may be lowered to the MaxSessionCount reported
-// by the HSM if necessary. Set maxParallel to 0 to use DefaultMaxParallel.
+// newSessionPool creates a new session pool for a slot. The maxParallel value
+// may be lowered to the MaxSessionCount reported by the HSM if necessary. A
+// maxParallel value of 0 defaults to DefaultMaxParallel.
 func newSessionPool(
 	ctx *pkcs11.Ctx, info *tokenInfo, pin string, maxParallel uint,
 ) (*sessionPool, error) {
@@ -84,15 +84,14 @@ func newSessionPool(
 	return p, nil
 }
 
-// get takes a fresh session from the pool, waiting for available capacity.
-// Context cancellation is respected when waiting for session capacity.
-func (p *sessionPool) get(ctx context.Context) (pkcs11.SessionHandle, error) {
-	// Wait for available capacity.
+// create a new session, waiting for available capacity if needed.
+func (p *sessionPool) create(ctx context.Context) (pkcs11.SessionHandle, error) {
 	p.cond.L.Lock()
 	defer p.cond.L.Unlock()
 	if p.closed {
 		return 0, fmt.Errorf("session pool is closed")
 	}
+	// Wait for available capacity.
 	for p.size == p.max {
 		select {
 		case <-ctx.Done():
@@ -114,9 +113,9 @@ func (p *sessionPool) get(ctx context.Context) (pkcs11.SessionHandle, error) {
 	return session, nil
 }
 
-// put returns a session to the pool, closing it.
-// The caller must ensure that a session is only ever returned once.
-func (p *sessionPool) put(session pkcs11.SessionHandle) error {
+// done closes the session, freeing pool capacity.
+// The caller must ensure that this function is only called once per session.
+func (p *sessionPool) done(session pkcs11.SessionHandle) error {
 	p.cond.L.Lock()
 	p.size--
 	p.cond.L.Unlock()
@@ -128,7 +127,8 @@ func (p *sessionPool) put(session pkcs11.SessionHandle) error {
 	return nil
 }
 
-// close marks the pool as closed and waits for all sessions to be returned via put(...).
+// close marks the pool as closed and waits for all sessions
+// to be returned via [sessionPool.put].
 func (p *sessionPool) close() error {
 	// Close and drain the pool:
 	p.cond.L.Lock()
@@ -140,9 +140,10 @@ func (p *sessionPool) close() error {
 
 	return errors.Join(
 		wrapErr(p.ctx.Logout(p.persistent), "failed to pkcs#11 Logout"),
-		// Use CloseAllSessions rather than closing just the persistent session for good measure.
-		// PKCS#11 says this should also cause a logout but in practice that isn't the case,
-		// see Google KMS (https://github.com/GoogleCloudPlatform/kms-integrations) for example.
+		// Use CloseAllSessions rather than closing just the persistent session for
+		// good measure. PKCS#11 says this should also cause a logout but in
+		// practice that isn't the case, for example see Google's PKCS#11 library:
+		// https://github.com/GoogleCloudPlatform/kms-integrations
 		wrapErr(p.ctx.CloseAllSessions(p.slot), "failed to pkcs#11 CloseAllSessions"),
 	)
 }
