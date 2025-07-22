@@ -5,9 +5,16 @@ package azurekeyvault
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
 	"os"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/Azure/go-autorest/autorest/azure"
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
@@ -137,4 +144,55 @@ func TestAzureKeyVault_Lifecycle(t *testing.T) {
 	if !reflect.DeepEqual(input, pt) {
 		t.Fatalf("expected %s, got %s", input, pt)
 	}
+}
+
+func TestWrapper_getCredential_CertificateCredential(t *testing.T) {
+	// Generate a private key
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	// Create a certificate template
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Organization: []string{"Test Co"},
+		},
+		NotBefore: time.Now(),
+		NotAfter:  time.Now().Add(time.Hour * 24 * 180),
+
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+	}
+
+	// Create a self-signed certificate
+	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
+	require.NoError(t, err)
+
+	// Create a temporary file to store the certificate and key
+	certFile, err := os.CreateTemp("", "cert.pem")
+	require.NoError(t, err)
+	defer os.Remove(certFile.Name())
+
+	// Write the certificate to the file
+	err = pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
+	require.NoError(t, err)
+
+	// Write the private key to the file
+	err = pem.Encode(certFile, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privateKey)})
+	require.NoError(t, err)
+
+	err = certFile.Close()
+	require.NoError(t, err)
+
+	// Create a wrapper and test the getCredential method
+	v := &Wrapper{
+		tenantID: "test-tenant-id",
+		clientID: "test-client-id",
+		certPath: certFile.Name(),
+	}
+
+	cred, err := v.getCredential(CertificateCredential)
+	require.NoError(t, err)
+	require.NotNil(t, cred)
 }
