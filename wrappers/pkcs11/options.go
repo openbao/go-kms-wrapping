@@ -6,11 +6,6 @@ package pkcs11
 
 import (
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
-	"github.com/openbao/openbao/api/v2"
-)
-
-const (
-	EnvHsmWrapperSoftwareEncryption = "BAO_HSM_SOFTWARE_ENCRYPTION"
 )
 
 // getOpts iterates the inbound Options and returns a struct
@@ -44,14 +39,6 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 		opts.Options = new(wrapping.Options)
 	}
 
-	// Merge the local options with values provided by environment variables
-	if !opts.WithDisallowEnvVars {
-		if opts.WithConfigMap == nil {
-			opts.WithConfigMap = make(map[string]string)
-		}
-		mergeConfigMapWithEnv(opts.WithConfigMap)
-	}
-
 	// Local options can be provided either via the WithConfigMap field
 	// (for over the plugin barrier or embedding) or via local option functions
 	// (for embedding). First pull from the option.
@@ -76,11 +63,7 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 			case "rsa_oaep_hash":
 				opts.withRsaOaepHash = v
 			case "software_encryption":
-				soft, err := parseBool(v)
-				if err != nil {
-					return nil, err
-				}
-				opts.withSoftwareEncryption = soft
+				opts.withSoftwareEncryption = v
 			}
 		}
 	}
@@ -102,12 +85,6 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 	return &opts, nil
 }
 
-func mergeConfigMapWithEnv(config map[string]string) {
-	if env := api.ReadBaoVariable(EnvHsmWrapperSoftwareEncryption); env != "" {
-		config["software_encryption"] = env
-	}
-}
-
 // OptionFunc holds a function with local options
 type OptionFunc func(*options) error
 
@@ -123,13 +100,11 @@ type options struct {
 	withTokenLabel         string
 	withMechanism          string
 	withRsaOaepHash        string
-	withSoftwareEncryption bool
+	withSoftwareEncryption string
 }
 
 func getDefaultOptions() options {
-	var opts = options{}
-	opts.withSoftwareEncryption = true
-	return opts
+	return options{}
 }
 
 // WithSlot sets the slot
@@ -207,17 +182,6 @@ func WithRsaOaepHash(hashMechanisme string) wrapping.Option {
 	return func() interface{} {
 		return OptionFunc(func(o *options) error {
 			o.withRsaOaepHash = hashMechanisme
-			return nil
-		})
-	}
-}
-
-// WithSoftwareEncryption enables/disables software encryption for asymmetric
-// keys.
-func WithSoftwareEncryption(value bool) wrapping.Option {
-	return func() any {
-		return OptionFunc(func(o *options) error {
-			o.withSoftwareEncryption = value
 			return nil
 		})
 	}

@@ -45,7 +45,7 @@ func (k *Wrapper) Finalize(_ context.Context, _ ...wrapping.Option) error {
 }
 
 // SetConfig processes the config info from the server config
-func (k *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapping.WrapperConfig, error) {
+func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrapping.WrapperConfig, error) {
 	// Option validation is performed by newPkcs11Client(...).
 	opts, err := getOpts(opt...)
 	if err != nil {

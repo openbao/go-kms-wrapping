@@ -4,15 +4,18 @@
 package pkcs11
 
 import (
+	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"math/big"
 	"strconv"
 	"strings"
 
+	"github.com/hashicorp/go-secure-stdlib/parseutil"
 	pkcs11 "github.com/miekg/pkcs11"
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 	"github.com/openbao/openbao/api/v2"
@@ -69,15 +72,29 @@ type Pkcs11Client struct {
 	useSoftwareEncryption bool
 }
 
+type KeyInfo struct {
+	handle pkcs11.ObjectHandle
+
+	// Only present for class == CKO_PRIVATE_KEY
+	public *KeyInfo
+
+	// Attributes
+	class   uint // CKA_CLASS
+	keytype uint // CKA_KEY_TYPE
+	encrypt bool // CKA_ENCRYPT
+	decrypt bool // CKA_DECRYPT
+}
+
 const (
-	EnvHsmWrapperLib         = "BAO_HSM_LIB"
-	EnvHsmWrapperSlot        = "BAO_HSM_SLOT"
-	EnvHsmWrapperTokenLabel  = "BAO_HSM_TOKEN_LABEL"
-	EnvHsmWrapperPin         = "BAO_HSM_PIN"
-	EnvHsmWrapperKeyLabel    = "BAO_HSM_KEY_LABEL"
-	EnvHsmWrapperKeyId       = "BAO_HSM_KEY_ID"
-	EnvHsmWrapperMechanism   = "BAO_HSM_MECHANISM"
-	EnvHsmWrapperRsaOaepHash = "BAO_HSM_RSA_OAEP_HASH"
+	EnvHsmWrapperLib                = "BAO_HSM_LIB"
+	EnvHsmWrapperSlot               = "BAO_HSM_SLOT"
+	EnvHsmWrapperTokenLabel         = "BAO_HSM_TOKEN_LABEL"
+	EnvHsmWrapperPin                = "BAO_HSM_PIN"
+	EnvHsmWrapperKeyLabel           = "BAO_HSM_KEY_LABEL"
+	EnvHsmWrapperKeyId              = "BAO_HSM_KEY_ID"
+	EnvHsmWrapperMechanism          = "BAO_HSM_MECHANISM"
+	EnvHsmWrapperRsaOaepHash        = "BAO_HSM_RSA_OAEP_HASH"
+	EnvHsmWrapperSoftwareEncryption = "BAO_HSM_SOFTWARE_ENCRYPTION"
 )
 
 const (
@@ -90,9 +107,10 @@ const (
 )
 
 func newPkcs11Client(opts *options) (*Pkcs11Client, *wrapping.WrapperConfig, error) {
-	var lib, slot, keyId, tokenLabel, pin, keyLabel, mechanism, rsaOaepHash string
+	var lib, slot, keyId, tokenLabel, pin, keyLabel, mechanism, rsaOaepHash, softwareEncryption string
 	var slotNum *uint64
 	var mechanismNum uint64
+	var useSoftwareEncryption bool
 	var err error
 
 	switch {
@@ -175,6 +193,22 @@ func newPkcs11Client(opts *options) (*Pkcs11Client, *wrapping.WrapperConfig, err
 		rsaOaepHash = ""
 	}
 
+	switch {
+	case api.ReadBaoVariable(EnvHsmWrapperSoftwareEncryption) != "" && !opts.Options.WithDisallowEnvVars:
+		softwareEncryption = api.ReadBaoVariable(EnvHsmWrapperSoftwareEncryption)
+	case opts.withSoftwareEncryption != "":
+		softwareEncryption = opts.withSoftwareEncryption
+	}
+
+	if softwareEncryption != "" {
+		useSoftwareEncryption, err = parseutil.ParseBool(softwareEncryption)
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		useSoftwareEncryption = true
+	}
+
 	if slot != "" {
 		var slotNumRaw uint64
 		if slotNumRaw, err = numberAutoParse(slot, 32); err != nil {
@@ -202,7 +236,7 @@ func newPkcs11Client(opts *options) (*Pkcs11Client, *wrapping.WrapperConfig, err
 		keyLabel:              keyLabel,
 		mechanism:             uint(mechanismNum),
 		rsaOaepHash:           rsaOaepHash,
-		useSoftwareEncryption: opts.withSoftwareEncryption,
+		useSoftwareEncryption: useSoftwareEncryption,
 	}
 	if slotNum != nil {
 		client.slot = new(uint)
@@ -269,27 +303,46 @@ func (c *Pkcs11Client) Encrypt(plaintext []byte) ([]byte, []byte, *Pkcs11Key, er
 	defer c.CloseSession(session)
 
 	keyId := Pkcs11Key{label: c.keyLabel, id: c.keyId}
-	key, err := c.FindKey(session, keyId, pkcs11.CKA_ENCRYPT)
+	key, err := c.FindKey(session, keyId)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	mechanism, err := c.GetKeyMechanism(session, key)
-	if err != nil {
-		return nil, nil, nil, err
+	switch key.class {
+	case pkcs11.CKO_SECRET_KEY:
+		if !key.encrypt {
+			return nil, nil, nil, fmt.Errorf("secret key does not have CKA_ENCRYPT")
+		}
+	case pkcs11.CKO_PRIVATE_KEY:
+		if key.public == nil {
+			return nil, nil, nil, fmt.Errorf("private key is missing a public key half")
+		}
+		if !c.useSoftwareEncryption && !key.public.encrypt {
+			return nil, nil, nil, fmt.Errorf("public key does not have CKA_ENCRYPT")
+		}
+	default:
+		return nil, nil, nil, fmt.Errorf("unsupported object type")
+	}
+
+	mechanism := c.mechanism
+	if mechanism == 0 {
+		mechanism, err = DefaultMechanism(key.keytype)
+		if err != nil {
+			return nil, nil, nil, err
+		}
 	}
 
 	switch mechanism {
 	case pkcs11.CKM_AES_GCM:
-		return c.EncryptAesGcm(session, key, keyId, plaintext)
+		return c.EncryptAesGcm(session, key.handle, keyId, plaintext)
 	case pkcs11.CKM_RSA_PKCS_OAEP:
 		if c.useSoftwareEncryption {
-			pubkey, err := exportRSAPublicKey(session, *c.client, key)
+			pubkey, err := exportRSAPublicKey(session, *c.client, key.public.handle)
 			if err == nil && pubkey != nil {
 				return c.EncryptRsaOaepSoftware(pubkey, keyId, plaintext)
 			}
 		}
-		return c.EncryptRsaOaep(session, key, keyId, plaintext)
+		return c.EncryptRsaOaep(session, key.public.handle, keyId, plaintext)
 	}
 	return nil, nil, nil, fmt.Errorf("unsupported mechanism")
 }
@@ -333,11 +386,11 @@ func (c *Pkcs11Client) EncryptRsaOaep(session pkcs11.SessionHandle, key pkcs11.O
 	} else {
 		rsaOaepHash = DefaultRsaOaepHash
 	}
-	hash, mgf_hash, err := RsaHashMechFromString(rsaOaepHash)
+	hash, mgfHash, _, err := RsaHashMechFromString(rsaOaepHash)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	params := pkcs11.NewOAEPParams(hash, mgf_hash, pkcs11.CKZ_DATA_SPECIFIED, nil)
+	params := pkcs11.NewOAEPParams(hash, mgfHash, pkcs11.CKZ_DATA_SPECIFIED, nil)
 	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS_OAEP, params)}
 
 	if err = c.client.EncryptInit(session, mech, key); err != nil {
@@ -351,7 +404,6 @@ func (c *Pkcs11Client) EncryptRsaOaep(session pkcs11.SessionHandle, key pkcs11.O
 	return ciphertext, nil, &keyId, nil
 }
 
-// Software RSA OAEP encryption using Go's crypto module
 func (c *Pkcs11Client) EncryptRsaOaepSoftware(pubkey *rsa.PublicKey, keyId Pkcs11Key, plaintext []byte) ([]byte, []byte, *Pkcs11Key, error) {
 	var rsaOaepHash string
 	if c.rsaOaepHash != "" {
@@ -360,16 +412,12 @@ func (c *Pkcs11Client) EncryptRsaOaepSoftware(pubkey *rsa.PublicKey, keyId Pkcs1
 		rsaOaepHash = DefaultRsaOaepHash
 	}
 
-	// Get the hash function for OAEP
-	hash, _, err := RsaHashMechFromString(rsaOaepHash)
+	_, _, hash, err := RsaHashMechFromString(rsaOaepHash)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	hashFunc := hashMechanismToCrypto(hash)
-
-	// Encrypt using Go's crypto/rsa package
-	ciphertext, err := rsa.EncryptOAEP(hashFunc.New(), rand.Reader, pubkey, plaintext, nil)
+	ciphertext, err := rsa.EncryptOAEP(hash.New(), rand.Reader, pubkey, plaintext, nil)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to encrypt with software RSA OAEP: %w", err)
 	}
@@ -388,21 +436,37 @@ func (c *Pkcs11Client) Decrypt(ciphertext []byte, nonce []byte, keyId *Pkcs11Key
 		keyId = &Pkcs11Key{label: c.keyLabel, id: c.keyId}
 	}
 
-	key, err := c.FindKey(session, *keyId, pkcs11.CKA_DECRYPT)
+	key, err := c.FindKey(session, *keyId)
 	if err != nil {
 		return nil, err
 	}
 
-	mechanism, err := c.GetKeyMechanism(session, key)
-	if err != nil {
-		return nil, err
+	switch key.class {
+	case pkcs11.CKO_SECRET_KEY:
+		if !key.decrypt {
+			return nil, fmt.Errorf("secret key does not have CKA_DECRYPT")
+		}
+	case pkcs11.CKO_PRIVATE_KEY:
+		if !key.decrypt {
+			return nil, fmt.Errorf("private key does not have CKA_DECRYPT")
+		}
+	default:
+		return nil, fmt.Errorf("unsupported object type")
+	}
+
+	mechanism := c.mechanism
+	if mechanism == 0 {
+		mechanism, err = DefaultMechanism(key.keytype)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	switch mechanism {
 	case pkcs11.CKM_AES_GCM:
-		return c.DecryptAesGcm(session, key, nonce, ciphertext)
+		return c.DecryptAesGcm(session, key.handle, nonce, ciphertext)
 	case pkcs11.CKM_RSA_PKCS_OAEP:
-		return c.DecryptRsaOaep(session, key, nonce, ciphertext)
+		return c.DecryptRsaOaep(session, key.handle, nonce, ciphertext)
 	}
 	return nil, fmt.Errorf("unsupported mechanism")
 }
@@ -431,11 +495,11 @@ func (c *Pkcs11Client) DecryptRsaOaep(session pkcs11.SessionHandle, key pkcs11.O
 	} else {
 		rsaOaepHash = DefaultRsaOaepHash
 	}
-	hash, mgf_hash, err := RsaHashMechFromString(rsaOaepHash)
+	hash, mgfHash, _, err := RsaHashMechFromString(rsaOaepHash)
 	if err != nil {
 		return nil, err
 	}
-	params := pkcs11.NewOAEPParams(hash, mgf_hash, pkcs11.CKZ_DATA_SPECIFIED, nil)
+	params := pkcs11.NewOAEPParams(hash, mgfHash, pkcs11.CKZ_DATA_SPECIFIED, nil)
 
 	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS_OAEP, params)}
 
@@ -550,74 +614,143 @@ func exportRSAPublicKey(sh pkcs11.SessionHandle, ctx pkcs11.Ctx, key pkcs11.Obje
 }
 
 // Find on key for the given Label, ID and Mechanism.
-func (c *Pkcs11Client) FindKey(session pkcs11.SessionHandle, key Pkcs11Key, typ uint) (pkcs11.ObjectHandle, error) {
+func (c *Pkcs11Client) FindKey(session pkcs11.SessionHandle, key Pkcs11Key) (*KeyInfo, error) {
+	var template []*pkcs11.Attribute
 
-	template := []*pkcs11.Attribute{
-		pkcs11.NewAttribute(pkcs11.CKA_LABEL, []byte(key.label)),
-		pkcs11.NewAttribute(typ, true),
-	}
-	if keyIdBytes, err := hex.DecodeString(key.id); err == nil {
+	if keyIdBytes, err := hex.DecodeString(key.id); err == nil && len(keyIdBytes) != 0 {
 		template = append(template, pkcs11.NewAttribute(pkcs11.CKA_ID, keyIdBytes))
 	}
-	if c.mechanism != 0 {
-		keyType, err := GetKeyTypeFromMech(c.mechanism)
-		if err != nil {
-			return 0, fmt.Errorf("failed to get key type from mechanism: %s", err)
-		}
-		template = append(template, pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, keyType))
+
+	if key.label != "" {
+		template = append(template, pkcs11.NewAttribute(pkcs11.CKA_LABEL, []byte(key.label)))
 	}
 
+	// Start out by finding all objects that match our ID + label.
 	if err := c.client.FindObjectsInit(session, template); err != nil {
-		return 0, fmt.Errorf("failed to pkcs11 FindObjectsInit: %s", err)
+		return nil, fmt.Errorf("failed to pkcs#11 FindObjectsInit: %w", err)
 	}
-	obj, _, err := c.client.FindObjects(session, 2)
+	objs, _, err := c.client.FindObjects(session, 2)
 	if err != nil {
-		return 0, fmt.Errorf("failed to pkcs11 FindObjects: %s", err)
+		return nil, fmt.Errorf("failed to pkcs#11 FindObjects: %w", err)
 	}
 	if err := c.client.FindObjectsFinal(session); err != nil {
-		return 0, fmt.Errorf("failed to pkcs11 FindObjectsFinal: %s", err)
-	}
-	if len(obj) == 0 {
-		return 0, fmt.Errorf("no key found for the label: %s", key.label)
-	}
-	if len(obj) != 1 {
-		return 0, fmt.Errorf("got more than 1 key for the label: %s", key.label)
+		return nil, fmt.Errorf("failed to pkcs#11 FindObjectsFinal: %w", err)
 	}
 
-	return obj[0], nil
+	switch len(objs) {
+	case 1, 2: // Either one secret key or a private key + public key.
+	case 0:
+		return nil, fmt.Errorf("no key found")
+	default:
+		return nil, fmt.Errorf("could not find unique secret key or key pair")
+	}
+
+	var keys []*KeyInfo
+	for _, obj := range objs {
+		key, err := c.ResolveKeyAttrs(session, obj)
+		if err != nil {
+			return nil, err
+		}
+		keys = append(keys, key)
+	}
+
+	// A single secret key:
+	if len(keys) == 1 {
+		if keys[0].class != pkcs11.CKO_SECRET_KEY {
+			return nil, fmt.Errorf("found a single object, expected a secret key (class %d) but got class %d",
+				pkcs11.CKO_SECRET_KEY, keys[0].keytype)
+		}
+		return keys[0], nil
+	}
+
+	var privateKey *KeyInfo
+	switch {
+	case keys[0].class == pkcs11.CKO_PRIVATE_KEY && keys[1].class == pkcs11.CKO_PUBLIC_KEY:
+		privateKey = keys[0]
+		privateKey.public = keys[1]
+	case keys[0].class == pkcs11.CKO_PUBLIC_KEY && keys[1].class == pkcs11.CKO_PRIVATE_KEY:
+		privateKey = keys[1]
+		privateKey.public = keys[0]
+	default:
+		return nil, fmt.Errorf("found two objects, expected public/private key pair (class %d and %d) but got class %d and %d",
+			pkcs11.CKO_PUBLIC_KEY, pkcs11.CKO_PRIVATE_KEY, keys[0].keytype, keys[1].keytype)
+	}
+
+	if privateKey.keytype != privateKey.public.keytype {
+		return nil, fmt.Errorf("private key type does not match public key type (%d vs %d)",
+			privateKey.keytype, privateKey.public.keytype)
+	}
+
+	return privateKey, nil
 }
 
-func (c *Pkcs11Client) GetKeyMechanism(session pkcs11.SessionHandle, key pkcs11.ObjectHandle) (uint, error) {
+func (c *Pkcs11Client) ResolveKeyAttrs(session pkcs11.SessionHandle, obj pkcs11.ObjectHandle) (*KeyInfo, error) {
 	template := []*pkcs11.Attribute{
-		pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, nil),
+		pkcs11.NewAttribute(pkcs11.CKA_CLASS, 0),
+		pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, 0),
 	}
-	attr, err := c.client.GetAttributeValue(session, pkcs11.ObjectHandle(key), template)
+
+	attrs, err := c.client.GetAttributeValue(session, obj, template)
 	if err != nil {
-		return 0, fmt.Errorf("failed to pkcs11 GetAttributeValue: %s", err)
+		return nil, fmt.Errorf("failed to pkcs#11 GetAttributeValue: %w", err)
 	}
 
-	attrMap := GetAttributesMap(attr)
-	keyType := GetValueAsInt(attrMap[pkcs11.CKA_KEY_TYPE])
+	class, err := GetValueAsUint(attrs[0].Value)
+	if err != nil {
+		return nil, err
+	}
+	keytype, err := GetValueAsUint(attrs[1].Value)
+	if err != nil {
+		return nil, err
+	}
 
-	mechanism := uint(0)
-	switch keyType {
-	case pkcs11.CKK_AES:
-		if c.mechanism != 0 {
-			mechanism = c.mechanism
-		} else {
-			mechanism = DefaultAesMechanism
+	// PKCS#11 is nasty and doesn't let just query for _any_ attribute, instead
+	// we must query only for the select attributes that can be supported by the
+	// object's class.
+	switch class {
+	case pkcs11.CKO_SECRET_KEY:
+		template = []*pkcs11.Attribute{
+			pkcs11.NewAttribute(pkcs11.CKA_ENCRYPT, 0),
+			pkcs11.NewAttribute(pkcs11.CKA_DECRYPT, 0),
 		}
-	case pkcs11.CKK_RSA:
-		if c.mechanism != 0 {
-			mechanism = c.mechanism
-		} else {
-			mechanism = DefaultRsaMechanism
+	case pkcs11.CKO_PRIVATE_KEY:
+		template = []*pkcs11.Attribute{
+			pkcs11.NewAttribute(pkcs11.CKA_DECRYPT, 0),
+		}
+	case pkcs11.CKO_PUBLIC_KEY:
+		template = []*pkcs11.Attribute{
+			pkcs11.NewAttribute(pkcs11.CKA_ENCRYPT, 0),
 		}
 	default:
-		return 0, fmt.Errorf("unsupported key type: %d", keyType)
+		return nil, fmt.Errorf("found unsupported object of class %d", class)
 	}
 
-	return mechanism, nil
+	attrs, err = c.client.GetAttributeValue(session, obj, template)
+	if err != nil {
+		return nil, fmt.Errorf("failed to pkcs#11 GetAttributeValue: %w", err)
+	}
+
+	var encrypt, decrypt uint
+	for _, attr := range attrs {
+		val, err := GetValueAsUint(attr.Value)
+		if err != nil {
+			return nil, err
+		}
+		switch attr.Type {
+		case pkcs11.CKA_ENCRYPT:
+			encrypt = val
+		case pkcs11.CKA_DECRYPT:
+			decrypt = val
+		}
+	}
+
+	return &KeyInfo{
+		handle:  obj,
+		class:   class,
+		keytype: keytype,
+		encrypt: encrypt == 1,
+		decrypt: decrypt == 1,
+	}, nil
 }
 
 func (c *Pkcs11Client) GetCurrentKey() Pkcs11Key {
@@ -681,12 +814,33 @@ func MechanismFromString(mech string) (uint64, error) {
 	}
 }
 
-func GetAttributesMap(attrs []*pkcs11.Attribute) map[uint][]byte {
-	m := make(map[uint][]byte, len(attrs))
-	for _, a := range attrs {
-		m[a.Type] = a.Value
+func RsaHashMechFromString(mech string) (uint, uint, crypto.Hash, error) {
+	mech = strings.ToLower(mech)
+	switch mech {
+	case "sha1":
+		return pkcs11.CKM_SHA_1, pkcs11.CKG_MGF1_SHA1, crypto.SHA1, nil
+	case "sha224":
+		return pkcs11.CKM_SHA224, pkcs11.CKG_MGF1_SHA224, crypto.SHA224, nil
+	case "sha256":
+		return pkcs11.CKM_SHA256, pkcs11.CKG_MGF1_SHA256, crypto.SHA256, nil
+	case "sha384":
+		return pkcs11.CKM_SHA384, pkcs11.CKG_MGF1_SHA384, crypto.SHA384, nil
+	case "sha512":
+		return pkcs11.CKM_SHA512, pkcs11.CKG_MGF1_SHA512, crypto.SHA512, nil
+	default:
+		return 0, 0, 0, fmt.Errorf("unsupported mechanism: %s", mech)
 	}
-	return m
+}
+
+func DefaultMechanism(keytype uint) (uint, error) {
+	switch keytype {
+	case pkcs11.CKK_RSA:
+		return pkcs11.CKM_RSA_PKCS_OAEP, nil
+	case pkcs11.CKK_AES:
+		return pkcs11.CKM_AES_GCM, nil
+	default:
+		return 0, fmt.Errorf("unsupported key type")
+	}
 }
 
 func GetValueAsInt(value []byte) int64 {
@@ -703,18 +857,23 @@ func GetValueAsInt(value []byte) int64 {
 	return 0
 }
 
-func GetValueAsUint(value []byte) uint64 {
+func GetValueAsUint(value []byte) (uint, error) {
 	switch len(value) {
 	case 1:
-		return uint64(value[0])
+		return uint(value[0]), nil
 	case 2:
-		return uint64(binary.NativeEndian.Uint16(value))
+		return uint(binary.NativeEndian.Uint16(value)), nil
 	case 4:
-		return uint64(binary.NativeEndian.Uint32(value))
+		return uint(binary.NativeEndian.Uint32(value)), nil
 	case 8:
-		return uint64(binary.NativeEndian.Uint64(value))
+		u64 := binary.NativeEndian.Uint64(value)
+		if u64 > math.MaxUint {
+			return 0, fmt.Errorf("value exceeds max uint")
+		}
+		return uint(u64), nil
+	default:
+		return 0, fmt.Errorf("cannot convert byte slice of length %d to uint", len(value))
 	}
-	return 0
 }
 
 func numberAutoParse(value string, bitSize int) (uint64, error) {
