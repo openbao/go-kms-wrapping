@@ -329,7 +329,7 @@ func (c *Pkcs11Client) Encrypt(plaintext []byte) ([]byte, []byte, *Pkcs11Key, er
 		return c.EncryptAesGcm(session, key.handle, keyId, plaintext)
 	case pkcs11.CKM_RSA_PKCS_OAEP:
 		if c.useSoftwareEncryption {
-			pubkey, err := exportRSAPublicKey(session, *c.client, key.public.handle)
+			pubkey, err := c.ExportRSAPublicKey(session, key.public.handle)
 			if err == nil && pubkey != nil {
 				return c.EncryptRsaOaepSoftware(pubkey, keyId, plaintext)
 			}
@@ -567,12 +567,12 @@ func (c *Pkcs11Client) CloseSession(session pkcs11.SessionHandle) {
 	c.client.CloseSession(session)
 }
 
-func exportRSAPublicKey(sh pkcs11.SessionHandle, ctx pkcs11.Ctx, key pkcs11.ObjectHandle) (*rsa.PublicKey, error) {
+func (c *Pkcs11Client) ExportRSAPublicKey(sh pkcs11.SessionHandle, key pkcs11.ObjectHandle) (*rsa.PublicKey, error) {
 	template := []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_MODULUS, nil),
 		pkcs11.NewAttribute(pkcs11.CKA_PUBLIC_EXPONENT, nil),
 	}
-	attrs, err := ctx.GetAttributeValue(sh, key, template)
+	attrs, err := c.client.GetAttributeValue(sh, key, template)
 	if err != nil {
 		return nil, fmt.Errorf("failed to pkcs#11 GetAttributeValue: %w", err)
 	}
