@@ -79,6 +79,10 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 				opts.withCertPath = v
 			case "cert_password":
 				opts.withCertPass = v
+			case "managed_id_kind":
+				opts.withManagedIdKind = v
+			case "resource_id":
+				opts.withResourceId = v
 			}
 		}
 	}
@@ -111,6 +115,8 @@ type options struct {
 	withKeyNotRequired  bool
 	withTenantId        string
 	withClientId        string
+	withResourceId      string
+	withManagedIdKind   string
 	withClientSecret    string
 	withEnvironment     string
 	withResource        string

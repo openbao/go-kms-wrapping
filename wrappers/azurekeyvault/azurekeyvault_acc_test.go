@@ -10,6 +10,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"math/big"
 	"os"
 	"reflect"
@@ -255,4 +256,58 @@ func TestCreds_getCertificate(t *testing.T) {
 	t.Log(string(plaintext))
 
 	require.Equal(t, expectedOutput, string(plaintext))
+}
+
+func TestWrapper_getManagedIdentityID(t *testing.T) {
+	tests := []struct {
+		name           string
+		managedIdKind  managedIdentityKind
+		clientID       string
+		resourceID     string
+		expectedResult azidentity.ManagedIDKind
+	}{
+		{
+			name:           "ClientID case",
+			managedIdKind:  clientId,
+			clientID:       "test-client-id",
+			resourceID:     "test-resource-id",
+			expectedResult: azidentity.ClientID("test-client-id"),
+		},
+		{
+			name:           "ResourceID case",
+			managedIdKind:  resourceId,
+			clientID:       "test-client-id",
+			resourceID:     "test-resource-id",
+			expectedResult: azidentity.ResourceID("test-resource-id"),
+		},
+		{
+			name:           "Undefined managed ID kind case with ClientID",
+			managedIdKind:  undefined,
+			clientID:       "fallback-client-id",
+			resourceID:     "ignored-resource-id",
+			expectedResult: azidentity.ClientID("fallback-client-id"),
+		},
+		{
+			name:           "Default case with unknown managed ID kind",
+			managedIdKind:  99, // Unknown value
+			clientID:       "test-client-id",
+			resourceID:     "test-resource-id",
+			expectedResult: nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			wrapper := &Wrapper{
+				clientID:      tc.clientID,
+				resourceID:    tc.resourceID,
+				managedIdKind: tc.managedIdKind,
+			}
+			result := wrapper.getManagedIdentityID()
+
+			if result != tc.expectedResult {
+				t.Errorf("unexpected result: got %v, want %v", result, tc.expectedResult)
+			}
+		})
+	}
 }

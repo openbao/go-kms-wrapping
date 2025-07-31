@@ -38,6 +38,8 @@ const (
 	EnvBaoKeyVaultAuthMethod          = "BAO_AZUREKEYVAULT_AUTH_METHOD"
 	EnvBaoKeyVaultCertificatePath     = "BAO_AZUREKEYVAULT_CERTIFICATE_PATH"
 	EnvBaoKeyVaultCertificatePassword = "BAO_AZUREKEYVAULT_CERTIFICATE_PASSWORD"
+	EnvBaoKeyVaultManagedIdentityKind = "BAO_AZUREKEYVAULT_MANAGED_IDENTITY_KIND"
+	EnvBaoKeyVaultResourceId          = "BAO_AZUREKEYVAULT_RESOURCE_ID"
 )
 
 type authenticationMethod int
@@ -52,20 +54,30 @@ const (
 	WorkloadIdentityCredential
 )
 
+type managedIdentityKind int
+
+const (
+	undefined managedIdentityKind = iota
+	clientId
+	resourceId
+)
+
 // Wrapper is an Wrapper that uses Azure Key Vault
 // for crypto operations.  Azure Key Vault currently does not support
 // keys that can encrypt long data (RSA keys).  Due to this fact, we generate
 // and AES key and wrap the key using Key Vault and store it with the
 // data
 type Wrapper struct {
-	tenantID     string
-	clientID     string
-	clientSecret string
-	vaultName    string
-	keyName      string
-	authMethod   authenticationMethod
-	certPath     string
-	certPass     string
+	tenantID      string
+	clientID      string
+	clientSecret  string
+	vaultName     string
+	keyName       string
+	authMethod    authenticationMethod
+	certPath      string
+	certPass      string
+	resourceID    string
+	managedIdKind managedIdentityKind
 
 	currentKeyId *atomic.Value
 
@@ -159,10 +171,6 @@ func (v *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 		v.tenantID = opts.withTenantId
 	}
 
-	if v.tenantID == "" {
-		return nil, errors.New("tenant ID is required: must be set via AZURE_TENANT_ID env var or config")
-	}
-
 	switch {
 	case os.Getenv("AZURE_CLIENT_ID") != "" && !opts.withDisallowEnvVars:
 		v.clientID = os.Getenv("AZURE_CLIENT_ID")
@@ -170,8 +178,33 @@ func (v *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 		v.clientID = opts.withClientId
 	}
 
-	if v.clientID == "" {
-		return nil, errors.New("client ID is required: must be set via AZURE_CLIENT_ID env var or config")
+	switch {
+	case os.Getenv(EnvBaoKeyVaultResourceId) != "" && !opts.withDisallowEnvVars:
+		v.resourceID = os.Getenv(EnvBaoKeyVaultResourceId)
+	case opts.withResourceId != "":
+		v.resourceID = opts.withResourceId
+	}
+
+	managedIdKind := ""
+	switch {
+	case os.Getenv(EnvBaoKeyVaultManagedIdentityKind) != "" && !opts.withDisallowEnvVars:
+		managedIdKind = os.Getenv(EnvBaoKeyVaultManagedIdentityKind)
+	case opts.withResourceId != "":
+		managedIdKind = opts.withManagedIdKind
+	}
+
+	switch strings.ToUpper(managedIdKind) {
+	case "CLIENT_ID":
+		v.managedIdKind = clientId
+	case "RESOURCE_ID":
+		v.managedIdKind = resourceId
+	default:
+		v.managedIdKind = undefined
+	}
+
+	switch {
+	case os.Getenv(EnvBaoKeyVaultManagedIdentityKind) != "" && !opts.withDisallowEnvVars:
+
 	}
 
 	switch {
@@ -361,6 +394,17 @@ func (v *Wrapper) buildBaseURL() string {
 	return fmt.Sprintf("https://%s.%s/", v.vaultName, v.environment.KeyVaultDNSSuffix)
 }
 
+func (v *Wrapper) getManagedIdentityID() azidentity.ManagedIDKind {
+	switch v.managedIdKind {
+	case clientId, undefined:
+		return azidentity.ClientID(v.clientID)
+	case resourceId:
+		return azidentity.ResourceID(v.resourceID)
+	default:
+		return azidentity.ManagedIDKind(nil)
+	}
+}
+
 func (v *Wrapper) getCredential(method authenticationMethod) (azcore.TokenCredential, error) {
 	var (
 		cred azcore.TokenCredential
@@ -369,18 +413,30 @@ func (v *Wrapper) getCredential(method authenticationMethod) (azcore.TokenCreden
 
 	switch method {
 	case DefaultAzureCredential:
-		cred, err = azidentity.NewDefaultAzureCredential(nil)
+		options := azidentity.DefaultAzureCredentialOptions{}
+		if v.tenantID != "" {
+			options.TenantID = v.tenantID
+		}
+
+		cred, err = azidentity.NewDefaultAzureCredential(&options)
 		if err != nil {
 			return nil, fmt.Errorf("failed to acquire default identity credentials: %w", err)
 		}
+
 	case EnvironmentCredential:
 		cred, err = azidentity.NewEnvironmentCredential(nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to acquire environment credentials: %w", err)
 		}
 	case ManagedIdentityCredential:
+		id := v.getManagedIdentityID()
+
+		if id == nil || id.String() == "" {
+			return nil, errors.New("either client or resource id is required for managed identity authentication")
+		}
+
 		cred, err = azidentity.NewManagedIdentityCredential(&azidentity.ManagedIdentityCredentialOptions{
-			ID: azidentity.ClientID(v.clientID),
+			ID: id,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to get managed identity credentials: %w", err)
