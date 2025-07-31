@@ -172,7 +172,12 @@ func TestWrapper_getCredential_CertificateCredential(t *testing.T) {
 	// Create a temporary file to store the certificate and key
 	certFile, err := os.CreateTemp("", "cert.pem")
 	require.NoError(t, err)
-	defer os.Remove(certFile.Name())
+	defer func(name string) {
+		err := os.Remove(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}(certFile.Name())
 
 	// Write the certificate to the file
 	err = pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
@@ -195,4 +200,59 @@ func TestWrapper_getCredential_CertificateCredential(t *testing.T) {
 	cred, err := v.getCredential(CertificateCredential)
 	require.NoError(t, err)
 	require.NotNil(t, cred)
+}
+
+func TestCreds_getCertificate(t *testing.T) {
+	ctx := context.Background()
+
+	clientID := os.Getenv("TEST_AZURE_CLIENT_ID")
+	tenantID := os.Getenv("TEST_AZURE_TENANT_ID")
+	vaultName := os.Getenv("TEST_VAULT_NAME")
+	keyName := os.Getenv("TEST_KEY_NAME")
+	plaintextInput := []byte("foo")
+	expectedOutput := "foo"
+
+	config := map[string]string{
+		"disallow_env_vars": "true",
+		"environment":       azure.PublicCloud.Name,
+		"resource":          "vault.azure.net",
+		"vault_name":        vaultName,
+		"key_name":          keyName,
+		"auth_method":       "certificate",
+		"cert_path":         "test-data/azure-app.crt",
+		"client_id":         clientID,
+		"tenant_id":         tenantID,
+	}
+
+	wrapper := NewWrapper()
+
+	setConfig := func() {
+		t.Helper()
+		t.Log("--- SetConfig ---")
+		_, err := wrapper.SetConfig(ctx, wrapping.WithConfigMap(config))
+		require.NoError(t, err)
+	}
+
+	encrypt := func(data []byte) *wrapping.BlobInfo {
+		t.Helper()
+		t.Log("--- Encrypt ---")
+		blobInfo, err := wrapper.Encrypt(ctx, data)
+		require.NoError(t, err)
+		return blobInfo
+	}
+
+	decrypt := func(blobInfo *wrapping.BlobInfo) []byte {
+		t.Helper()
+		t.Log("--- Decrypt ---")
+		plaintext, err := wrapper.Decrypt(ctx, blobInfo)
+		require.NoError(t, err)
+		return plaintext
+	}
+
+	setConfig()
+	blobInfo := encrypt(plaintextInput)
+	plaintext := decrypt(blobInfo)
+	t.Log(string(plaintext))
+
+	require.Equal(t, expectedOutput, string(plaintext))
 }

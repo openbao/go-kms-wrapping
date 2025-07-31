@@ -159,11 +159,19 @@ func (v *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 		v.tenantID = opts.withTenantId
 	}
 
+	if v.tenantID == "" {
+		return nil, errors.New("tenant ID is required: must be set via AZURE_TENANT_ID env var or config")
+	}
+
 	switch {
 	case os.Getenv("AZURE_CLIENT_ID") != "" && !opts.withDisallowEnvVars:
 		v.clientID = os.Getenv("AZURE_CLIENT_ID")
 	case opts.withClientId != "":
 		v.clientID = opts.withClientId
+	}
+
+	if v.clientID == "" {
+		return nil, errors.New("client ID is required: must be set via AZURE_CLIENT_ID env var or config")
 	}
 
 	switch {
@@ -387,7 +395,9 @@ func (v *Wrapper) getCredential(method authenticationMethod) (azcore.TokenCreden
 		if err != nil {
 			return nil, fmt.Errorf("failed to read certificate file %s: %v", v.certPath, err)
 		}
-
+		if v.clientID == "" {
+			return nil, errors.New("client id is required for certificate authentication")
+		}
 		var password []byte
 		if v.certPass != "" {
 			password = []byte(v.certPath)
@@ -395,6 +405,9 @@ func (v *Wrapper) getCredential(method authenticationMethod) (azcore.TokenCreden
 		certs, key, err := azidentity.ParseCertificates(certData, password)
 
 		cred, err = azidentity.NewClientCertificateCredential(v.tenantID, v.clientID, certs, key, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get client certificate credentials: %w", err)
+		}
 	case WorkloadIdentityCredential:
 		cred, err = azidentity.NewWorkloadIdentityCredential(nil)
 	default:
