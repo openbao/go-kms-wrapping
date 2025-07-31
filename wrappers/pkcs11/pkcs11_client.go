@@ -75,7 +75,7 @@ type Pkcs11Client struct {
 type KeyInfo struct {
 	handle pkcs11.ObjectHandle
 
-	// Only present for class == CKO_PRIVATE_KEY
+	// Set if and only if class == CKO_PRIVATE_KEY
 	public *KeyInfo
 
 	// Attributes
@@ -308,20 +308,12 @@ func (c *Pkcs11Client) Encrypt(plaintext []byte) ([]byte, []byte, *Pkcs11Key, er
 		return nil, nil, nil, err
 	}
 
-	switch key.class {
-	case pkcs11.CKO_SECRET_KEY:
-		if !key.encrypt {
-			return nil, nil, nil, fmt.Errorf("secret key does not have CKA_ENCRYPT")
-		}
-	case pkcs11.CKO_PRIVATE_KEY:
-		if key.public == nil {
-			return nil, nil, nil, fmt.Errorf("private key is missing a public key half")
-		}
-		if !c.useSoftwareEncryption && !key.public.encrypt {
-			return nil, nil, nil, fmt.Errorf("public key does not have CKA_ENCRYPT")
-		}
-	default:
-		return nil, nil, nil, fmt.Errorf("unsupported object type")
+	if key.class == pkcs11.CKO_SECRET_KEY && !key.encrypt {
+		return nil, nil, nil, fmt.Errorf("secret key does not have CKA_ENCRYPT")
+	}
+
+	if key.class == pkcs11.CKO_PRIVATE_KEY && !c.useSoftwareEncryption && !key.public.encrypt {
+		return nil, nil, nil, fmt.Errorf("public key does not have CKA_ENCRYPT")
 	}
 
 	mechanism := c.mechanism
@@ -441,17 +433,12 @@ func (c *Pkcs11Client) Decrypt(ciphertext []byte, nonce []byte, keyId *Pkcs11Key
 		return nil, err
 	}
 
-	switch key.class {
-	case pkcs11.CKO_SECRET_KEY:
-		if !key.decrypt {
-			return nil, fmt.Errorf("secret key does not have CKA_DECRYPT")
-		}
-	case pkcs11.CKO_PRIVATE_KEY:
-		if !key.decrypt {
-			return nil, fmt.Errorf("private key does not have CKA_DECRYPT")
-		}
-	default:
-		return nil, fmt.Errorf("unsupported object type")
+	if key.class == pkcs11.CKO_SECRET_KEY && !key.decrypt {
+		return nil, fmt.Errorf("secret key does not have CKA_DECRYPT")
+	}
+
+	if key.class == pkcs11.CKO_PRIVATE_KEY && !key.decrypt {
+		return nil, fmt.Errorf("private key does not have CKA_DECRYPT")
 	}
 
 	mechanism := c.mechanism
