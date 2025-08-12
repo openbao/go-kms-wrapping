@@ -312,6 +312,9 @@ func (c *Pkcs11Client) Encrypt(plaintext []byte) ([]byte, []byte, *Pkcs11Key, er
 		return nil, nil, nil, fmt.Errorf("secret key does not have CKA_ENCRYPT")
 	}
 
+	// key.class == pkcs11.CKO_PRIVATE_KEY implies that:
+	// - key.public != nil
+	// - key.public.class == pkcs11.CKO_PUBLIC_KEY
 	if key.class == pkcs11.CKO_PRIVATE_KEY && !c.useSoftwareEncryption && !key.public.encrypt {
 		return nil, nil, nil, fmt.Errorf("public key does not have CKA_ENCRYPT")
 	}
