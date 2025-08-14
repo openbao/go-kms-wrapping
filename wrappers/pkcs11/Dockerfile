@@ -5,7 +5,10 @@ FROM docker.io/golang:latest
 
 # Install required packages:
 RUN apt update && \
-  DEBIAN_FRONTEND="noninteractive" apt install -y --no-install-recommends softhsm2 opensc
+	DEBIAN_FRONTEND="noninteractive" apt install -y --no-install-recommends softhsm2 opensc
+
+# Set SoftHSM to output debug logs:
+RUN sed -i 's/log.level = ERROR/log.level = DEBUG/' /etc/softhsm/softhsm2.conf
 
 ENV BAO_HSM_LIB=/usr/lib/softhsm/libsofthsm2.so
 
@@ -52,7 +55,7 @@ RUN <<EOF
 	go clean -testcache && go test
 
 	# RSA with hardware encryption
-	go clean -testcache && BAO_HSM_SOFTWARE_ENCRYPTION=0 go test
+	go clean -testcache && BAO_HSM_DISABLE_SOFTWARE_ENCRYPTION=1 go test
 
 	# AES
 	export BAO_HSM_KEY_LABEL=$AES_KEY_LABEL

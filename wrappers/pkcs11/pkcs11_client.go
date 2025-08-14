@@ -9,6 +9,7 @@ import (
 	"crypto/rsa"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -86,15 +87,15 @@ type KeyInfo struct {
 }
 
 const (
-	EnvHsmWrapperLib                = "BAO_HSM_LIB"
-	EnvHsmWrapperSlot               = "BAO_HSM_SLOT"
-	EnvHsmWrapperTokenLabel         = "BAO_HSM_TOKEN_LABEL"
-	EnvHsmWrapperPin                = "BAO_HSM_PIN"
-	EnvHsmWrapperKeyLabel           = "BAO_HSM_KEY_LABEL"
-	EnvHsmWrapperKeyId              = "BAO_HSM_KEY_ID"
-	EnvHsmWrapperMechanism          = "BAO_HSM_MECHANISM"
-	EnvHsmWrapperRsaOaepHash        = "BAO_HSM_RSA_OAEP_HASH"
-	EnvHsmWrapperSoftwareEncryption = "BAO_HSM_SOFTWARE_ENCRYPTION"
+	EnvHsmWrapperLib                       = "BAO_HSM_LIB"
+	EnvHsmWrapperSlot                      = "BAO_HSM_SLOT"
+	EnvHsmWrapperTokenLabel                = "BAO_HSM_TOKEN_LABEL"
+	EnvHsmWrapperPin                       = "BAO_HSM_PIN"
+	EnvHsmWrapperKeyLabel                  = "BAO_HSM_KEY_LABEL"
+	EnvHsmWrapperKeyId                     = "BAO_HSM_KEY_ID"
+	EnvHsmWrapperMechanism                 = "BAO_HSM_MECHANISM"
+	EnvHsmWrapperRsaOaepHash               = "BAO_HSM_RSA_OAEP_HASH"
+	EnvHsmWrapperDisableSoftwareEncryption = "BAO_HSM_DISABLE_SOFTWARE_ENCRYPTION"
 )
 
 const (
@@ -194,8 +195,8 @@ func newPkcs11Client(opts *options) (*Pkcs11Client, *wrapping.WrapperConfig, err
 	}
 
 	switch {
-	case api.ReadBaoVariable(EnvHsmWrapperSoftwareEncryption) != "" && !opts.Options.WithDisallowEnvVars:
-		softwareEncryption = api.ReadBaoVariable(EnvHsmWrapperSoftwareEncryption)
+	case api.ReadBaoVariable(EnvHsmWrapperDisableSoftwareEncryption) != "" && !opts.Options.WithDisallowEnvVars:
+		softwareEncryption = api.ReadBaoVariable(EnvHsmWrapperDisableSoftwareEncryption)
 	case opts.withSoftwareEncryption != "":
 		softwareEncryption = opts.withSoftwareEncryption
 	}
@@ -205,8 +206,6 @@ func newPkcs11Client(opts *options) (*Pkcs11Client, *wrapping.WrapperConfig, err
 		if err != nil {
 			return nil, nil, err
 		}
-	} else {
-		useSoftwareEncryption = true
 	}
 
 	if slot != "" {
@@ -333,9 +332,10 @@ func (c *Pkcs11Client) Encrypt(plaintext []byte) ([]byte, []byte, *Pkcs11Key, er
 	case pkcs11.CKM_RSA_PKCS_OAEP:
 		if c.useSoftwareEncryption {
 			pubkey, err := c.ExportRSAPublicKey(session, key.public.handle)
-			if err == nil && pubkey != nil {
-				return c.EncryptRsaOaepSoftware(pubkey, keyId, plaintext)
+			if err != nil {
+				return nil, nil, nil, err
 			}
+			return c.EncryptRsaOaepSoftware(pubkey, keyId, plaintext)
 		}
 		return c.EncryptRsaOaep(session, key.public.handle, keyId, plaintext)
 	}
@@ -580,24 +580,25 @@ func (c *Pkcs11Client) ExportRSAPublicKey(sh pkcs11.SessionHandle, key pkcs11.Ob
 		return nil, fmt.Errorf("failed to pkcs#11 GetAttributeValue: %w", err)
 	}
 
-	var n = new(big.Int)
-	n.SetBytes(attrs[0].Value)
-	var e = new(big.Int)
-	e.SetBytes(attrs[1].Value)
+	n := new(big.Int).SetBytes(attrs[0].Value)
+	e := new(big.Int).SetBytes(attrs[1].Value)
 
 	// Sanity checks
-	one := big.NewInt(1)
-	if n.Cmp(one) != 1 {
-		return nil, fmt.Errorf("malformed rsa public key: modulus is less than one")
+	switch {
+	case n.Cmp(big.NewInt(1)) != 1:
+		err = errors.New("modulus is less than one")
+	case e.Cmp(big.NewInt(1)) != 1:
+		err = errors.New("exponent is less than one")
+	case n.Cmp(e) != 1:
+		err = errors.New("modulus is not greater than exponent")
+	case e.BitLen() > 32:
+		err = errors.New("exponent is longer than 32 bits")
+	case n.BitLen() < 2048:
+		err = errors.New("modulus is shorter than 2048 bits")
 	}
-	if e.Cmp(one) != 1 {
-		return nil, fmt.Errorf("malformed rsa public key: exponent is less than one")
-	}
-	if n.Cmp(e) != 1 {
-		return nil, fmt.Errorf("malformed rsa public key: modulus must be greater than exponent")
-	}
-	if e.BitLen() > 32 {
-		return nil, fmt.Errorf("malformed rsa public key: exponent is longer than 32 bits")
+
+	if err != nil {
+		return nil, fmt.Errorf("malformed rsa public key: %w", err)
 	}
 
 	return &rsa.PublicKey{N: n, E: int(e.Int64())}, nil

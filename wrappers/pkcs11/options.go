@@ -62,7 +62,7 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 				opts.withMechanism = v
 			case "rsa_oaep_hash":
 				opts.withRsaOaepHash = v
-			case "software_encryption":
+			case "disable_software_encryption":
 				opts.withSoftwareEncryption = v
 			}
 		}
