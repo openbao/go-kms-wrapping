@@ -61,16 +61,16 @@ type pkcs11ClientEncryptor interface {
 }
 
 type Pkcs11Client struct {
-	client                *pkcs11.Ctx
-	lib                   string
-	slot                  *uint
-	tokenLabel            string
-	pin                   string
-	keyLabel              string
-	keyId                 string
-	mechanism             uint
-	rsaOaepHash           string
-	useSoftwareEncryption bool
+	client                    *pkcs11.Ctx
+	lib                       string
+	slot                      *uint
+	tokenLabel                string
+	pin                       string
+	keyLabel                  string
+	keyId                     string
+	mechanism                 uint
+	rsaOaepHash               string
+	disableSoftwareEncryption bool
 }
 
 type KeyInfo struct {
@@ -111,7 +111,7 @@ func newPkcs11Client(opts *options) (*Pkcs11Client, *wrapping.WrapperConfig, err
 	var lib, slot, keyId, tokenLabel, pin, keyLabel, mechanism, rsaOaepHash, softwareEncryption string
 	var slotNum *uint64
 	var mechanismNum uint64
-	var useSoftwareEncryption bool
+	var disableSoftwareEncryption bool
 	var err error
 
 	switch {
@@ -197,12 +197,12 @@ func newPkcs11Client(opts *options) (*Pkcs11Client, *wrapping.WrapperConfig, err
 	switch {
 	case api.ReadBaoVariable(EnvHsmWrapperDisableSoftwareEncryption) != "" && !opts.Options.WithDisallowEnvVars:
 		softwareEncryption = api.ReadBaoVariable(EnvHsmWrapperDisableSoftwareEncryption)
-	case opts.withSoftwareEncryption != "":
-		softwareEncryption = opts.withSoftwareEncryption
+	case opts.withDisableSoftwareEncryption != "":
+		softwareEncryption = opts.withDisableSoftwareEncryption
 	}
 
 	if softwareEncryption != "" {
-		useSoftwareEncryption, err = parseutil.ParseBool(softwareEncryption)
+		disableSoftwareEncryption, err = parseutil.ParseBool(softwareEncryption)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -227,15 +227,15 @@ func newPkcs11Client(opts *options) (*Pkcs11Client, *wrapping.WrapperConfig, err
 	}
 
 	client := &Pkcs11Client{
-		client:                nil,
-		lib:                   lib,
-		pin:                   pin,
-		tokenLabel:            tokenLabel,
-		keyId:                 keyId,
-		keyLabel:              keyLabel,
-		mechanism:             uint(mechanismNum),
-		rsaOaepHash:           rsaOaepHash,
-		useSoftwareEncryption: useSoftwareEncryption,
+		client:                    nil,
+		lib:                       lib,
+		pin:                       pin,
+		tokenLabel:                tokenLabel,
+		keyId:                     keyId,
+		keyLabel:                  keyLabel,
+		mechanism:                 uint(mechanismNum),
+		rsaOaepHash:               rsaOaepHash,
+		disableSoftwareEncryption: disableSoftwareEncryption,
 	}
 	if slotNum != nil {
 		client.slot = new(uint)
@@ -314,7 +314,7 @@ func (c *Pkcs11Client) Encrypt(plaintext []byte) ([]byte, []byte, *Pkcs11Key, er
 	// key.class == pkcs11.CKO_PRIVATE_KEY implies that:
 	// - key.public != nil
 	// - key.public.class == pkcs11.CKO_PUBLIC_KEY
-	if key.class == pkcs11.CKO_PRIVATE_KEY && !c.useSoftwareEncryption && !key.public.encrypt {
+	if key.class == pkcs11.CKO_PRIVATE_KEY && c.disableSoftwareEncryption && !key.public.encrypt {
 		return nil, nil, nil, fmt.Errorf("public key does not have CKA_ENCRYPT")
 	}
 
@@ -330,14 +330,14 @@ func (c *Pkcs11Client) Encrypt(plaintext []byte) ([]byte, []byte, *Pkcs11Key, er
 	case pkcs11.CKM_AES_GCM:
 		return c.EncryptAesGcm(session, key.handle, keyId, plaintext)
 	case pkcs11.CKM_RSA_PKCS_OAEP:
-		if c.useSoftwareEncryption {
-			pubkey, err := c.ExportRSAPublicKey(session, key.public.handle)
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			return c.EncryptRsaOaepSoftware(pubkey, keyId, plaintext)
+		if c.disableSoftwareEncryption {
+			return c.EncryptRsaOaep(session, key.public.handle, keyId, plaintext)
 		}
-		return c.EncryptRsaOaep(session, key.public.handle, keyId, plaintext)
+		pubkey, err := c.ExportRSAPublicKey(session, key.public.handle)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return c.EncryptRsaOaepSoftware(pubkey, keyId, plaintext)
 	}
 	return nil, nil, nil, fmt.Errorf("unsupported mechanism")
 }
