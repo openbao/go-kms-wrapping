@@ -414,9 +414,10 @@ func (v *Wrapper) getCredential(method authenticationMethod) (azcore.TokenCreden
 	switch method {
 	case DefaultAzureCredential:
 		options := azidentity.DefaultAzureCredentialOptions{}
-		if v.tenantID != "" {
-			options.TenantID = v.tenantID
+		if v.tenantID == "" {
+			return nil, errors.New("tenant id is required for default azure credential authentication")
 		}
+		options.TenantID = v.tenantID
 
 		cred, err = azidentity.NewDefaultAzureCredential(&options)
 		if err != nil {
@@ -442,6 +443,9 @@ func (v *Wrapper) getCredential(method authenticationMethod) (azcore.TokenCreden
 			return nil, fmt.Errorf("failed to get managed identity credentials: %w", err)
 		}
 	case ClientSecretCredential:
+		if v.tenantID == "" {
+			return nil, errors.New("tenant id is required for azure client secret authentication")
+		}
 		cred, err = azidentity.NewClientSecretCredential(v.tenantID, v.clientID, v.clientSecret, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get client secret credentials: %w", err)
@@ -460,15 +464,22 @@ func (v *Wrapper) getCredential(method authenticationMethod) (azcore.TokenCreden
 		}
 		certs, key, err := azidentity.ParseCertificates(certData, password)
 		if err != nil {
-		            return nil, fmt.Errorf("failed to parse client certificate: %w", err)
+			return nil, fmt.Errorf("failed to parse client certificate: %w", err)
 		}
-
+		if v.tenantID == "" {
+			return nil, errors.New("tenant id is required for azure certificate authentication")
+		}
 		cred, err = azidentity.NewClientCertificateCredential(v.tenantID, v.clientID, certs, key, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get client certificate credentials: %w", err)
 		}
 	case WorkloadIdentityCredential:
-		cred, err = azidentity.NewWorkloadIdentityCredential(nil)
+		options := azidentity.WorkloadIdentityCredentialOptions{}
+		if v.tenantID == "" {
+			return nil, errors.New("tenant id is required for azure workload identity authentication")
+		}
+		options.TenantID = v.tenantID
+		cred, err = azidentity.NewWorkloadIdentityCredential(&options)
 	default:
 		return nil, fmt.Errorf("unknown authentication method")
 	}
