@@ -1,8 +1,6 @@
 module github.com/openbao/go-kms-wrapping/wrappers/kmip/v2
 
-go 1.23.1
-
-toolchain go1.23.6
+go 1.25.0
 
 replace github.com/openbao/go-kms-wrapping/v2 => ../../
 

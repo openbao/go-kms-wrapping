@@ -1,12 +1,11 @@
 module github.com/openbao/go-kms-wrapping/v2
 
-go 1.22.1
+go 1.25.0
 
 require (
 	github.com/hashicorp/go-secure-stdlib/parseutil v0.1.9
 	github.com/hashicorp/go-uuid v1.0.3
 	github.com/stretchr/testify v1.10.0
-	golang.org/x/crypto v0.32.0
 	golang.org/x/exp v0.0.0-20250106191152-7588d65b2ba8
 	google.golang.org/protobuf v1.36.4
 )
