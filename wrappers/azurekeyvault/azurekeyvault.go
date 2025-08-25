@@ -405,85 +405,104 @@ func (v *Wrapper) getManagedIdentityID() azidentity.ManagedIDKind {
 	}
 }
 
-func (v *Wrapper) getCredential(method authenticationMethod) (azcore.TokenCredential, error) {
-	var (
-		cred azcore.TokenCredential
-		err  error
-	)
+func (v *Wrapper) getDefaultAzureCredential() (azcore.TokenCredential, error) {
+	if v.tenantID == "" {
+		return nil, errors.New("tenant id is required for default azure credential authentication")
+	}
+	options := azidentity.DefaultAzureCredentialOptions{TenantID: v.tenantID}
+	cred, err := azidentity.NewDefaultAzureCredential(&options)
+	if err != nil {
+		return nil, fmt.Errorf("failed to acquire default identity credentials: %w", err)
+	}
+	return cred, nil
+}
 
+func (v *Wrapper) getEnvironmentCredential() (azcore.TokenCredential, error) {
+	cred, err := azidentity.NewEnvironmentCredential(nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to acquire environment credentials: %w", err)
+	}
+	return cred, nil
+}
+
+func (v *Wrapper) getManagedIdentityCredential() (azcore.TokenCredential, error) {
+	id := v.getManagedIdentityID()
+	if id == nil || id.String() == "" {
+		return nil, errors.New("either client or resource id is required for managed identity authentication")
+	}
+	cred, err := azidentity.NewManagedIdentityCredential(&azidentity.ManagedIdentityCredentialOptions{ID: id})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get managed identity credentials: %w", err)
+	}
+	return cred, nil
+}
+
+func (v *Wrapper) getClientSecretCredential() (azcore.TokenCredential, error) {
+	if v.tenantID == "" {
+		return nil, errors.New("tenant id is required for azure client secret authentication")
+	}
+	cred, err := azidentity.NewClientSecretCredential(v.tenantID, v.clientID, v.clientSecret, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get client secret credentials: %w", err)
+	}
+	return cred, nil
+}
+
+func (v *Wrapper) getCertificateCredential() (azcore.TokenCredential, error) {
+	certData, err := os.ReadFile(v.certPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read certificate file %s: %v", v.certPath, err)
+	}
+	if v.clientID == "" {
+		return nil, errors.New("client id is required for certificate authentication")
+	}
+	var password []byte
+	if v.certPass != "" {
+		password = []byte(v.certPass)
+	}
+	certs, key, err := azidentity.ParseCertificates(certData, password)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse client certificate: %w", err)
+	}
+	if v.tenantID == "" {
+		return nil, errors.New("tenant id is required for azure certificate authentication")
+	}
+	cred, err := azidentity.NewClientCertificateCredential(v.tenantID, v.clientID, certs, key, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get client certificate credentials: %w", err)
+	}
+	return cred, nil
+}
+
+func (v *Wrapper) getWorkloadIdentityCredential() (azcore.TokenCredential, error) {
+	if v.tenantID == "" {
+		return nil, errors.New("tenant id is required for azure workload identity authentication")
+	}
+	options := azidentity.WorkloadIdentityCredentialOptions{TenantID: v.tenantID}
+	cred, err := azidentity.NewWorkloadIdentityCredential(&options)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get workload identity credentials: %w", err)
+	}
+	return cred, nil
+}
+
+func (v *Wrapper) getCredential(method authenticationMethod) (azcore.TokenCredential, error) {
 	switch method {
 	case DefaultAzureCredential:
-		options := azidentity.DefaultAzureCredentialOptions{}
-		if v.tenantID == "" {
-			return nil, errors.New("tenant id is required for default azure credential authentication")
-		}
-		options.TenantID = v.tenantID
-
-		cred, err = azidentity.NewDefaultAzureCredential(&options)
-		if err != nil {
-			return nil, fmt.Errorf("failed to acquire default identity credentials: %w", err)
-		}
-
+		return v.getDefaultAzureCredential()
 	case EnvironmentCredential:
-		cred, err = azidentity.NewEnvironmentCredential(nil)
-		if err != nil {
-			return nil, fmt.Errorf("failed to acquire environment credentials: %w", err)
-		}
+		return v.getEnvironmentCredential()
 	case ManagedIdentityCredential:
-		id := v.getManagedIdentityID()
-
-		if id == nil || id.String() == "" {
-			return nil, errors.New("either client or resource id is required for managed identity authentication")
-		}
-
-		cred, err = azidentity.NewManagedIdentityCredential(&azidentity.ManagedIdentityCredentialOptions{
-			ID: id,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to get managed identity credentials: %w", err)
-		}
+		return v.getManagedIdentityCredential()
 	case ClientSecretCredential:
-		if v.tenantID == "" {
-			return nil, errors.New("tenant id is required for azure client secret authentication")
-		}
-		cred, err = azidentity.NewClientSecretCredential(v.tenantID, v.clientID, v.clientSecret, nil)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get client secret credentials: %w", err)
-		}
+		return v.getClientSecretCredential()
 	case CertificateCredential:
-		certData, err := os.ReadFile(v.certPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read certificate file %s: %v", v.certPath, err)
-		}
-		if v.clientID == "" {
-			return nil, errors.New("client id is required for certificate authentication")
-		}
-		var password []byte
-		if v.certPass != "" {
-			password = []byte(v.certPass)
-		}
-		certs, key, err := azidentity.ParseCertificates(certData, password)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse client certificate: %w", err)
-		}
-		if v.tenantID == "" {
-			return nil, errors.New("tenant id is required for azure certificate authentication")
-		}
-		cred, err = azidentity.NewClientCertificateCredential(v.tenantID, v.clientID, certs, key, nil)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get client certificate credentials: %w", err)
-		}
+		return v.getCertificateCredential()
 	case WorkloadIdentityCredential:
-		options := azidentity.WorkloadIdentityCredentialOptions{}
-		if v.tenantID == "" {
-			return nil, errors.New("tenant id is required for azure workload identity authentication")
-		}
-		options.TenantID = v.tenantID
-		cred, err = azidentity.NewWorkloadIdentityCredential(&options)
+		return v.getWorkloadIdentityCredential()
 	default:
 		return nil, fmt.Errorf("unknown authentication method")
 	}
-	return cred, nil
 }
 
 func (v *Wrapper) getAutomaticCredential() (azcore.TokenCredential, error) {
