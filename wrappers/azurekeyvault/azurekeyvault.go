@@ -456,7 +456,7 @@ func (v *Wrapper) getCredential(method authenticationMethod) (azcore.TokenCreden
 		}
 		var password []byte
 		if v.certPass != "" {
-			password = []byte(v.certPath)
+			password = []byte(v.certPass)
 		}
 		certs, key, err := azidentity.ParseCertificates(certData, password)
 		if err != nil {
