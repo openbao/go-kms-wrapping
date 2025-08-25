@@ -459,6 +459,9 @@ func (v *Wrapper) getCredential(method authenticationMethod) (azcore.TokenCreden
 			password = []byte(v.certPath)
 		}
 		certs, key, err := azidentity.ParseCertificates(certData, password)
+		if err != nil {
+		            return nil, fmt.Errorf("failed to parse client certificate: %w", err)
+		}
 
 		cred, err = azidentity.NewClientCertificateCredential(v.tenantID, v.clientID, certs, key, nil)
 		if err != nil {
