@@ -5,6 +5,7 @@ go 1.22.1
 replace github.com/openbao/go-kms-wrapping/v2 => ../../
 
 require (
+	github.com/hashicorp/go-secure-stdlib/parseutil v0.1.9
 	github.com/miekg/pkcs11 v1.1.2-0.20231115102856-9078ad6b9d4b
 	github.com/openbao/go-kms-wrapping/v2 v2.2.0
 	github.com/openbao/openbao/api/v2 v2.2.0
@@ -20,7 +21,6 @@ require (
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/hashicorp/go-retryablehttp v0.7.7 // indirect
-	github.com/hashicorp/go-secure-stdlib/parseutil v0.1.9 // indirect
 	github.com/hashicorp/go-secure-stdlib/strutil v0.1.2 // indirect
 	github.com/hashicorp/go-sockaddr v1.0.6 // indirect
 	github.com/hashicorp/go-uuid v1.0.3 // indirect
