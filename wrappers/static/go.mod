@@ -1,6 +1,6 @@
 module github.com/openbao/go-kms-wrapping/wrappers/static/v2
 
-go 1.23
+go 1.25.0
 
 replace github.com/openbao/go-kms-wrapping/v2 => ../../
 
