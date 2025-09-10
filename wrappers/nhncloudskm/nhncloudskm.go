@@ -115,7 +115,11 @@ func (w *Wrapper) Type(context.Context) (wrapping.WrapperType, error) {
 
 // KeyId returns the last known key id
 func (w *Wrapper) KeyId(context.Context) (string, error) {
-	return w.currentKeyId.Load().(string), nil
+	keyId := w.currentKeyId.Load().(string)
+	if keyId == "" {
+		return "", fmt.Errorf("key ID not configured")
+	}
+	return keyId, nil
 }
 
 // SetConfig configures the wrapper
