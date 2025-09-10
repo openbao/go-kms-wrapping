@@ -22,6 +22,7 @@ const (
 	WrapperTypeShamir          WrapperType = "shamir"
 	WrapperTypeTencentCloudKms WrapperType = "tencentcloudkms"
 	WrapperTypeTransit         WrapperType = "transit"
+	WrapperTypeNHNCloudSkm     WrapperType = "nhncloudskm"
 	WrapperTypeStatic          WrapperType = "static"
 	WrapperTypeTest            WrapperType = "test-auto"
 )
