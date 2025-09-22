@@ -3,6 +3,8 @@
 
 package kms
 
+// Random number generation is not to be used in the first pass.
+/*
 // RandomGenerator interface represents a random number generator (true-random or pseudo-random)
 type RandomGenerator interface {
 
@@ -26,4 +28,4 @@ type RandomGenerator interface {
 type RandomGeneratorFactory interface {
 	// NewRandomGenerator creates a new RandomGenerator instance
 	NewRandomGenerator(provider *CryptoProviderParameters) (RandomGenerator, error)
-}
+}*/

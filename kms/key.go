@@ -3,16 +3,39 @@
 
 package kms
 
+import "fmt"
+
 // KeyType represents the type of cryptographic key
 type KeyType int
 
 const (
 	GenericSecretKey KeyType = iota
-	AESKey
-	PublicRSAKey
-	PrivateRSAKey
+	AESKey           KeyType = iota
+	PublicRSAKey     KeyType = iota
+	PrivateRSAKey    KeyType = iota
+	PrivateECKey     KeyType = iota
+	PublicECKey      KeyType = iota
+	PrivateEDKey     KeyType = iota
+	PublicEDKey      KeyType = iota
 	// TODO: ECC, etc.
 )
+
+func (k KeyType) String() string {
+	switch k {
+	case GenericSecretKey:
+		return "generic"
+	case AESKey:
+		return "aes"
+	case PublicRSAKey, PrivateRSAKey:
+		return "rsa"
+	case PrivateECKey, PublicECKey:
+		return "ec"
+	case PrivateEDKey, PublicEDKey:
+		return "ed"
+	}
+
+	return fmt.Sprintf("(unknown %d)", k)
+}
 
 // KeyAttributes represents basic key attributes and key usages (allowed operations)
 type KeyAttributes struct {
@@ -74,7 +97,7 @@ type Key interface {
 	GetLength() uint32
 
 	// GetAlgorithm returns algorithm information for the key (TODO: define return type)
-	GetAlgorithm() interface{}
+	// GetAlgorithm() string
 
 	// GetKeyAttributes returns the complete key attributes
 	GetKeyAttributes() *KeyAttributes
