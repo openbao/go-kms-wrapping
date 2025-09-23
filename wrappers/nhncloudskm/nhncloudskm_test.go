@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -17,15 +16,14 @@ func TestWrapper_Type(t *testing.T) {
 
 	wrapperType, err := wrapper.Type(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, wrapping.WrapperTypeNHNCloudSkm, wrapperType)
+	require.Equal(t, wrapping.WrapperTypeNHNCloudSkm, wrapperType)
 }
 
 func TestWrapper_KeyId_NotConfigured(t *testing.T) {
 	wrapper := NewWrapper()
 
 	_, err := wrapper.KeyId(context.Background())
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "key ID not configured")
+	require.ErrorContains(t, err, "key ID not configured")
 }
 
 func TestWrapper_SetConfig_RequiredFields(t *testing.T) {
@@ -92,10 +90,9 @@ func TestWrapper_SetConfig_RequiredFields(t *testing.T) {
 			)
 
 			if tt.wantErr != "" {
-				assert.Error(t, err)
-				assert.Contains(t, err.Error(), tt.wantErr)
+				require.ErrorContains(t, err, tt.wantErr)
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 			}
 		})
 	}
@@ -116,13 +113,13 @@ func TestWrapper_SetConfig_Defaults(t *testing.T) {
 	require.NoError(t, err)
 
 	// Should use default endpoint
-	assert.Equal(t, DefaultNHNCloudSKMEndpoint, wrapper.endpoint)
+	require.Equal(t, DefaultNHNCloudSKMEndpoint, wrapper.endpoint)
 
 	// Should set other fields correctly
-	assert.Equal(t, "test-app", wrapper.appKey)
-	assert.Equal(t, "test-key", wrapper.keyID)
-	assert.Equal(t, "test-access", wrapper.userAccessKeyID)
-	assert.Equal(t, "test-secret", wrapper.userSecretAccessKey)
+	require.Equal(t, "test-app", wrapper.appKey)
+	require.Equal(t, "test-key", wrapper.keyID)
+	require.Equal(t, "test-access", wrapper.userAccessKeyID)
+	require.Equal(t, "test-secret", wrapper.userSecretAccessKey)
 }
 
 func TestWrapper_SetConfig_WithOptions(t *testing.T) {
@@ -139,20 +136,19 @@ func TestWrapper_SetConfig_WithOptions(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	assert.Equal(t, "https://custom-endpoint.com", wrapper.endpoint)
-	assert.Equal(t, "custom-app-key", wrapper.appKey)
-	assert.Equal(t, "custom-key-id", wrapper.keyID)
-	assert.Equal(t, "custom-access-key", wrapper.userAccessKeyID)
-	assert.Equal(t, "custom-secret-key", wrapper.userSecretAccessKey)
-	assert.Equal(t, "custom-mac-addr", wrapper.macAddress)
+	require.Equal(t, "https://custom-endpoint.com", wrapper.endpoint)
+	require.Equal(t, "custom-app-key", wrapper.appKey)
+	require.Equal(t, "custom-key-id", wrapper.keyID)
+	require.Equal(t, "custom-access-key", wrapper.userAccessKeyID)
+	require.Equal(t, "custom-secret-key", wrapper.userSecretAccessKey)
+	require.Equal(t, "custom-mac-addr", wrapper.macAddress)
 }
 
 func TestWrapper_Encrypt_EmptyPlaintext(t *testing.T) {
 	wrapper := TestWrapper(t)
 
 	_, err := wrapper.Encrypt(context.Background(), []byte{})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "plaintext is empty")
+	require.ErrorContains(t, err, "plaintext is empty")
 }
 
 func TestWrapper_Encrypt_LargePlaintext(t *testing.T) {
@@ -174,8 +170,7 @@ func TestWrapper_Decrypt_NilCipherInfo(t *testing.T) {
 	wrapper := TestWrapper(t)
 
 	_, err := wrapper.Decrypt(context.Background(), nil)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "cipherInfo is nil")
+	require.ErrorContains(t, err, "cipherInfo is nil")
 }
 
 func TestWrapper_Decrypt_EmptyCiphertext(t *testing.T) {
@@ -186,8 +181,7 @@ func TestWrapper_Decrypt_EmptyCiphertext(t *testing.T) {
 	}
 
 	_, err := wrapper.Decrypt(context.Background(), blobInfo)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "ciphertext is empty")
+	require.ErrorContains(t, err, "ciphertext is empty")
 }
 
 func TestWrapper_KeyId_Configured(t *testing.T) {
@@ -195,7 +189,7 @@ func TestWrapper_KeyId_Configured(t *testing.T) {
 
 	keyID, err := wrapper.KeyId(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, "test-key-id", keyID)
+	require.Equal(t, "test-key-id", keyID)
 }
 
 func TestWrapper_InitFinalize(t *testing.T) {
@@ -203,9 +197,9 @@ func TestWrapper_InitFinalize(t *testing.T) {
 
 	// Init should succeed
 	err := wrapper.Init(context.Background())
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Finalize should succeed
 	err = wrapper.Finalize(context.Background())
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }

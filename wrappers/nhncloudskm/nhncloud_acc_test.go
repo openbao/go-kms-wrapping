@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -56,11 +55,11 @@ func TestNHNCloudSKM_SetConfig_Acceptance(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify configuration was loaded
-	assert.NotEmpty(t, wrapper.endpoint)
-	assert.NotEmpty(t, wrapper.appKey)
-	assert.NotEmpty(t, wrapper.keyID)
-	assert.NotEmpty(t, wrapper.userAccessKeyID)
-	assert.NotEmpty(t, wrapper.userSecretAccessKey)
+	require.NotEmpty(t, wrapper.endpoint)
+	require.NotEmpty(t, wrapper.appKey)
+	require.NotEmpty(t, wrapper.keyID)
+	require.NotEmpty(t, wrapper.userAccessKeyID)
+	require.NotEmpty(t, wrapper.userSecretAccessKey)
 	// MAC address is optional
 }
 
@@ -86,12 +85,12 @@ func TestNHNCloudSKM_SetConfig_WithConfigMap_Acceptance(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify configuration was set
-	assert.Equal(t, configMap["endpoint"], wrapper.endpoint)
-	assert.Equal(t, configMap["app_key"], wrapper.appKey)
-	assert.Equal(t, configMap["key_id"], wrapper.keyID)
-	assert.Equal(t, configMap["user_access_key_id"], wrapper.userAccessKeyID)
-	assert.Equal(t, configMap["user_secret_access_key"], wrapper.userSecretAccessKey)
-	assert.Equal(t, configMap["mac_address"], wrapper.macAddress)
+	require.Equal(t, configMap["endpoint"], wrapper.endpoint)
+	require.Equal(t, configMap["app_key"], wrapper.appKey)
+	require.Equal(t, configMap["key_id"], wrapper.keyID)
+	require.Equal(t, configMap["user_access_key_id"], wrapper.userAccessKeyID)
+	require.Equal(t, configMap["user_secret_access_key"], wrapper.userSecretAccessKey)
+	require.Equal(t, configMap["mac_address"], wrapper.macAddress)
 }
 
 func TestNHNCloudSKM_SetConfig_WithOptions_Acceptance(t *testing.T) {
@@ -121,12 +120,12 @@ func TestNHNCloudSKM_SetConfig_WithOptions_Acceptance(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify configuration was set
-	assert.Equal(t, endpoint, wrapper.endpoint)
-	assert.Equal(t, appKey, wrapper.appKey)
-	assert.Equal(t, keyID, wrapper.keyID)
-	assert.Equal(t, accessKeyID, wrapper.userAccessKeyID)
-	assert.Equal(t, secretKey, wrapper.userSecretAccessKey)
-	assert.Equal(t, macAddr, wrapper.macAddress)
+	require.Equal(t, endpoint, wrapper.endpoint)
+	require.Equal(t, appKey, wrapper.appKey)
+	require.Equal(t, keyID, wrapper.keyID)
+	require.Equal(t, accessKeyID, wrapper.userAccessKeyID)
+	require.Equal(t, secretKey, wrapper.userSecretAccessKey)
+	require.Equal(t, macAddr, wrapper.macAddress)
 }
 
 func TestNHNCloudSKM_RealEncryption_Acceptance(t *testing.T) {
@@ -169,7 +168,7 @@ func TestNHNCloudSKM_RealEncryption_Acceptance(t *testing.T) {
 			// Skip empty plaintext as it's expected to fail
 			if len(tc.plaintext) == 0 {
 				_, err := wrapper.Encrypt(ctx, tc.plaintext)
-				assert.Error(t, err, "empty plaintext should fail")
+				require.Error(t, err, "empty plaintext should fail")
 				return
 			}
 
@@ -184,7 +183,7 @@ func TestNHNCloudSKM_RealEncryption_Acceptance(t *testing.T) {
 			// Decrypt
 			decrypted, err := wrapper.Decrypt(ctx, blobInfo)
 			require.NoError(t, err, "decryption should succeed")
-			assert.Equal(t, tc.plaintext, decrypted, "decrypted data should match original")
+			require.Equal(t, tc.plaintext, decrypted, "decrypted data should match original")
 		})
 	}
 }
@@ -211,7 +210,7 @@ func TestNHNCloudSKM_ErrorHandling_Acceptance(t *testing.T) {
 
 		// Encrypt should fail with authentication error
 		_, err = wrapper.Encrypt(ctx, plaintext)
-		assert.Error(t, err, "encryption with invalid credentials should fail")
+		require.Error(t, err, "encryption with invalid credentials should fail")
 	})
 
 	t.Run("invalid endpoint", func(t *testing.T) {
@@ -227,6 +226,6 @@ func TestNHNCloudSKM_ErrorHandling_Acceptance(t *testing.T) {
 
 		// Encrypt should fail with network error
 		_, err = wrapper.Encrypt(ctx, plaintext)
-		assert.Error(t, err, "encryption with invalid endpoint should fail")
+		require.Error(t, err, "encryption with invalid endpoint should fail")
 	})
 }
