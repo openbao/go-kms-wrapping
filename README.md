@@ -47,7 +47,7 @@ as they may have been used for past encryption operations.
   * * OCI KMS (uses envelopes)
   * * Tencent Cloud KMS (uses envelopes)
   * * NHN Cloud SKM (uses envelopes) 
-  * Vault Transit mount
+  * * Vault Transit mount
   * Supports generic integrations
   * * PKCS11
   * * KMIP
