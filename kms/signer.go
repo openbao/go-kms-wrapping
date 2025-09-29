@@ -30,6 +30,9 @@ const (
 	SignAlgo_EC_P384
 	SignAlgo_EC_P521
 	SignAlgo_ED
+
+	SignAlgo_Provider_Specific_Base SignAlgorithm = 65536
+	SignAlgo_Provider_Specific_Top  SignAlgorithm = 165536
 )
 
 func (s SignAlgorithm) String() string {
