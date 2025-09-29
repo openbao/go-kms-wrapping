@@ -9,23 +9,23 @@ package kms
 type RandomGenerator interface {
 
 	// Close terminates the random generator
-	Close() error
+	Close(ctx context.Context) error
 
 	// Login logs in to the underlying random provider
-	Login(credentials *Credentials) error
+	Login(ctx context.Context, credentials *Credentials) error
 
 	// IsTrueRandomGenerator returns true if the underlying provider is a TRG
 	IsTrueRandomGenerator() bool
 
 	// SeedRandom adds seed material to the random generator
-	SeedRandom(seed []byte) error
+	SeedRandom(ctx context.Context, seed []byte) error
 
 	// GenerateRandom generates random or pseudo-random data
-	GenerateRandom(length uint32) ([]byte, error)
+	GenerateRandom(ctx context.Context, length uint32) ([]byte, error)
 }
 
 // RandomGeneratorFactory creates RandomGenerator instances
 type RandomGeneratorFactory interface {
 	// NewRandomGenerator creates a new RandomGenerator instance
-	NewRandomGenerator(provider *CryptoProviderParameters) (RandomGenerator, error)
+	NewRandomGenerator(ctx context.Context, provider *CryptoProviderParameters) (RandomGenerator, error)
 }*/
