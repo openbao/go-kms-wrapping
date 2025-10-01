@@ -178,10 +178,14 @@ func TestWrapper_Decrypt_EmptyCiphertext(t *testing.T) {
 
 	blobInfo := &wrapping.BlobInfo{
 		Ciphertext: []byte{},
+		KeyInfo: &wrapping.KeyInfo{
+			Mechanism:  NHNCloudSKMEnvelopeAesGcmEncrypt,
+			WrappedKey: []byte{},
+		},
 	}
 
 	_, err := wrapper.Decrypt(context.Background(), blobInfo)
-	require.ErrorContains(t, err, "ciphertext is empty")
+	require.ErrorContains(t, err, "wrapped key is empty")
 }
 
 func TestWrapper_KeyId_Configured(t *testing.T) {

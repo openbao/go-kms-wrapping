@@ -34,11 +34,9 @@ const (
 )
 
 const (
-	// NHNCloudSKMEncrypt is used to directly encrypt the data with SKM
-	NHNCloudSKMEncrypt = iota
 	// NHNCloudSKMEnvelopeAesGcmEncrypt is when a data encryption key is generated and
 	// the data is encrypted with AES-GCM and the key is encrypted with SKM
-	NHNCloudSKMEnvelopeAesGcmEncrypt
+	NHNCloudSKMEnvelopeAesGcmEncrypt = iota
 )
 
 // API request/response structures
@@ -264,37 +262,12 @@ func (w *Wrapper) Decrypt(ctx context.Context, cipherInfo *wrapping.BlobInfo, op
 	// Default to mechanism used before key info was stored
 	if cipherInfo.KeyInfo == nil {
 		cipherInfo.KeyInfo = &wrapping.KeyInfo{
-			Mechanism: NHNCloudSKMEncrypt,
+			Mechanism: NHNCloudSKMEnvelopeAesGcmEncrypt,
 		}
 	}
 
-	keyID := w.keyID
-
 	var plaintext []byte
 	switch cipherInfo.KeyInfo.Mechanism {
-	case NHNCloudSKMEncrypt:
-		// Direct decryption (legacy mode)
-		if len(cipherInfo.Ciphertext) == 0 {
-			return nil, fmt.Errorf("ciphertext is empty")
-		}
-
-		// Create request
-		req := decryptRequest{
-			Ciphertext: string(cipherInfo.Ciphertext),
-		}
-
-		// Call decrypt API
-		resp, err := w.callDecryptAPI(ctx, keyID, req)
-		if err != nil {
-			return nil, fmt.Errorf("decryption failed: %w", err)
-		}
-
-		if !resp.Header.IsSuccessful {
-			return nil, fmt.Errorf("decryption API failed: %s (code: %d)", resp.Header.ResultMessage, resp.Header.ResultCode)
-		}
-
-		plaintext = []byte(resp.Body.Plaintext)
-
 	case NHNCloudSKMEnvelopeAesGcmEncrypt:
 		if len(cipherInfo.KeyInfo.WrappedKey) == 0 {
 			return nil, fmt.Errorf("wrapped key is empty")
@@ -304,7 +277,7 @@ func (w *Wrapper) Decrypt(ctx context.Context, cipherInfo *wrapping.BlobInfo, op
 			Ciphertext: string(cipherInfo.KeyInfo.WrappedKey),
 		}
 
-		resp, err := w.callDecryptAPI(ctx, keyID, req)
+		resp, err := w.callDecryptAPI(ctx, req)
 		if err != nil {
 			return nil, fmt.Errorf("key decryption failed: %w", err)
 		}
@@ -358,17 +331,17 @@ func (w *Wrapper) loadFromEnv() {
 	}
 }
 
-// callEncryptAPI calls the NHN Cloud SKM encrypt API
-func (w *Wrapper) callEncryptAPI(ctx context.Context, req encryptRequest) (*encryptResponse, error) {
-	url := fmt.Sprintf("%s/keymanager/v1.2/appkey/%s/symmetric-keys/%s/encrypt",
-		strings.TrimSuffix(w.endpoint, "/"), w.appKey, w.keyID)
+// callAPI calls the NHN Cloud SKM API
+func (w *Wrapper) callAPI(ctx context.Context, reqBody interface{}, method string) ([]byte, error) {
+	url := fmt.Sprintf("%s/keymanager/v1.2/appkey/%s/symmetric-keys/%s/%s",
+		strings.TrimSuffix(w.endpoint, "/"), w.appKey, w.keyID, method)
 
-	reqBody, err := json.Marshal(req)
+	reqJSON, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(reqBody))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(reqJSON))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -394,6 +367,16 @@ func (w *Wrapper) callEncryptAPI(ctx context.Context, req encryptRequest) (*encr
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	return body, nil
+}
+
+// callEncryptAPI calls the NHN Cloud SKM encrypt API
+func (w *Wrapper) callEncryptAPI(ctx context.Context, req encryptRequest) (*encryptResponse, error) {
+	body, err := w.callAPI(ctx, req, "encrypt")
+	if err != nil {
+		return nil, err
 	}
 
 	var encResp encryptResponse
@@ -405,41 +388,10 @@ func (w *Wrapper) callEncryptAPI(ctx context.Context, req encryptRequest) (*encr
 }
 
 // callDecryptAPI calls the NHN Cloud SKM decrypt API
-func (w *Wrapper) callDecryptAPI(ctx context.Context, keyID string, req decryptRequest) (*decryptResponse, error) {
-	url := fmt.Sprintf("%s/keymanager/v1.2/appkey/%s/symmetric-keys/%s/decrypt",
-		strings.TrimSuffix(w.endpoint, "/"), w.appKey, keyID)
-
-	reqBody, err := json.Marshal(req)
+func (w *Wrapper) callDecryptAPI(ctx context.Context, req decryptRequest) (*decryptResponse, error) {
+	body, err := w.callAPI(ctx, req, "decrypt")
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(reqBody))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Set headers
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("X-TC-AUTHENTICATION-ID", w.userAccessKeyID)
-	httpReq.Header.Set("X-TC-AUTHENTICATION-SECRET", w.userSecretAccessKey)
-	if w.macAddress != "" {
-		httpReq.Header.Set("X-TOAST-CLIENT-MAC-ADDR", w.macAddress)
-	}
-
-	resp, err := w.client.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("HTTP request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		return nil, err
 	}
 
 	var decResp decryptResponse
