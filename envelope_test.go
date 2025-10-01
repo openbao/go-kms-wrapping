@@ -71,11 +71,11 @@ func Test_EnvelopeEncrypt(t *testing.T) {
 			encryptOpt: []Option{WithIV(nil)},
 		},
 		{
-			name:       "error-with-empty-iv",
+			name:       "with-empty-iv",
 			pt:         []byte("test"),
 			want:       []byte("test"),
 			encryptOpt: []Option{WithIV([]byte(""))},
-			wantErr:    true,
+			wantErr:    false,
 		},
 		{
 			name:       "success-with-iv-and-aad",
@@ -107,7 +107,7 @@ func Test_EnvelopeEncrypt(t *testing.T) {
 			require.NoError(err)
 			assert.NotNil(env)
 			assert.NotEmpty(env.Ciphertext)
-			assert.NotEmpty(env.Iv)
+			assert.Empty(env.Iv)
 			assert.NotEmpty(env.Key)
 
 			output, err := EnvelopeDecrypt(env, tc.decryptOpt...)

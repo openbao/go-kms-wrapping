@@ -1,8 +1,6 @@
 module github.com/openbao/go-kms-wrapping/wrappers/transit/v2
 
-go 1.24
-
-toolchain go1.24.6
+go 1.25.0
 
 replace github.com/openbao/go-kms-wrapping/v2 => ../../
 

@@ -1,6 +1,6 @@
 module github.com/openbao/go-kms-wrapping/plugin/v2
 
-go 1.22.1
+go 1.25.0
 
 replace github.com/openbao/go-kms-wrapping/v2 => ../
 
@@ -30,7 +30,6 @@ require (
 	github.com/oklog/run v1.1.0 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/ryanuber/go-glob v1.0.0 // indirect
-	golang.org/x/crypto v0.32.0 // indirect
 	golang.org/x/net v0.34.0 // indirect
 	golang.org/x/sys v0.29.0 // indirect
 	golang.org/x/text v0.21.0 // indirect
