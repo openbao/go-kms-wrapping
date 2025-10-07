@@ -188,13 +188,13 @@ type Key interface {
 	// GetGroupId returns the Group Id of the given key
 	GetGroupId() string
 
-	// isPersistence returns the persistence of the given key
+	// IsPersistent returns the persistence of the given key
 	IsPersistent() bool
 
-	// IsSensitivity returns the sensitivity of the given key
+	// IsSensitive returns the sensitivity of the given key
 	IsSensitive() bool
 
-	// IsAsymmetric returns true if the given key satisfies also the
+	// IsAsymmetric returns true if the given key also satisfies the
 	// AsymmetricKey interface.
 	IsAsymmetric() bool
 
