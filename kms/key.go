@@ -167,8 +167,8 @@ type Key interface {
 	// Resolved - whether this key is shown to exist and has all attributes resolved.
 	Resolved() bool
 
-	// Resolve - refresh local key attributes
-	Resolve(ctx context.Context) error
+	// Resolve returns the resolved version of the key.
+	Resolve(ctx context.Context) (Key, error)
 
 	// Close terminates the key
 	Close(ctx context.Context) error
