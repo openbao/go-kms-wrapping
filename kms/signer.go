@@ -99,18 +99,17 @@ type Signer interface {
 // NewDigestSigner is a local signer which allows incremental computation of
 // the hash locally, when the underlying signature algorithm supports it. If
 // an algorithm doesn't, SignerParameters.Algorithm.Hash() will return nil.
-func NewDigestSigner(ctx context.Context, factory SignerFactory, privateKey Key, signerParams *SignerParameters) (Signer, error) {
+func NewDigestSigner(ctx context.Context, factory SignerFactory, signerParams *SignerParameters) (Signer, error) {
 	hasher := signerParams.Algorithm.Hash()
 	if hasher == nil {
 		return nil, fmt.Errorf("%w: %v", ErrUnknownDigestAlgorithm, signerParams.Algorithm.String())
 	}
 
-	return &signer{factory: factory, key: privateKey, params: signerParams, hash: hasher}, nil
+	return &signer{factory: factory, params: signerParams, hash: hasher}, nil
 }
 
 type signer struct {
 	factory SignerFactory
-	key     Key
 	params  *SignerParameters
 
 	hash hash.Hash
@@ -126,19 +125,20 @@ func (s *signer) Close(ctx context.Context, data []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	return s.factory.DigestSign(ctx, s.key, s.params, s.hash.Sum(nil))
+	return s.factory.DigestSign(ctx, s.params, s.hash.Sum(nil))
 }
 
 // SignerFactory creates Signer instances. Some algorithms, like RSA, support
-// signing from a pre-computed digest but others like Ed25519 or ML-DSA
-// require the original message.
+// signing from a pre-computed digest but others like Ed25519 or ML-DSA require
+// the original message. SignerFactory is optionally implemented by (private or
+// public/private pair) Key types.
 type SignerFactory interface {
 	// DigestSign performs a one-shot digital signatures, using a private key, from a provided digest.
 	//
 	// SignerParameters may be mutated by the provider.
-	DigestSign(ctx context.Context, privateKey Key, signerParams *SignerParameters, digest []byte) ([]byte, error)
+	DigestSign(ctx context.Context, signerParams *SignerParameters, digest []byte) ([]byte, error)
 
 	// NewSigner performs a multi-step digital signature, using a private key,
 	// from the provided input message.
-	NewSigner(ctx context.Context, privateKey Key, signerParams *SignerParameters) (Signer, error)
+	NewSigner(ctx context.Context, signerParams *SignerParameters) (Signer, error)
 }

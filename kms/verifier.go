@@ -39,18 +39,17 @@ type Verifier interface {
 }
 
 // NewDigestVerifier will mutate its passed verifierParams.
-func NewDigestVerifier(ctx context.Context, factory VerifierFactory, publicKey Key, verifierParams *VerifierParameters) (Verifier, error) {
+func NewDigestVerifier(ctx context.Context, factory VerifierFactory, verifierParams *VerifierParameters) (Verifier, error) {
 	hasher := verifierParams.Algorithm.Hash()
 	if hasher == nil {
 		return nil, fmt.Errorf("%w: %v", ErrUnknownDigestAlgorithm, verifierParams.Algorithm.String())
 	}
 
-	return &verifier{factory: factory, key: publicKey, params: verifierParams, hash: hasher}, nil
+	return &verifier{factory: factory, params: verifierParams, hash: hasher}, nil
 }
 
 type verifier struct {
 	factory VerifierFactory
-	key     Key
 	params  *VerifierParameters
 
 	hash hash.Hash
@@ -70,15 +69,16 @@ func (v *verifier) Close(ctx context.Context, data []byte, signature []byte) err
 		v.params.Signature = signature
 	}
 
-	return v.factory.DigestVerify(ctx, v.key, v.params, v.hash.Sum(nil))
+	return v.factory.DigestVerify(ctx, v.params, v.hash.Sum(nil))
 }
 
-// VerifierFactory creates Verifier instances
+// VerifierFactory creates Verifier instances. VerifierFactory is optionally
+// implemented by (public or public/private pair) Key types.
 type VerifierFactory interface {
 	// DigestVerify performs a one-shot verification of a digital signature, from a provided digest.
-	DigestVerify(ctx context.Context, publicKey Key, verifierParams *VerifierParameters, digest []byte) error
+	DigestVerify(ctx context.Context, verifierParams *VerifierParameters, digest []byte) error
 
 	// NewVerifier performs a multi-step digital signature, using a private
 	// key, from a provided input message.
-	NewVerifier(ctx context.Context, publicKey Key, verifierParams *VerifierParameters) (Verifier, error)
+	NewVerifier(ctx context.Context, verifierParams *VerifierParameters) (Verifier, error)
 }
