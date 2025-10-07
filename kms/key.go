@@ -92,6 +92,19 @@ func (c Curve) OID() asn1.ObjectIdentifier {
 	return nil
 }
 
+func (c Curve) Len() uint32 {
+	switch c {
+	case Curve_P256:
+		return 256
+	case Curve_P384:
+		return 384
+	case Curve_P521:
+		return 521
+	}
+
+	return 0
+}
+
 // KeyAttributes represents basic key attributes and key usages (allowed operations).
 //
 // All attributes are expected to be non-sensitive, though may not
@@ -106,7 +119,7 @@ type KeyAttributes struct {
 	GroupId string
 
 	KeyType   KeyType
-	Curve     *Curve
+	Curve     Curve
 	BitKeyLen uint32
 
 	// Key usages
