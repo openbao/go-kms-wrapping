@@ -172,7 +172,9 @@ type Cipher interface {
 //	})
 //
 //	aes.Close(...)
+//
+// CipherFactory is optionally implemented by Key types.
 type CipherFactory interface {
 	// NewCipher creates a new Cipher instance
-	NewCipher(ctx context.Context, operation CipherOperation, key Key, cipherParams *CipherParameters) (Cipher, error)
+	NewCipher(ctx context.Context, operation CipherOperation, cipherParams *CipherParameters) (Cipher, error)
 }

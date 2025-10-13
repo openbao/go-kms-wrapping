@@ -92,6 +92,19 @@ func (c Curve) OID() asn1.ObjectIdentifier {
 	return nil
 }
 
+func (c Curve) Len() uint32 {
+	switch c {
+	case Curve_P256:
+		return 256
+	case Curve_P384:
+		return 384
+	case Curve_P521:
+		return 521
+	}
+
+	return 0
+}
+
 // KeyAttributes represents basic key attributes and key usages (allowed operations).
 //
 // All attributes are expected to be non-sensitive, though may not
@@ -106,7 +119,7 @@ type KeyAttributes struct {
 	GroupId string
 
 	KeyType   KeyType
-	Curve     *Curve
+	Curve     Curve
 	BitKeyLen uint32
 
 	// Key usages
@@ -154,8 +167,8 @@ type Key interface {
 	// Resolved - whether this key is shown to exist and has all attributes resolved.
 	Resolved() bool
 
-	// Resolve - refresh local key attributes
-	Resolve(ctx context.Context) error
+	// Resolve returns the resolved version of the key.
+	Resolve(ctx context.Context) (Key, error)
 
 	// Close terminates the key
 	Close(ctx context.Context) error
@@ -175,13 +188,13 @@ type Key interface {
 	// GetGroupId returns the Group Id of the given key
 	GetGroupId() string
 
-	// isPersistence returns the persistence of the given key
+	// IsPersistent returns the persistence of the given key
 	IsPersistent() bool
 
-	// IsSensitivity returns the sensitivity of the given key
+	// IsSensitive returns the sensitivity of the given key
 	IsSensitive() bool
 
-	// IsAsymmetric returns true if the given key satisfies also the
+	// IsAsymmetric returns true if the given key also satisfies the
 	// AsymmetricKey interface.
 	IsAsymmetric() bool
 
