@@ -14,6 +14,7 @@ test:
 	cd wrappers/static && go test ./... $(TESTARGS)
 	cd wrappers/tencentcloudkms && go test ./... $(TESTARGS)
 	cd wrappers/transit && go test ./... $(TESTARGS)
+	cd wrappers/nhncloudskm && go test ./... $(TESTARGS)
 
 .PHONY: proto
 proto:
@@ -46,6 +47,7 @@ tidy-all:
 	cd wrappers/tencentcloudkms && go mod tidy
 	cd wrappers/static && go mod tidy
 	cd wrappers/transit && go mod tidy
+	cd wrappers/nhncloudskm && go mod tidy
 	go mod tidy
 
 .PHONY: generate-all
@@ -64,6 +66,7 @@ generate-all:
 	cd wrappers/static && GOARCH= GOOS= go generate ./...
 	cd wrappers/tencentcloudkms && GOARCH= GOOS= go generate ./...
 	cd wrappers/transit && GOARCH= GOOS= go generate ./...
+	cd wrappers/nhncloudskm && GOARCH= GOOS= go generate ./...
 	GOARCH= GOOS= go generate ./...
 
 .PHONY: fmt
