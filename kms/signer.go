@@ -22,6 +22,7 @@ const (
 	SignAlgo_RSA_PKCS1_PSS_SHA_256 = iota + 1
 	SignAlgo_RSA_PKCS1_PSS_SHA_384
 	SignAlgo_RSA_PKCS1_PSS_SHA_512
+
 	// SignAlgo_EC_P256 and related constants all follow NIST guidelines that
 	// hash function should match the size of the underlying curve. That is,
 	// this selection uses SHA-256 with P-256 and will err for other key
@@ -29,6 +30,8 @@ const (
 	SignAlgo_EC_P256
 	SignAlgo_EC_P384
 	SignAlgo_EC_P521
+
+	// This ed25519 / ed448; NOT ed25519ph and ed448ph.
 	SignAlgo_ED
 )
 
@@ -89,10 +92,12 @@ var ErrBadDigestLength error = errors.New("specified digest length does not matc
 
 // Signer interface represents signing operations
 type Signer interface {
-	// This function continues a multiple-part signature operation, processing another data part.
+	// This function continues a multiple-part signature operation, processing
+	// another data part.
 	Update(ctx context.Context, data []byte) error
 
-	// This function finishes a single or multiple-part signature operation, possibly processing the last data part, and returns the signature.
+	// This function finishes a single or multiple-part signature operation,
+	// processing the last data part from not-nil, and returns the signature.
 	Close(ctx context.Context, data []byte) (signature []byte, err error)
 }
 
@@ -128,17 +133,34 @@ func (s *signer) Close(ctx context.Context, data []byte) ([]byte, error) {
 	return s.factory.DigestSign(ctx, s.params, s.hash.Sum(nil))
 }
 
+// DirectSignerFactory can be implemented by KMS providers which support direct
+// signing over provided hashes. This differs from pre-hashed in that the hash
+// algorithm OID is embedded in the signed payload.
+//
+// This can be optionally implemented by providers.
+type DirectSignerFactory interface {
+	// DigestSign performs a one-shot digital signatures, using a private key,
+	// from a provided digest when the algorithm supports client-side signing.
+	//
+	// SignerParameters may be mutated by the underlying provider.
+	//
+	// If the specified algorithm does not support client-side hashing, such
+	// as in the case of Ed25519 due to requiring prehash, digest may be the
+	// full message.
+	DigestSign(ctx context.Context, signerParams *SignerParameters, digest []byte) ([]byte, error)
+}
+
 // SignerFactory creates Signer instances. Some algorithms, like RSA, support
 // signing from a pre-computed digest but others like Ed25519 or ML-DSA require
 // the original message. SignerFactory is optionally implemented by (private or
 // public/private pair) Key types.
+//
+// This should always be implemented.
 type SignerFactory interface {
-	// DigestSign performs a one-shot digital signatures, using a private key, from a provided digest.
-	//
-	// SignerParameters may be mutated by the provider.
-	DigestSign(ctx context.Context, signerParams *SignerParameters, digest []byte) ([]byte, error)
-
 	// NewSigner performs a multi-step digital signature, using a private key,
-	// from the provided input message.
+	// from the provided input message. SignerParameters may be mutated by the
+	// underlying provider.
+	//
+	// Hashing should be implemented remotely on the server.
 	NewSigner(ctx context.Context, signerParams *SignerParameters) (Signer, error)
 }
