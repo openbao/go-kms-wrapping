@@ -57,7 +57,8 @@ func (c CipherAlgorithm) String() string {
 type CipherAlgorithmMode int
 
 const (
-	CipherMode_AES_GCM CipherAlgorithmMode = iota + 1
+	// This is only fixed 96-bit nonce with 128-bit tags.
+	CipherMode_AES_GCM96 CipherAlgorithmMode = iota + 1
 
 	// CipherMode_RSA_OAEP_SHA256 and related all use consistent message
 	// digest and mask generation function hashes. That is, this selection
@@ -69,7 +70,7 @@ const (
 
 func (c CipherAlgorithmMode) String() string {
 	switch c {
-	case CipherMode_AES_GCM:
+	case CipherMode_AES_GCM96:
 		return "aes-gcm"
 	case CipherMode_RSA_OAEP_SHA256:
 		return "rsa-oaep-sha256"
@@ -84,7 +85,7 @@ func (c CipherAlgorithmMode) String() string {
 
 func (c CipherAlgorithmMode) Algorithm() CipherAlgorithm {
 	switch c {
-	case CipherMode_AES_GCM:
+	case CipherMode_AES_GCM96:
 		return CipherAlgo_AES
 	case CipherMode_RSA_OAEP_SHA256, CipherMode_RSA_OAEP_SHA384, CipherMode_RSA_OAEP_SHA512:
 		return CipherAlgo_RSA
@@ -146,20 +147,20 @@ type AESGCMCipherParameters struct {
 	// Additional authenticated data.
 	AAD []byte
 
-	// In the future, if someone has a valid use case, nonce and tag width
-	// can be specified here, though this should be discouraged.
+	// Tag over the ciphertext.
+	Tag []byte
 }
 
 // Cipher interface represents ciphering operations
 type Cipher interface {
 	// This function performs/continues a multiple-part ciphering operation, processing another data part.
-	Update(ctx context.Context, input []byte) (output []byte, err error)
+	Update(ctx context.Context, input []byte) (ciphertext []byte, err error)
 
 	// This function finishes a single or multiple-part ciphering operation, possibly processing the last data part.
 	// Note: for encryption operations, the caller should not provide the IV when initalizating the Cipher.
-	// Instead, the Cipher will generate a random IV that will be returned here prepended to the ciphertext.
-	// The MAC (Authentication Tag) is returned by this function appended to the ciphertext when encrypting with AEAD algorithms.
-	Close(ctx context.Context, input []byte) (output []byte, err error)
+	//
+	// At the time of Close, parameters will be updated.
+	Close(ctx context.Context, input []byte) (ciphertext []byte, err error)
 }
 
 // CipherFactory creates Cipher instances. When invoking NewCipher, note that
@@ -167,7 +168,7 @@ type Cipher interface {
 // call two cipher instances with the same CipherParameters values.
 //
 //	aes := Factory.NewCipher(CipherOp_Encrypt, key, &CipherParameters{
-//		Algorithm: CipherMode_AES_GCM,
+//		Algorithm: CipherMode_AES_GCM96,
 //		Parameters: &AESGCMCipherParameters{ AAD: aad },
 //	})
 //
