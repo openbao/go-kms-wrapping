@@ -94,22 +94,6 @@ func (c CipherAlgorithmMode) Algorithm() CipherAlgorithm {
 	return 0
 }
 
-// Padding represents the padding required by some ciphering algorithms.
-type Padding int
-
-const (
-	Padding_No Padding = iota
-)
-
-func (p Padding) String() string {
-	switch p {
-	case Padding_No:
-		return "none"
-	}
-
-	return fmt.Sprintf("(unknown %d)", p)
-}
-
 // CipherParameters defines the parameters required by a ciphering operation.
 // We might want to specialize this per algorithm (provide CTR counter length, 64 bits, for example, etc.).
 type CipherParameters struct {
@@ -118,9 +102,6 @@ type CipherParameters struct {
 
 	// Type of parameters is dependent on the choice of Algorithm.
 	Parameters interface{}
-
-	// Not every cipher algorithm requires padding.
-	Padding Padding
 
 	// Provider-specific parameters.
 	ProviderParameters map[string]interface{}
@@ -154,13 +135,13 @@ type AESGCMCipherParameters struct {
 // Cipher interface represents ciphering operations
 type Cipher interface {
 	// This function performs/continues a multiple-part ciphering operation, processing another data part.
-	Update(ctx context.Context, input []byte) (ciphertext []byte, err error)
+	Update(ctx context.Context, input []byte) (output []byte, err error)
 
 	// This function finishes a single or multiple-part ciphering operation, possibly processing the last data part.
-	// Note: for encryption operations, the caller should not provide the IV when initalizating the Cipher.
+	// Note: for encryption operations, the caller should not provide the IV when initializing the Cipher.
 	//
 	// At the time of Close, parameters will be updated.
-	Close(ctx context.Context, input []byte) (ciphertext []byte, err error)
+	Close(ctx context.Context, input []byte) (output []byte, err error)
 }
 
 // CipherFactory creates Cipher instances. When invoking NewCipher, note that
