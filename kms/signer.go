@@ -101,13 +101,14 @@ type Signer interface {
 	Close(ctx context.Context, data []byte) (signature []byte, err error)
 }
 
-// DirectSignerFactory can be implemented by KMS providers which support direct
+// SignerFactory must be implemented by KMS providers which support direct
 // signing over provided hashes. This differs from pre-hashed in that the hash
 // algorithm OID is embedded in the signed payload.
 //
-// This can be optionally implemented by providers.
-type DirectSignerFactory interface {
-	// DigestSign performs a one-shot digital signatures, using a private key,
+// This is required to support crypto/x509 and so is required by nearly all
+// KMS implementations.
+type SignerFactory interface {
+	// DirectSign performs a one-shot digital signatures, using a private key,
 	// from a provided digest when the algorithm supports client-side signing.
 	//
 	// SignerParameters may be mutated by the underlying provider.
@@ -115,16 +116,16 @@ type DirectSignerFactory interface {
 	// If the specified algorithm does not support client-side hashing, such
 	// as in the case of Ed25519 due to requiring prehash, digest may be the
 	// full message.
-	DigestSign(ctx context.Context, signerParams *SignerParameters, digest []byte) ([]byte, error)
+	Sign(ctx context.Context, signerParams *SignerParameters, digest []byte) ([]byte, error)
 }
 
-// SignerFactory creates Signer instances. Some algorithms, like RSA, support
+// ServerSignerFactory creates Signer instances. Some algorithms, like RSA, support
 // signing from a pre-computed digest but others like Ed25519 or ML-DSA require
 // the original message. SignerFactory is optionally implemented by (private or
 // public/private pair) Key types.
 //
-// This should always be implemented.
-type SignerFactory interface {
+// This may be implemented.
+type ServerSignerFactory interface {
 	// NewSigner performs a multi-step digital signature, using a private key,
 	// from the provided input message. SignerParameters may be mutated by the
 	// underlying provider.
