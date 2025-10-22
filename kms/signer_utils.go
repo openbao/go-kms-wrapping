@@ -12,7 +12,7 @@ import (
 // NewDigestSigner is a local signer which allows incremental computation of
 // the hash locally, when the underlying signature algorithm supports it. If
 // an algorithm doesn't, SignerParameters.Algorithm.Hash() will return nil.
-func NewDigestSigner(ctx context.Context, factory DirectSignerFactory, signerParams *SignerParameters) (Signer, error) {
+func NewDigestSigner(factory SignerFactory, signerParams *SignerParameters) (Signer, error) {
 	hasher := signerParams.Algorithm.Hash()
 	if hasher == nil {
 		return nil, fmt.Errorf("%w: %v", ErrUnknownDigestAlgorithm, signerParams.Algorithm.String())
@@ -22,7 +22,7 @@ func NewDigestSigner(ctx context.Context, factory DirectSignerFactory, signerPar
 }
 
 type signer struct {
-	factory DirectSignerFactory
+	factory SignerFactory
 	params  *SignerParameters
 
 	hash hash.Hash
@@ -38,5 +38,39 @@ func (s *signer) Close(ctx context.Context, data []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	return s.factory.DigestSign(ctx, s.params, s.hash.Sum(nil))
+	return s.factory.Sign(ctx, s.params, s.hash.Sum(nil))
+}
+
+// NewDigestVerifier will mutate its passed verifierParams.
+func NewDigestVerifier(factory VerifierFactory, verifierParams *VerifierParameters) (Verifier, error) {
+	hasher := verifierParams.Algorithm.Hash()
+	if hasher == nil {
+		return nil, fmt.Errorf("%w: %v", ErrUnknownDigestAlgorithm, verifierParams.Algorithm.String())
+	}
+
+	return &verifier{factory: factory, params: verifierParams, hash: hasher}, nil
+}
+
+type verifier struct {
+	factory VerifierFactory
+	params  *VerifierParameters
+
+	hash hash.Hash
+}
+
+func (v *verifier) Update(ctx context.Context, data []byte) error {
+	_, err := v.hash.Write(data)
+	return err
+}
+
+func (v *verifier) Close(ctx context.Context, data []byte, signature []byte) error {
+	if err := v.Update(ctx, data); err != nil {
+		return err
+	}
+
+	if signature != nil {
+		v.params.Signature = signature
+	}
+
+	return v.factory.Verify(ctx, v.params, v.hash.Sum(nil))
 }

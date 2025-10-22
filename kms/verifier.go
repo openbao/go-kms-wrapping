@@ -5,8 +5,6 @@ package kms
 
 import (
 	"context"
-	"fmt"
-	"hash"
 )
 
 // SignerParameters defines the parameters required by a signing operation.
@@ -38,46 +36,22 @@ type Verifier interface {
 	Close(ctx context.Context, data []byte, signature []byte) error
 }
 
-// NewDigestVerifier will mutate its passed verifierParams.
-func NewDigestVerifier(ctx context.Context, factory VerifierFactory, verifierParams *VerifierParameters) (Verifier, error) {
-	hasher := verifierParams.Algorithm.Hash()
-	if hasher == nil {
-		return nil, fmt.Errorf("%w: %v", ErrUnknownDigestAlgorithm, verifierParams.Algorithm.String())
-	}
-
-	return &verifier{factory: factory, params: verifierParams, hash: hasher}, nil
-}
-
-type verifier struct {
-	factory VerifierFactory
-	params  *VerifierParameters
-
-	hash hash.Hash
-}
-
-func (v *verifier) Update(ctx context.Context, data []byte) error {
-	_, err := v.hash.Write(data)
-	return err
-}
-
-func (v *verifier) Close(ctx context.Context, data []byte, signature []byte) error {
-	if err := v.Update(ctx, data); err != nil {
-		return err
-	}
-
-	if signature != nil {
-		v.params.Signature = signature
-	}
-
-	return v.factory.DigestVerify(ctx, v.params, v.hash.Sum(nil))
-}
-
 // VerifierFactory creates Verifier instances. VerifierFactory is optionally
 // implemented by (public or public/private pair) Key types.
+//
+// Like with SignerFactory, this is widely required.
 type VerifierFactory interface {
-	// DigestVerify performs a one-shot verification of a digital signature, from a provided digest.
-	DigestVerify(ctx context.Context, verifierParams *VerifierParameters, digest []byte) error
+	// Verify performs a one-shot verification of a digital signature, from a provided digest.
+	Verify(ctx context.Context, verifierParams *VerifierParameters, digest []byte) error
+}
 
+// ServerVerifierFactory creates Verifier instances. Some algorithms, like RSA,
+// support signing from a pre-computed digest but others like Ed25519 or ML-DSA
+// require the original message. SignerFactory is optionally implemented by
+// (private or public/private pair) Key types.
+//
+// This may optionally be implemented.
+type ServerVerifierFactory interface {
 	// NewVerifier performs a multi-step digital signature, using a private
 	// key, from a provided input message.
 	NewVerifier(ctx context.Context, verifierParams *VerifierParameters) (Verifier, error)
