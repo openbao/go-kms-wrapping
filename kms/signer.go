@@ -5,11 +5,9 @@ package kms
 
 import (
 	"context"
-	"crypto/sha256"
-	"crypto/sha512"
+	"crypto"
 	"errors"
 	"fmt"
-	"hash"
 )
 
 // SignAlgorithm represents sign/verify algorithms
@@ -56,17 +54,17 @@ func (s SignAlgorithm) String() string {
 	return fmt.Sprintf("(unknown %d)", s)
 }
 
-func (s SignAlgorithm) Hash() hash.Hash {
+func (s SignAlgorithm) Hash() crypto.Hash {
 	switch s {
 	case SignAlgo_RSA_PKCS1_PSS_SHA_256, SignAlgo_EC_P256:
-		return sha256.New()
+		return crypto.SHA256
 	case SignAlgo_RSA_PKCS1_PSS_SHA_384, SignAlgo_EC_P384:
-		return sha512.New384()
+		return crypto.SHA384
 	case SignAlgo_RSA_PKCS1_PSS_SHA_512, SignAlgo_EC_P521:
-		return sha512.New()
+		return crypto.SHA512
 	}
 
-	return nil
+	return crypto.Hash(0)
 }
 
 // SignerParameters defines the parameters required by a signing operation.
@@ -132,8 +130,6 @@ type SignerFactory interface {
 // Remote means that digest signing is not done in-library, but the message is
 // directly handed over to the KMS. No local crypto is expected to be
 // performed here.
-//
-// This may be implemented.
 type RemoteDigestSignerFactory interface {
 	// NewRemoteDigestSigner performs a multi-step digital signature, using a
 	// private key, from the provided input message. SignerParameters may be
