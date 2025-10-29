@@ -127,9 +127,6 @@ type AESGCMCipherParameters struct {
 
 	// Additional authenticated data.
 	AAD []byte
-
-	// Tag over the ciphertext.
-	Tag []byte
 }
 
 // Cipher interface represents ciphering operations
@@ -139,6 +136,7 @@ type Cipher interface {
 
 	// This function finishes a single or multiple-part ciphering operation, possibly processing the last data part.
 	// Note: for encryption operations, the caller should not provide the IV when initializing the Cipher.
+	// Note: for AEAD encryption algorithms, tag will be appended to the output.
 	//
 	// At the time of Close, parameters will be updated.
 	Close(ctx context.Context, input []byte) (output []byte, err error)
