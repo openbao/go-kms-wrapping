@@ -12,6 +12,9 @@ import (
 // NewDigestSigner is a local signer which allows incremental computation of
 // the hash locally, when the underlying signature algorithm supports it. If
 // an algorithm doesn't, SignerParameters.Algorithm.Hash() will return nil.
+//
+// This uses SignerFactory which means local crypto (message hashing) is
+// performed. Only the digest is sent to the remote KMS provider.
 func NewDigestSigner(factory SignerFactory, signerParams *SignerParameters) (Signer, error) {
 	hasher := signerParams.Algorithm.Hash()
 	if hasher == nil {

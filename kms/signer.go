@@ -105,31 +105,42 @@ type Signer interface {
 // signing over provided hashes. This differs from pre-hashed in that the hash
 // algorithm OID is embedded in the signed payload.
 //
-// This is required to support crypto/x509 and so is required by nearly all
-// KMS implementations.
+// In most cases this should be implemented by all KMSes and used by default.
+//
+// Use of this interface implies local crypto (message hashing) has already
+// been performed in most cases (except Edwards curves and similar algorithms
+// which cannot support local digesting).
 type SignerFactory interface {
-	// DirectSign performs a one-shot digital signatures, using a private key,
+	// Sign performs a one-shot digital signatures, using a private key,
 	// from a provided digest when the algorithm supports client-side signing.
 	//
 	// SignerParameters may be mutated by the underlying provider.
 	//
 	// If the specified algorithm does not support client-side hashing, such
 	// as in the case of Ed25519 due to requiring prehash, digest may be the
-	// full message.
+	// full message. This is provided for convenience of implementers:
+	// otherwise, implementers would require two different key types to support
+	// Ed25519 versus RSA.
 	Sign(ctx context.Context, signerParams *SignerParameters, digest []byte) ([]byte, error)
 }
 
-// ServerSignerFactory creates Signer instances. Some algorithms, like RSA, support
+// RemoteDigestSignerFactory creates Signer instances. Some algorithms, like RSA, support
 // signing from a pre-computed digest but others like Ed25519 or ML-DSA require
 // the original message. SignerFactory is optionally implemented by (private or
 // public/private pair) Key types.
 //
+// Remote means that digest signing is not done in-library, but the message is
+// directly handed over to the KMS. No local crypto is expected to be
+// performed here.
+//
 // This may be implemented.
-type ServerSignerFactory interface {
-	// NewSigner performs a multi-step digital signature, using a private key,
-	// from the provided input message. SignerParameters may be mutated by the
-	// underlying provider.
+type RemoteDigestSignerFactory interface {
+	// NewRemoteDigestSigner performs a multi-step digital signature, using a
+	// private key, from the provided input message. SignerParameters may be
+	// mutated by the underlying provider.
+	//
+	// SignerParameters may be mutated by the underlying provider.
 	//
 	// Hashing should be implemented remotely on the server.
-	NewSigner(ctx context.Context, signerParams *SignerParameters) (Signer, error)
+	NewRemoteDigestSigner(ctx context.Context, signerParams *SignerParameters) (Signer, error)
 }
