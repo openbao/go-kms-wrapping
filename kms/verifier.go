@@ -39,9 +39,11 @@ type Verifier interface {
 // VerifierFactory creates Verifier instances. VerifierFactory is optionally
 // implemented by (public or public/private pair) Key types.
 //
-// Like with SignerFactory, this is widely required.
+// See notes in SignerFactory.
 type VerifierFactory interface {
 	// Verify performs a one-shot verification of a digital signature, from a provided digest.
+	//
+	// See notes in SignerFactory.
 	Verify(ctx context.Context, verifierParams *VerifierParameters, digest []byte) error
 }
 
@@ -51,8 +53,12 @@ type VerifierFactory interface {
 // (private or public/private pair) Key types.
 //
 // This may optionally be implemented.
-type ServerVerifierFactory interface {
+//
+// See notes in RemoteDigestSignerFactory.
+type RemoteDigestVerifierFactory interface {
 	// NewVerifier performs a multi-step digital signature, using a private
 	// key, from a provided input message.
-	NewVerifier(ctx context.Context, verifierParams *VerifierParameters) (Verifier, error)
+	//
+	// See notes in RemoteDigestSignerFactory.
+	NewRemoteDigestVerifier(ctx context.Context, verifierParams *VerifierParameters) (Verifier, error)
 }
