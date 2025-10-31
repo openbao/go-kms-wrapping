@@ -3,7 +3,9 @@
 
 package kms
 
-import "context"
+import (
+	"context"
+)
 
 const (
 	NameAttr  string = "name"
@@ -25,6 +27,8 @@ type KeyStore interface {
 	// ListKeys lists all keys managed by the current keystore
 	// TODO: add list filters/criteria: symmetric keys, public keys, private keys, etc.
 	ListKeys(ctx context.Context) ([]Key, error)
+	GenerateSecretKey(ctx context.Context, keyAttributes *KeyAttributes) (secret Key, err error)
+	GenerateKeyPair(ctx context.Context, keyPairAttributes *KeyAttributes) (privKey Key, pubKey Key, err error)
 
 	// GetKeyById searches for the key with the specified Id
 	// TODO: Id should be unique (UUId) throughout  a keystore ?
@@ -39,6 +43,7 @@ type KeyStore interface {
 	// GetInfo returns information about the provider to the caller for
 	// end-user display purposes.
 	GetInfo() map[string]string
+	RemoveKey(ctx context.Context, key Key) error
 }
 
 // AssumableKeyStore provides additional methods that [KeyStore] can implement

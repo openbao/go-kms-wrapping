@@ -26,6 +26,7 @@ const (
 	KeyType_EC_Private
 	KeyType_ED_Public
 	KeyType_ED_Private
+	Keytype_Unsupported
 )
 
 func (k KeyType) String() string {
@@ -227,3 +228,6 @@ type AsymmetricKey interface {
 	// be returned instead of a custom type.
 	ExportComponentPublic(ctx context.Context) (interface{}, error)
 }
+type contextKey string
+
+const CONTEXT_KEY_NAME contextKey = "key"
