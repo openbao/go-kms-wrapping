@@ -7,7 +7,7 @@ import (
 	"context"
 )
 
-// SignerParameters defines the parameters required by a signing operation.
+// VerifierParameters defines the parameters required by a signing operation.
 type VerifierParameters struct {
 	Algorithm SignAlgorithm
 
@@ -18,7 +18,7 @@ type VerifierParameters struct {
 	ProviderParameters map[string]interface{}
 }
 
-// Verifier interface represents signature verification operations
+// Verifier represents signature verification operations.
 type Verifier interface {
 	// This function continues a multiple-part verification operation, processing another data part.
 	Update(ctx context.Context, data []byte) error
@@ -47,10 +47,10 @@ type VerifierFactory interface {
 	Verify(ctx context.Context, verifierParams *VerifierParameters, digest []byte) error
 }
 
-// ServerVerifierFactory creates Verifier instances. Some algorithms, like RSA,
-// support signing from a pre-computed digest but others like Ed25519 or ML-DSA
-// require the original message. SignerFactory is optionally implemented by
-// (private or public/private pair) Key types.
+// RemoteDigestVerifierFactory creates Verifier instances. Some algorithms, like
+// RSA, support signing from a pre-computed digest but others like Ed25519 or
+// ML-DSA require the original message. SignerFactory is optionally implemented
+// by (private or public/private pair) Key types.
 //
 // This may optionally be implemented.
 //
