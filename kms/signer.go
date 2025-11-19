@@ -16,7 +16,9 @@ type SignAlgorithm int
 const (
 	// SignAlgo_RSA_PKCS1_PSS_SHA_256 and related constants all use consistent
 	// message digest and mask generation function hashes. That is, this
-	// selection uses SHA-256 for both hash function invocations.
+	// selection uses SHA-256 for both hash function invocations. PSS salt
+	// length is always equal to hash length, differing combinations are
+	// presently unsupported.
 	SignAlgo_RSA_PKCS1_PSS_SHA_256 = iota + 1
 	SignAlgo_RSA_PKCS1_PSS_SHA_384
 	SignAlgo_RSA_PKCS1_PSS_SHA_512

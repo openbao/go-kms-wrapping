@@ -257,9 +257,6 @@ func convertSignerOpts(pub crypto.PublicKey, opts crypto.SignerOpts) (*SignerPar
 		switch opts.SaltLength {
 		case rsa.PSSSaltLengthEqualsHash, rsa.PSSSaltLengthAuto:
 		default:
-			// TODO: Should we support it? We'd need to add an
-			// algorithm-specific parameters field to SignParameters, much like
-			// with AES-GCM for CipherParameters.
 			return nil, errors.New("custom RSA PSS salt length is not supported")
 		}
 		switch hash {
