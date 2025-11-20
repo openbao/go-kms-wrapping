@@ -66,19 +66,32 @@ func Test(t *testing.T) {
 			require.NoError(t, err, "should find token by label")
 			require.Equal(t, label2, token2.Info.Label, "label in token info should match search label")
 
-			token3, err := mod.GetToken(SelectID(token1.ID))
-			require.NoError(t, err, "should find token by ID")
-			require.Equal(t, token1.ID, token3.ID, "slot ID should match search ID")
-			require.Equal(t, label1, token3.Info.Label, "label in token info should match known label")
+			{
+				token, err := mod.GetToken(SelectID(token1.ID))
+				require.NoError(t, err, "should find token by ID")
+				require.Equal(t, token1.ID, token.ID, "slot ID should match search ID")
+				require.Equal(t, label1, token.Info.Label, "label in token info should match known label")
+			}
 
-			token4, err := mod.GetToken(SelectID(token2.ID), SelectLabel(label2))
-			require.NoError(t, err, "should find token")
-			require.Equal(t, token1.ID, token3.ID, "slot ID should match search ID")
-			require.Equal(t, label2, token4.Info.Label, "label in token info should match search label")
+			{
+				token, err := mod.GetToken(SelectID(token2.ID), SelectLabel(label2))
+				require.NoError(t, err, "should find token")
+				require.Equal(t, token2.ID, token.ID, "slot ID should match search ID")
+				require.Equal(t, label2, token.Info.Label, "label in token info should match search label")
+			}
 
-			token5, err := mod.GetToken(SelectLabel("foobar"))
-			require.Nil(t, token5, "should not find bogus token")
-			require.Error(t, err, "should error when token is not found")
+			{
+				token, err := mod.GetToken(SelectSerial(token2.Info.SerialNumber))
+				require.NoError(t, err, "should find token")
+				require.Equal(t, token2.Info.SerialNumber, token.Info.SerialNumber, "serial in token info should match search serial")
+				require.Equal(t, label2, token.Info.Label, "label in token info should match known label")
+			}
+
+			{
+				token, err := mod.GetToken(SelectLabel("foobar"))
+				require.Nil(t, token, "should not find bogus token")
+				require.Error(t, err, "should error when token is not found")
+			}
 		})
 	})
 }
