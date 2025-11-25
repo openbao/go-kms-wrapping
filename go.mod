@@ -1,6 +1,6 @@
 module github.com/openbao/go-kms-wrapping/v2
 
-go 1.25.0
+go 1.24.0
 
 require (
 	github.com/hashicorp/go-secure-stdlib/parseutil v0.1.9
