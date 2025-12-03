@@ -165,6 +165,13 @@ func SelectLabel(label string) TokenSelector {
 	}
 }
 
+// SelectSerial matches a token by serial number.
+func SelectSerial(serial string) TokenSelector {
+	return func(slot uint, info *pkcs11.TokenInfo) bool {
+		return info.SerialNumber != "" && info.SerialNumber == serial
+	}
+}
+
 // GetToken finds a token by applying a set of selectors to each slot.
 // The first token that matches all selectors is returned.
 func (m *module) GetToken(selectors ...TokenSelector) (*Token, error) {
