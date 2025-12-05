@@ -221,7 +221,7 @@ func (s *keyStore) GenerateRandom(ctx context.Context, length int) ([]byte, erro
 	return random, nil
 }
 
-func (s *keyStore) GenerateSecretKey(ctx context.Context, keyAttributes *kms.KeyAttributes) (kms.Key, error) {
+func (s *keyStore) GenerateSecretKey(ctx context.Context, attrs *kms.KeyAttributes) (kms.Key, error) {
 	// Check context
 	select {
 	case <-ctx.Done():
@@ -230,7 +230,7 @@ func (s *keyStore) GenerateSecretKey(ctx context.Context, keyAttributes *kms.Key
 	}
 
 	keyType := ""
-	switch keyAttributes.KeyType {
+	switch attrs.KeyType {
 	case kms.KeyType_AES:
 		keyType = "AES"
 	case kms.KeyType_Generic_Secret:
@@ -239,14 +239,14 @@ func (s *keyStore) GenerateSecretKey(ctx context.Context, keyAttributes *kms.Key
 		return nil, errors.New("Not supported key type")
 	}
 
-	attributes := attributesMapper(keyAttributes)
+	attributes := attributesMapper(attrs)
 
 	keyPassword := ""
 	//if len(password) > 0 {
 	//	keyPassword = password[0]
 	//}
 
-	keyName, err := s.client.CreateOrUpdateKey(keyAttributes.Name, keyPassword, attributes, keyType, float64(keyAttributes.BitKeyLen), nil, "", false)
+	keyName, err := s.client.CreateOrUpdateKey(attrs.Name, keyPassword, attributes, keyType, float64(attrs.BitKeyLen), nil, "", false)
 	if err != nil {
 		return nil, err
 	}
@@ -266,7 +266,7 @@ func (s *keyStore) GenerateSecretKey(ctx context.Context, keyAttributes *kms.Key
 	return secret, nil
 }
 
-func (s *keyStore) GenerateKeyPair(ctx context.Context, keyPairAttributes *kms.KeyAttributes) (privKey kms.Key, pubKey kms.Key, err error) {
+func (s *keyStore) GenerateKeyPair(ctx context.Context, attrs *kms.KeyAttributes) (privKey kms.Key, pubKey kms.Key, err error) {
 	// Check context
 	select {
 	case <-ctx.Done():
@@ -277,14 +277,14 @@ func (s *keyStore) GenerateKeyPair(ctx context.Context, keyPairAttributes *kms.K
 	keyType := ""
 	var curveOid string
 	var keySize float64
-	switch keyPairAttributes.KeyType {
+	switch attrs.KeyType {
 	case kms.KeyType_RSA_Private:
 		keyType = "RSA"
 		curveOid = ""
-		keySize = float64(keyPairAttributes.BitKeyLen)
+		keySize = float64(attrs.BitKeyLen)
 	case kms.KeyType_EC_Private:
 		keyType = "EC"
-		curveOid = helpers.MapCurveToStringCurve(keyPairAttributes.Curve)
+		curveOid = helpers.MapCurveToStringCurve(attrs.Curve)
 		keySize = 0
 	case kms.KeyType_ED_Private:
 		keyType = "ED"
@@ -294,18 +294,18 @@ func (s *keyStore) GenerateKeyPair(ctx context.Context, keyPairAttributes *kms.K
 		return nil, nil, errors.New("unsupported key type")
 	}
 
-	attributes := attributesMapper(keyPairAttributes)
+	attributes := attributesMapper(attrs)
 
 	keyPassword := ""
 	//if len(password) > 0 {
 	//	keyPassword = password[0]
 	//}
 
-	policy, err := MapToPolicy(keyPairAttributes.ProviderSpecific)
+	policy, err := MapToPolicy(attrs.ProviderSpecific)
 	if err != nil {
 		return nil, nil, err
 	}
-	keyName, err := s.client.CreateOrUpdateKey(keyPairAttributes.Name, keyPassword, attributes, keyType, keySize, policy, curveOid, false)
+	keyName, err := s.client.CreateOrUpdateKey(attrs.Name, keyPassword, attributes, keyType, keySize, policy, curveOid, false)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -373,18 +373,18 @@ func NewKeyStore(params map[string]any) (kms.KeyStore, error) {
 	}, nil
 }
 
-func attributesMapper(keyAttributes *kms.KeyAttributes) map[string]bool {
+func attributesMapper(attrs *kms.KeyAttributes) map[string]bool {
 	var attributes = make(map[string]bool)
-	attributes["decrypt"] = keyAttributes.CanDecrypt
-	attributes["sign"] = keyAttributes.CanSign
-	attributes["unwrap"] = keyAttributes.CanUnwrap
-	attributes["verify"] = keyAttributes.CanVerify
-	attributes["wrap"] = keyAttributes.CanWrap
-	attributes["derive"] = keyAttributes.CanDerive
-	attributes["encrypt"] = keyAttributes.CanEncrypt
-	attributes["sensitive"] = keyAttributes.IsSensitive
-	attributes["extractable"] = keyAttributes.IsExportable
-	attributes["destroyable"] = keyAttributes.IsRemovable
+	attributes["decrypt"] = attrs.CanDecrypt
+	attributes["sign"] = attrs.CanSign
+	attributes["unwrap"] = attrs.CanUnwrap
+	attributes["verify"] = attrs.CanVerify
+	attributes["wrap"] = attrs.CanWrap
+	attributes["derive"] = attrs.CanDerive
+	attributes["encrypt"] = attrs.CanEncrypt
+	attributes["sensitive"] = attrs.IsSensitive
+	attributes["extractable"] = attrs.IsExportable
+	attributes["destroyable"] = attrs.IsRemovable
 	return attributes
 }
 func PolicyToMap(policy *helpers.Policy) (map[string]interface{}, error) {

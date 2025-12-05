@@ -14,8 +14,14 @@ import (
 // Ensure KeyStore implements KeyStore
 var _ kms.Verifier = (*verifier)(nil)
 
+// Ensure KeyStoreFactory implements KeyStoreFactory
+var _ kms.RemoteDigestVerifierFactory = (*MessageVerifierFactory)(nil)
+
+type MessageVerifierFactory struct {
+}
+
 type verifier struct {
-	key            *PrivateKey
+	key            *PublicKey
 	verifierParams *kms.VerifierParameters
 	buffer         []byte
 	digest         bool
@@ -77,19 +83,13 @@ func (s *verifier) DigestProvided(ctx context.Context) (err error) {
 	return nil
 }
 
-// Ensure KeyStoreFactory implements KeyStoreFactory
-var _ kms.VerifierFactory = (*VerifierFactory)(nil)
-
-type VerifierFactory struct {
-}
-
-func (s VerifierFactory) DigestVerify(ctx context.Context, verifierParams *kms.VerifierParameters, digest []byte) error {
+func (s MessageVerifierFactory) DigestVerify(ctx context.Context, verifierParams *kms.VerifierParameters, digest []byte) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
 	}
-	newSigner, err := s.NewVerifier(ctx, verifierParams)
+	newSigner, err := s.NewRemoteDigestVerifier(ctx, verifierParams)
 	if err != nil {
 		return err
 	}
@@ -106,13 +106,15 @@ func (s VerifierFactory) DigestVerify(ctx context.Context, verifierParams *kms.V
 	return nil
 }
 
-func (s VerifierFactory) NewVerifier(ctx context.Context, verifierParams *kms.VerifierParameters) (kms.Verifier, error) {
-	privateKey := PrivateKeyFromContext(ctx)
-	if privateKey.GetType() != kms.KeyType_RSA_Private && privateKey.GetType() != kms.KeyType_EC_Private && privateKey.GetType() != kms.KeyType_ED_Private {
-		return nil, errors.New("invalid key type. Only RSA, EC or ED keys are supported")
+func (s MessageVerifierFactory) NewRemoteDigestVerifier(ctx context.Context, verifierParams *kms.VerifierParameters) (kms.Verifier, error) {
+	publicKey := PublicKeyFromContext(ctx)
+	/* FIXME: Enable key type check once PublicKey is implemented
+	if publicKey.GetType() != kms.KeyType_RSA_Public && publicKey.GetType() != kms.KeyType_EC_Public && publicKey.GetType() != kms.KeyType_ED_Public {
+		return nil, errors.New("invalid key type. Only RSA, EC or ED public keys are supported")
 	}
+	*/
 	return &verifier{
-		key:            privateKey,
+		key:            publicKey,
 		verifierParams: verifierParams,
 		digest:         false,
 	}, nil

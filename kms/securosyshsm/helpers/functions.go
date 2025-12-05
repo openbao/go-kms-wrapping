@@ -364,9 +364,9 @@ func MapSignAlgorithm(alg kms.SignAlgorithm, digest bool) (string, error) {
 		case kms.SignAlgo_RSA_PKCS1_PSS_SHA_256:
 			return "NONE_WITH_RSA", nil
 		case kms.SignAlgo_RSA_PKCS1_PSS_SHA_384:
-			return "NONE_WITH_RSA", nil
+			return "NONE_WITH_RSA_PSS", nil
 		case kms.SignAlgo_RSA_PKCS1_PSS_SHA_512:
-			return "NONE_WITH_RSA", nil
+			return "NONE_WITH_RSA_PSS", nil
 		case kms.SignAlgo_EC_P256:
 			return "NONE_WITH_ECDSA", nil
 		case kms.SignAlgo_EC_P384:
@@ -380,11 +380,11 @@ func MapSignAlgorithm(alg kms.SignAlgorithm, digest bool) (string, error) {
 	} else {
 		switch alg {
 		case kms.SignAlgo_RSA_PKCS1_PSS_SHA_256:
-			return "SHA256_WITH_RSA", nil
+			return "SHA256_WITH_RSA_PSS", nil
 		case kms.SignAlgo_RSA_PKCS1_PSS_SHA_384:
-			return "SHA384_WITH_RSA", nil
+			return "SHA384_WITH_RSA_PSS", nil
 		case kms.SignAlgo_RSA_PKCS1_PSS_SHA_512:
-			return "SHA512_WITH_RSA", nil
+			return "SHA512_WITH_RSA_PSS", nil
 		case kms.SignAlgo_EC_P256:
 			return "SHA256_WITH_ECDSA", nil
 		case kms.SignAlgo_EC_P384:
@@ -436,7 +436,7 @@ func MapSignAlgorithm(alg kms.SignAlgorithm, digest bool) (string, error) {
 }
 func MapCipherAlgorithm(alg kms.CipherAlgorithmMode) (string, error) {
 	switch alg {
-	case kms.CipherMode_AES_GCM:
+	case kms.CipherMode_AES_GCM96:
 		return "AES_GCM", nil
 	//case kms.Cipher_AES_CBC:
 	//	return "AES_CBC_NO_PADDING", nil
