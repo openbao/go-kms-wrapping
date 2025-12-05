@@ -15,7 +15,6 @@ seal "securosys-hsm" {
   key_label = "replace_with_key_label"
   tsb_api_endpoint = "replace_with_tsb_api"
   auth = "NONE"
-  key_password = ""
   check_every = 5
   approval_timeout = 3000
   policy = <<EOF

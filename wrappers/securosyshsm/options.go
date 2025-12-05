@@ -46,8 +46,8 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 			switch k {
 			case "key_label":
 				opts.withKeyLabel = v
-			case "key_password":
-				opts.withKeyPassword = v
+			// case "key_password":
+			// 	opts.withKeyPassword = v
 			case "approval_timeout":
 				opts.withApprovalTimeout = v
 			case "auth":
@@ -83,13 +83,13 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 			}
 		}
 
-		// Now run the local options functions. This may overwrite options set by
-		// the options above.
-		for _, o := range localOptions {
-			if o != nil {
-				if err := o(&opts); err != nil {
-					return nil, err
-				}
+	}
+	// Now run the local options functions. This may overwrite options set by
+	// the options above.
+	for _, o := range localOptions {
+		if o != nil {
+			if err := o(&opts); err != nil {
+				return nil, err
 			}
 		}
 	}
@@ -104,8 +104,8 @@ type OptionFunc func(*options) error
 type options struct {
 	*wrapping.Options
 
-	withKeyLabel        string
-	withKeyPassword     string
+	withKeyLabel string
+	// withKeyPassword     string
 	withApprovalTimeout string
 	withAuth            string
 	withBearerToken     string
@@ -150,15 +150,15 @@ func WithKeyLabel(with string) wrapping.Option {
 	}
 }
 
-// WithKeyName provides a way to choose the key name
-func WithPassword(with string) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withKeyPassword = with
-			return nil
-		})
-	}
-}
+// // WithKeyName provides a way to choose the key name
+// func WithPassword(with string) wrapping.Option {
+// 	return func() interface{} {
+// 		return OptionFunc(func(o *options) error {
+// 			o.withKeyPassword = with
+// 			return nil
+// 		})
+// 	}
+// }
 
 func WithPolicy(with string) wrapping.Option {
 	return func() interface{} {
@@ -205,7 +205,7 @@ func WithPolicyRuleBlock(with string) wrapping.Option {
 	}
 }
 
-func withPolicyRuleUnBlock(with string) wrapping.Option {
+func WithPolicyRuleUnBlock(with string) wrapping.Option {
 	return func() interface{} {
 		return OptionFunc(func(o *options) error {
 			o.withPolicyRuleUnBlock = with
@@ -214,7 +214,7 @@ func withPolicyRuleUnBlock(with string) wrapping.Option {
 	}
 }
 
-func withPolicyRuleModify(with string) wrapping.Option {
+func WithPolicyRuleModify(with string) wrapping.Option {
 	return func() interface{} {
 		return OptionFunc(func(o *options) error {
 			o.withPolicyRuleModify = with

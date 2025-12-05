@@ -8,7 +8,7 @@ import (
 	"os"
 
 	"github.com/hashicorp/go-hclog"
-	securosyskms "github.com/openbao/go-kms-wrapping/keystores/securosyshsm/v2"
+	securosyskms "github.com/openbao/go-kms-wrapping/v2/kms"
 )
 
 const (

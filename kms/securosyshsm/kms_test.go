@@ -4,31 +4,356 @@ package securosyshsm
 
 import (
 	"context"
-	"errors"
-	"fmt"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"math/big"
+	mathrand "math/rand"
+	"os"
 	"testing"
+	"time"
 
 	"github.com/openbao/go-kms-wrapping/v2/kms"
-	"github.com/stretchr/testify/assert"
 )
 
-var provider = map[string]interface{}{
-	"restapi": "TSB_URL",
-	"auth":    "NONE",
+// KMS configuration environment variables
+var SECUROSYS_HSM_RESTAPI_ENV_VAR = "SECUROSYS_HSM_RESTAPI"
+var SECUROSYS_BEARER_TOKEN_ENV_VAR = "SECUROSYS_BEARER_TOKEN"
+
+// Test keys names
+var AES_KEY_NAME = "openbao_test_aes_key"
+var RSA_KEY_NAME = "openbao_test_rsa_key"
+var EC_KEY_NAME = "openbao_test_ec_key"
+var ED_KEY_NAME = "openbao_test_ed_key"
+
+func TestKeystore(t *testing.T) {
+
+	ctx := t.Context()
+
+	kmsConfig := getKmsConfigFromEnvVars(t)
+	keystore, err := NewKeyStore(kmsConfig)
+	if err != nil || keystore == nil {
+		t.Fatal("Failed to initialize Securosys HSM keystore")
+	}
+	defer keystore.Close(ctx)
+
+	key, err := generateTestKeyAES(ctx, keystore, AES_KEY_NAME, true)
+	if err != nil || key == nil {
+		t.Fatal("Failed to generate AES key")
+	}
+
+	if key.GetName() != AES_KEY_NAME {
+		t.Fatalf("Key label is not correct. Want %s got %s", AES_KEY_NAME, key.GetName())
+	}
+
+	if key.GetType() != kms.KeyType_AES {
+		t.Fatalf("Key type is not correct. Want %d got %d", kms.KeyType_AES, key.GetType())
+	}
+	if key.GetLength() != 256 {
+		t.Fatalf("Key size is not correct. Want %d got %d", 256, key.GetLength())
+	}
+
+	var rsaKey *PrivateKey = nil
+	rsaKey, _, err = generateTestKeyRSA(ctx, keystore, RSA_KEY_NAME)
+	if err != nil || rsaKey == nil {
+		t.Fatal("Failed to generate RSA key")
+	}
+
+	if rsaKey.GetName() != RSA_KEY_NAME {
+		t.Fatalf("Key label is not correct. Want %s got %s", RSA_KEY_NAME, key.GetName())
+	}
+
+	if rsaKey.GetType() != kms.KeyType_RSA_Private {
+		t.Fatalf("Key type is not correct. Want %d got %d", kms.KeyType_RSA_Private, key.GetType())
+	}
+
+	if rsaKey.GetLength() != 2048 {
+		t.Fatalf("Key size is not correct. Want %d got %d", 2048, key.GetLength())
+	}
+
+	keys, err := keystore.ListKeys(ctx)
+	if err != nil || keys == nil {
+		t.Fatal("ListKeys failed")
+	}
+	if len(keys) <= 2 {
+		t.Fatalf("Incorrect ListKeys result. Expected at least 2 keys,  got %d", len(keys))
+	}
+
+	err = keystore.RemoveKey(ctx, key)
+	if err != nil {
+		t.Fatal("RemoveKey failed")
+	}
+
+	err = keystore.RemoveKey(ctx, rsaKey)
+	if err != nil {
+		t.Fatal("RemoveKey failed")
+	}
+
 }
 
-var AES_KEY_NAME = "aes_tee_key"
-var RSA_KEY_NAME = "output_key_tee"
+func TestCipher(t *testing.T) {
 
-func GenerateTestKeyAES(ctx context.Context, keystore kms.KeyStore) (*SecretKey, error) {
+	plaintext := "the quick brown fox jumps over the lazy dog"
+	ctx := t.Context()
 
-	key, err := keystore.GetKeyByName(ctx, "OPENBAO_AES_TEST_KEY")
+	kmsConfig := getKmsConfigFromEnvVars(t)
+	keystore, err := NewKeyStore(kmsConfig)
+	if err != nil || keystore == nil {
+		t.Fatal("Failed to initialize Securosys HSM keystore")
+	}
+	defer keystore.Close(ctx)
+
+	key, err := generateTestKeyAES(ctx, keystore, AES_KEY_NAME, true)
+	if err != nil || key == nil {
+		t.Fatal("Failed to generate AES key")
+	}
+
+	aesGcmCipher(t, key, plaintext, "")
+	aesGcmCipher(t, key, plaintext, "test_aad")
+
+	err = removeKey(ctx, key, keystore)
+	if err != nil {
+		t.Fatal("Failed to remove key")
+	}
+
+	// RSA cipher tests
+	privateKey, publicKey, err := generateTestKeyRSA(ctx, keystore, RSA_KEY_NAME)
+	if err != nil || privateKey == nil || publicKey == nil {
+		t.Fatal("Failed to generate RSA key pair")
+	}
+
+	asymCipher(t, kms.CipherMode_RSA_OAEP_SHA256, privateKey, publicKey, plaintext)
+	asymCipher(t, kms.CipherMode_RSA_OAEP_SHA384, privateKey, publicKey, plaintext)
+	asymCipher(t, kms.CipherMode_RSA_OAEP_SHA512, privateKey, publicKey, plaintext)
+
+	err = removeKey(ctx, privateKey, keystore)
+	if err != nil {
+		t.Fatal("Failed to remove key")
+	}
+}
+
+func TestSignVerify(t *testing.T) {
+
+	message := "the quick brown fox jumps over the lazy dog"
+	ctx := t.Context()
+
+	kmsConfig := getKmsConfigFromEnvVars(t)
+	keystore, err := NewKeyStore(kmsConfig)
+	if err != nil || keystore == nil {
+		t.Fatal("Failed to initialize Securosys HSM keystore")
+	}
+	defer keystore.Close(ctx)
+
+	// RSA sign/verify tests
+	privateKey, publicKey, err := generateTestKeyRSA(ctx, keystore, RSA_KEY_NAME)
+	if err != nil || privateKey == nil || publicKey == nil {
+		t.Fatal("Failed to generate RSA key pair")
+	}
+
+	signVerify(t, kms.SignAlgo_RSA_PKCS1_PSS_SHA_256, privateKey, publicKey, message)
+	signVerify(t, kms.SignAlgo_RSA_PKCS1_PSS_SHA_384, privateKey, publicKey, message)
+	signVerify(t, kms.SignAlgo_RSA_PKCS1_PSS_SHA_512, privateKey, publicKey, message)
+
+	err = removeKey(ctx, privateKey, keystore)
+	if err != nil {
+		t.Fatal("Failed to remove key")
+	}
+
+	// EC sign/verify tests
+	privateKey, publicKey, err = generateTestKeyEC(ctx, kms.Curve_P256, keystore, EC_KEY_NAME)
+	if err != nil || privateKey == nil || publicKey == nil {
+		t.Fatal("Failed to generate EC key pair")
+	}
+
+	signVerify(t, kms.SignAlgo_EC_P256, privateKey, publicKey, message)
+
+	err = removeKey(ctx, privateKey, keystore)
+	if err != nil {
+		t.Fatal("Failed to remove key")
+	}
+
+	privateKey, publicKey, err = generateTestKeyEC(ctx, kms.Curve_P384, keystore, EC_KEY_NAME)
+	if err != nil || privateKey == nil || publicKey == nil {
+		t.Fatal("Failed to generate EC key pair")
+	}
+
+	signVerify(t, kms.SignAlgo_EC_P384, privateKey, publicKey, message)
+
+	err = removeKey(ctx, privateKey, keystore)
+	if err != nil {
+		t.Fatal("Failed to remove key")
+	}
+
+	privateKey, publicKey, err = generateTestKeyEC(ctx, kms.Curve_P521, keystore, EC_KEY_NAME)
+	if err != nil || privateKey == nil || publicKey == nil {
+		t.Fatal("Failed to generate EC key pair")
+	}
+
+	signVerify(t, kms.SignAlgo_EC_P521, privateKey, publicKey, message)
+
+	err = removeKey(ctx, privateKey, keystore)
+	if err != nil {
+		t.Fatal("Failed to remove key")
+	}
+
+	// ED sign/verify tests
+	privateKey, publicKey, err = generateTestKeyED(ctx, keystore, ED_KEY_NAME)
+	if err != nil || privateKey == nil || publicKey == nil {
+		t.Fatal("Failed to generate ED key pair")
+	}
+
+	signVerify(t, kms.SignAlgo_ED, privateKey, publicKey, message)
+
+	err = removeKey(ctx, privateKey, keystore)
+	if err != nil {
+		t.Fatal("Failed to remove key")
+	}
+
+}
+
+func TestSign_x509Certificate(t *testing.T) {
+
+	sk := kms.Certx509SigningKey{}
+	ctx := t.Context()
+
+	kmsConfig := getKmsConfigFromEnvVars(t)
+	keystore, err := NewKeyStore(kmsConfig)
+	if err != nil || keystore == nil {
+		t.Fatal("Failed to initialize Securosys HSM keystore")
+	}
+	defer keystore.Close(ctx)
+
+	caCertTemplate := &x509.Certificate{
+		Subject: pkix.Name{
+			CommonName: "root.localhost",
+		},
+		SubjectKeyId:          []byte{0x01, 0x02, 0x03, 0x04, 0x05},
+		DNSNames:              []string{"root.localhost"},
+		KeyUsage:              x509.KeyUsage(x509.KeyUsageCertSign | x509.KeyUsageCRLSign),
+		SerialNumber:          big.NewInt(mathrand.Int63()),
+		NotAfter:              time.Now().Add(262980 * time.Hour),
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+
+	// Issue certificate with signature using ED key
+	privateKey, publicKey, err := generateTestKeyED(ctx, keystore, ED_KEY_NAME)
+	if err != nil || privateKey == nil || publicKey == nil {
+		t.Fatal("Failed to generate ED key pair")
+	}
+
+	sk.SignPrivateKey = privateKey
+
+	cert, err := x509.CreateCertificate(rand.Reader, caCertTemplate, caCertTemplate, sk.Public(), &sk)
+	if err != nil || cert == nil {
+		t.Fatal("Failed to sign X509 certficate using KMS signer")
+	}
+
+	err = removeKey(ctx, privateKey, keystore)
+	if err != nil {
+		t.Fatal("Failed to remove key")
+	}
+
+	// Issue certificate with signature using EC key
+	privateKey, publicKey, err = generateTestKeyEC(ctx, kms.Curve_P256, keystore, EC_KEY_NAME)
+	if err != nil || privateKey == nil || publicKey == nil {
+		t.Fatal("Failed to generate EC key pair")
+	}
+
+	sk.SignPrivateKey = privateKey
+
+	cert, err = x509.CreateCertificate(rand.Reader, caCertTemplate, caCertTemplate, sk.Public(), &sk)
+	if err != nil || cert == nil {
+		t.Fatal("Failed to sign X509 certficate using KMS signer")
+	}
+
+	err = removeKey(ctx, privateKey, keystore)
+	if err != nil {
+		t.Fatal("Failed to remove key")
+	}
+
+	/* Disabled EC P384 and P521 tests for now
+
+	privateKey, publicKey, err = generateTestKeyEC(ctx, kms.Curve_P384, keystore, EC_KEY_NAME)
+	if err != nil || privateKey == nil || publicKey == nil {
+		t.Fatal("Failed to generate EC key pair")
+	}
+
+	sk.SignPrivateKey = privateKey
+
+	cert, err = x509.CreateCertificate(rand.Reader, caCertTemplate, caCertTemplate, sk.Public(), &sk)
+	if err != nil || cert == nil {
+		t.Fatal("Failed to sign X509 certficate using KMS signer")
+	}
+
+	err = removeKey(ctx, privateKey, keystore)
+	if err != nil {
+		t.Fatal("Failed to remove key")
+	}
+
+	privateKey, publicKey, err = generateTestKeyEC(ctx, kms.Curve_P521, keystore, EC_KEY_NAME)
+	if err != nil || privateKey == nil || publicKey == nil {
+		t.Fatal("Failed to generate EC key pair")
+	}
+
+	sk.SignPrivateKey = privateKey
+
+	cert, err = x509.CreateCertificate(rand.Reader, caCertTemplate, caCertTemplate, sk.Public(), &sk)
+	if err != nil || cert == nil {
+		t.Fatal("Failed to sign X509 certficate using KMS signer")
+	}
+
+	err = removeKey(ctx, privateKey, keystore)
+	if err != nil {
+		t.Fatal("Failed to remove key")
+	}
+	*/
+
+	// Issue certificate with signature using RSA key
+	privateKey, publicKey, err = generateTestKeyRSA(ctx, keystore, RSA_KEY_NAME)
+	if err != nil || privateKey == nil || publicKey == nil {
+		t.Fatal("Failed to generate RSA key pair")
+	}
+
+	sk.SignPrivateKey = privateKey
+	caCertTemplate.SignatureAlgorithm = x509.SHA256WithRSAPSS
+	cert, err = x509.CreateCertificate(rand.Reader, caCertTemplate, caCertTemplate, sk.Public(), &sk)
+	if err != nil || cert == nil {
+		t.Fatal("Failed to sign X509 certficate using KMS signer")
+	}
+
+	caCertTemplate.SignatureAlgorithm = x509.SHA384WithRSAPSS
+	cert, err = x509.CreateCertificate(rand.Reader, caCertTemplate, caCertTemplate, sk.Public(), &sk)
+	if err != nil || cert == nil {
+		t.Fatal("Failed to sign X509 certficate using KMS signer")
+	}
+
+	caCertTemplate.SignatureAlgorithm = x509.SHA512WithRSAPSS
+	cert, err = x509.CreateCertificate(rand.Reader, caCertTemplate, caCertTemplate, sk.Public(), &sk)
+	if err != nil || cert == nil {
+		t.Fatal("Failed to sign X509 certficate using KMS signer")
+	}
+
+	err = removeKey(ctx, privateKey, keystore)
+	if err != nil {
+		t.Fatal("Failed to remove key")
+	}
+
+}
+
+func generateTestKeyAES(ctx context.Context, keystore kms.KeyStore, keyName string, forceNewKey bool) (*SecretKey, error) {
+
+	key, err := keystore.GetKeyByName(ctx, keyName)
 	if key != nil {
-		return key.(*SecretKey), nil
+		if forceNewKey {
+			err = keystore.RemoveKey(ctx, key)
+		} else {
+			return key.(*SecretKey), nil
+		}
 	}
 	key, err = keystore.GenerateSecretKey(ctx, &kms.KeyAttributes{
 		KeyType:     kms.KeyType_AES,
-		Name:        "OPENBAO_AES_TEST_KEY",
+		Name:        keyName,
 		BitKeyLen:   256,
 		IsRemovable: true,
 		CanDecrypt:  true,
@@ -36,14 +361,15 @@ func GenerateTestKeyAES(ctx context.Context, keystore kms.KeyStore) (*SecretKey,
 	})
 	return key.(*SecretKey), err
 }
-func GenerateTestKeyRSA(ctx context.Context, keystore kms.KeyStore) (*PrivateKey, error) {
-	key, err := keystore.GetKeyByName(ctx, "OPENBAO_RSA_TEST_KEY")
+func generateTestKeyRSA(ctx context.Context, keystore kms.KeyStore, keyName string) (*PrivateKey, *PublicKey, error) {
+	key, err := keystore.GetKeyByName(ctx, keyName)
 	if key != nil {
-		return key.(*PrivateKey), nil
+		err = keystore.RemoveKey(ctx, key)
 	}
-	privateKey, _, err := keystore.GenerateKeyPair(ctx, &kms.KeyAttributes{
+
+	privateKey, publicKey, err := keystore.GenerateKeyPair(ctx, &kms.KeyAttributes{
 		KeyType:     kms.KeyType_RSA_Private,
-		Name:        "OPENBAO_RSA_TEST_KEY",
+		Name:        keyName,
 		BitKeyLen:   2048,
 		IsRemovable: true,
 		CanDecrypt:  true,
@@ -51,33 +377,35 @@ func GenerateTestKeyRSA(ctx context.Context, keystore kms.KeyStore) (*PrivateKey
 		CanSign:     true,
 		CanVerify:   true,
 	})
-	return privateKey.(*PrivateKey), err
+	return privateKey.(*PrivateKey), publicKey.(*PublicKey), err
 }
-func GenerateTestKeyEC(ctx context.Context, curve kms.Curve, keystore kms.KeyStore) (*PrivateKey, error) {
-	key, err := keystore.GetKeyByName(ctx, "OPENBAO_EC_TEST_KEY")
+func generateTestKeyEC(ctx context.Context, curve kms.Curve, keystore kms.KeyStore, keyName string) (*PrivateKey, *PublicKey, error) {
+	key, err := keystore.GetKeyByName(ctx, keyName)
 	if key != nil {
-		return key.(*PrivateKey), nil
+		err = keystore.RemoveKey(ctx, key)
 	}
-	privateKey, _, err := keystore.GenerateKeyPair(ctx, &kms.KeyAttributes{
+
+	privateKey, publicKey, err := keystore.GenerateKeyPair(ctx, &kms.KeyAttributes{
 		KeyType:     kms.KeyType_EC_Private,
-		Name:        "OPENBAO_EC_TEST_KEY",
-		Curve:       kms.Curve_P256,
+		Name:        keyName,
+		Curve:       curve,
 		IsRemovable: true,
 		CanDecrypt:  true,
 		CanEncrypt:  true,
 		CanSign:     true,
 		CanVerify:   true,
 	})
-	return privateKey.(*PrivateKey), err
+	return privateKey.(*PrivateKey), publicKey.(*PublicKey), err
 }
-func GenerateTestKeyED(ctx context.Context, keystore kms.KeyStore) (*PrivateKey, error) {
-	key, err := keystore.GetKeyByName(ctx, "OPENBAO_ED_TEST_KEY")
+func generateTestKeyED(ctx context.Context, keystore kms.KeyStore, keyName string) (*PrivateKey, *PublicKey, error) {
+	key, err := keystore.GetKeyByName(ctx, keyName)
 	if key != nil {
-		return key.(*PrivateKey), nil
+		err = keystore.RemoveKey(ctx, key)
 	}
-	privateKey, _, err := keystore.GenerateKeyPair(ctx, &kms.KeyAttributes{
+
+	privateKey, publicKey, err := keystore.GenerateKeyPair(ctx, &kms.KeyAttributes{
 		KeyType:     kms.KeyType_ED_Private,
-		Name:        "OPENBAO_ED_TEST_KEY",
+		Name:        keyName,
 		Curve:       kms.Curve_None,
 		IsRemovable: true,
 		CanDecrypt:  true,
@@ -85,1055 +413,272 @@ func GenerateTestKeyED(ctx context.Context, keystore kms.KeyStore) (*PrivateKey,
 		CanSign:     true,
 		CanVerify:   true,
 	})
-	return privateKey.(*PrivateKey), err
+	return privateKey.(*PrivateKey), publicKey.(*PublicKey), err
 }
-func RemoveKey(ctx context.Context, key kms.Key, keystore kms.KeyStore) error {
+func removeKey(ctx context.Context, key kms.Key, keystore kms.KeyStore) error {
 	err := keystore.RemoveKey(ctx, key)
 	return err
 }
 
-func TestKMS(t *testing.T) {
-	t.Run("Keystore: Init", func(t *testing.T) {
-		_, err := NewKeyStore(provider)
-		assert.NoError(t, err)
+func aesGcmCipher(t *testing.T, key *SecretKey, plaintext, aad string) {
 
+	algo := kms.CipherMode_AES_GCM96
+	tagLength := 16
+
+	ctx := t.Context()
+
+	// Single-part encrypt
+	algoParams := kms.AESGCMCipherParameters{
+		Nonce: nil,
+		AAD:   []byte(aad),
+	}
+	cipherEncrypt, err := (*key).NewCipher(ctx, kms.CipherOp_Encrypt, &kms.CipherParameters{
+		Algorithm:  algo,
+		Parameters: &algoParams,
 	})
-	t.Run("Keystore: GenerateSecretKey", func(t *testing.T) {
-		keystore, err := NewKeyStore(provider)
-		assert.NoError(t, err)
-		key, err := keystore.GenerateSecretKey(t.Context(), &kms.KeyAttributes{
-			KeyType:     kms.KeyType_AES,
-			Name:        "AES_KEY_OPENBAO_TEST_CREATE_KEY",
-			BitKeyLen:   256,
-			IsRemovable: true,
-		})
-		assert.NoError(t, err)
+	if err != nil || cipherEncrypt == nil {
+		t.Fatalf("Failed to initialize Cipher for algorithm %d", algo)
+	}
 
-		if key.GetName() != "AES_KEY_OPENBAO_TEST_CREATE_KEY" {
-			assert.NoError(t, errors.New(fmt.Sprintf("Key label is not correct. Want %s got %s", "AES_KEY_OPENBAO_TEST", key.GetName())))
-		}
+	ciphertext, err := cipherEncrypt.Close(ctx, []byte(plaintext))
+	if err != nil || ciphertext == nil {
+		t.Fatalf("Failed to encrypt data for algorithm %d", algo)
+	}
 
+	// Single-part decrypt (use IV/Nonce generated by the encryption cipher)
+	algoParams = kms.AESGCMCipherParameters{
+		Nonce: cipherEncrypt.(*Cipher).cipherParams.Parameters.(*kms.AESGCMCipherParameters).Nonce,
+		AAD:   []byte(aad),
+	}
+	decryptCipher, err := (*key).NewCipher(ctx, kms.CipherOp_Decrypt, &kms.CipherParameters{
+		Algorithm:  algo,
+		Parameters: &algoParams,
 	})
-	t.Run("Keystore: RemoveKey", func(t *testing.T) {
-		ctx := t.Context()
-		keystore, err := NewKeyStore(provider)
-		assert.NoError(t, err)
-		key, err := keystore.GetKeyByName(ctx, "AES_KEY_OPENBAO_TEST_CREATE_KEY")
-		assert.NoError(t, err)
-		err = keystore.RemoveKey(ctx, key)
-		assert.NoError(t, err)
+	if err != nil || decryptCipher == nil {
+		t.Fatalf("Failed to initialize Cipher for algorithm %d", algo)
+	}
 
+	decryptedPayload, err := decryptCipher.Close(ctx, ciphertext)
+	if err != nil || decryptedPayload == nil {
+		t.Fatalf("Failed to decrypt data for algorithm %d", algo)
+	}
+
+	if string(decryptedPayload) != plaintext {
+		t.Fatalf("Decrypted payload mismatch. Want %s got %s", plaintext, string(decryptedPayload))
+	}
+
+	// Test MAC verification failure with wrong AAD/ciphertext
+
+	algoParams = kms.AESGCMCipherParameters{
+		Nonce: cipherEncrypt.(*Cipher).cipherParams.Parameters.(*kms.AESGCMCipherParameters).Nonce,
+		AAD:   []byte("dummy_aad"),
+	}
+
+	decryptCipher, err = (*key).NewCipher(ctx, kms.CipherOp_Decrypt, &kms.CipherParameters{
+		Algorithm:  algo,
+		Parameters: &algoParams,
 	})
-	t.Run("Keystore: ListKeys", func(t *testing.T) {
-		ctx := t.Context()
-		keystore, err := NewKeyStore(provider)
-		assert.NoError(t, err)
-		keys, err := keystore.ListKeys(ctx)
+	if err != nil || decryptCipher == nil {
+		t.Fatalf("Failed to initialize Cipher for algorithm %d", algo)
+	}
+
+	_, err = decryptCipher.Close(ctx, ciphertext)
+	if err == nil {
+		t.Fatalf("Failed to detect corrupted AAD for algorithm %d", algo)
+	}
+
+	algoParams = kms.AESGCMCipherParameters{
+		Nonce: cipherEncrypt.(*Cipher).cipherParams.Parameters.(*kms.AESGCMCipherParameters).Nonce,
+		AAD:   []byte(aad),
+	}
+	decryptCipher, err = (*key).NewCipher(ctx, kms.CipherOp_Decrypt, &kms.CipherParameters{
+		Algorithm:  algo,
+		Parameters: &algoParams,
+	})
+	if err != nil || decryptCipher == nil {
+		t.Fatalf("Failed to initialize Cipher for algorithm %d", algo)
+	}
+
+	ciphertext[0] = ciphertext[0] + 1 // Corrupt ciphertext
+	_, err = decryptCipher.Close(ctx, ciphertext)
+	if err == nil {
+		t.Fatalf("Failed to detect corrupted ciphertext for algorithm %d", algo)
+	}
+
+	// Multi-part encrypt
+	cipherEncrypt, err = (*key).NewCipher(ctx, kms.CipherOp_Encrypt, &kms.CipherParameters{
+		Algorithm: algo,
+	})
+	if err != nil || cipherEncrypt == nil {
+		t.Fatalf("Failed to initialize Cipher for algorithm %d", algo)
+	}
+
+	ciphertext = []byte{}
+	i := 0
+	for ; i < len(plaintext)-1; i++ {
+		chunk, err := cipherEncrypt.Update(ctx, []byte(plaintext[i:i+1]))
 		if err != nil {
-			assert.NoError(t, err)
+			t.Fatalf("Cipher encrypt update failed for algorithm %d", algo)
 		}
-		if len(keys) == 0 {
-			assert.NoError(t, errors.New("no keys found"))
+		if chunk != nil {
+			ciphertext = append(ciphertext, chunk...)
 		}
+	}
+
+	chunk, err := cipherEncrypt.Close(ctx, []byte(plaintext[i:i+1]))
+	if err != nil {
+		t.Fatalf("Cipher encrypt update failed for algorithm %d", algo)
+	}
+	if chunk != nil {
+		ciphertext = append(ciphertext, chunk...)
+	}
+
+	// Multi-part decrypt (use IV/Nonce generated by the encryption cipher)
+	algoParams = kms.AESGCMCipherParameters{
+		Nonce: cipherEncrypt.(*Cipher).cipherParams.Parameters.(*kms.AESGCMCipherParameters).Nonce,
+		AAD:   nil,
+	}
+	decryptCipher, err = (*key).NewCipher(ctx, kms.CipherOp_Decrypt, &kms.CipherParameters{
+		Algorithm:  algo,
+		Parameters: &algoParams,
 	})
-	t.Run("Keystore: GetKeyByName", func(t *testing.T) {
-		ctx := t.Context()
-		keystore, err := NewKeyStore(provider)
-		assert.NoError(t, err)
-		key, err := keystore.GetKeyByName(ctx, AES_KEY_NAME)
+	if err != nil || decryptCipher == nil {
+		t.Fatalf("Failed to initialize Cipher for algorithm %d", algo)
+	}
+
+	decryptedPayload = []byte{}
+	i = 0
+	for ; i < len(ciphertext)-tagLength-1; i++ {
+		chunk, err := decryptCipher.Update(ctx, ciphertext[i:i+1])
 		if err != nil {
-			assert.NoError(t, err)
+			t.Fatalf("Cipher encrypt update failed for algorithm %d", algo)
 		}
-		if key.GetName() != AES_KEY_NAME {
-			assert.NoError(t, errors.New(fmt.Sprintf("Key label is not correct. Want %s got %s", AES_KEY_NAME, key.GetName())))
+		if chunk != nil {
+			decryptedPayload = append(decryptedPayload, chunk...)
 		}
-		if key.GetType() != kms.KeyType_AES {
-			assert.NoError(t, errors.New(fmt.Sprintf("Key type is not correct. Want %d got %d", kms.KeyType_AES, key.GetType())))
-		}
-		if key.GetLength() != 256 {
-			assert.NoError(t, errors.New(fmt.Sprintf("Key size is not correct. Want %d got %d", 256, key.GetLength())))
-		}
+	}
+
+	// The last chunk includes the tag
+	chunk, err = decryptCipher.Close(ctx, []byte(ciphertext[i:i+tagLength+1]))
+	if err != nil {
+		t.Fatalf("Cipher encrypt update failed for algorithm %d", algo)
+	}
+	if chunk != nil {
+		decryptedPayload = append(decryptedPayload, chunk...)
+	}
+
+	test := string(decryptedPayload)
+	if test != plaintext {
+		t.Fatalf("Decrypted payload mismatch. Want %s got %s", plaintext, string(decryptedPayload))
+	}
+}
+
+func asymCipher(t *testing.T, algo kms.CipherAlgorithmMode, privateKey *PrivateKey, publicKey *PublicKey, plaintext string) {
+
+	ctx := t.Context()
+
+	// Single-part encrypt with public key
+	cipherEncrypt, err := (*publicKey).NewCipher(ctx, kms.CipherOp_Encrypt, &kms.CipherParameters{
+		Algorithm: algo,
 	})
-	t.Run("Keystore: GetKeyById", func(t *testing.T) {
-		ctx := t.Context()
-		keystore, err := NewKeyStore(provider)
-		assert.NoError(t, err)
-		key, err := keystore.GetKeyById(ctx, RSA_KEY_NAME)
-		if err != nil {
-			assert.NoError(t, err)
-		}
-		if key.GetName() != RSA_KEY_NAME {
-			assert.NoError(t, errors.New(fmt.Sprintf("Key label is not correct. Want %s got %s", RSA_KEY_NAME, key.GetName())))
-		}
-		if key.GetType() != kms.KeyType_RSA_Private {
-			assert.NoError(t, errors.New(fmt.Sprintf("Key type is not correct. Want %d got %d", kms.KeyType_RSA_Private, key.GetType())))
-		}
-		if key.GetLength() != 2048 {
-			assert.NoError(t, errors.New(fmt.Sprintf("Key size is not correct. Want %d got %d", 2048, key.GetLength())))
-		}
+	if err != nil || cipherEncrypt == nil {
+		t.Fatalf("Failed to initialize Cipher for algorithm %d", algo)
+	}
+
+	ciphertext, err := cipherEncrypt.Close(ctx, []byte(plaintext))
+	if err != nil || ciphertext == nil {
+		t.Fatalf("Failed to encrypt data for algorithm %d", algo)
+	}
+
+	// Single-part decrypt with private key
+	decryptCipher, err := (*privateKey).NewCipher(ctx, kms.CipherOp_Decrypt, &kms.CipherParameters{
+		Algorithm: algo,
 	})
-	t.Run("Keystore: DeleteKey", func(t *testing.T) {
-		//TODO: After create keu is ready
+	if err != nil || decryptCipher == nil {
+		t.Fatalf("Failed to initialize Cipher for algorithm %d", algo)
+	}
+
+	decryptedPayload, err := decryptCipher.Close(ctx, ciphertext)
+	if err != nil || decryptedPayload == nil {
+		t.Fatalf("Failed to decrypt data for algorithm %d", algo)
+	}
+
+	if string(decryptedPayload) != plaintext {
+		t.Fatalf("Decrypted payload mismatch. Want %s got %s", plaintext, string(decryptedPayload))
+	}
+
+}
+
+func signVerify(t *testing.T, algo kms.SignAlgorithm, privateKey *PrivateKey, publicKey *PublicKey, message string) {
+
+	ctx := t.Context()
+
+	// Single-part signing with private key
+	signer, err := (*privateKey).NewRemoteDigestSigner(ctx, &kms.SignerParameters{
+		Algorithm: algo,
 	})
-	t.Run("Key: GetName", func(t *testing.T) {
-		ctx := t.Context()
-		keystore, err := NewKeyStore(provider)
-		assert.NoError(t, err)
-		key1, err := keystore.GetKeyByName(ctx, AES_KEY_NAME)
-		if err != nil {
-			assert.NoError(t, err)
-		}
-		if key1.GetName() != AES_KEY_NAME {
-			assert.NoError(t, errors.New(fmt.Sprintf("Key label is not correct. Want %s got %s", AES_KEY_NAME, key1.GetName())))
-		}
-		key2, err := keystore.GetKeyByName(ctx, RSA_KEY_NAME)
-		if err != nil {
-			assert.NoError(t, err)
-		}
-		if key1.GetName() != AES_KEY_NAME {
-			assert.NoError(t, errors.New(fmt.Sprintf("Key label is not correct. Want %s got %s", RSA_KEY_NAME, key2.GetName())))
-		}
+	if err != nil || signer == nil {
+		t.Fatalf("Failed to initialize Signer for algorithm %d", algo)
+	}
+
+	signature, err := signer.Close(ctx, []byte(message))
+	if err != nil || signature == nil {
+		t.Fatalf("Failed to sign message for algorithm %d", algo)
+	}
+
+	// Single-part signature verification with public key
+	verifier, err := (*publicKey).NewRemoteDigestVerifier(ctx, &kms.VerifierParameters{
+		Algorithm: algo,
 	})
-	t.Run("Key: GetType", func(t *testing.T) {
-		ctx := t.Context()
-		keystore, err := NewKeyStore(provider)
-		assert.NoError(t, err)
-		key1, err := keystore.GetKeyByName(ctx, AES_KEY_NAME)
-		if err != nil {
-			assert.NoError(t, err)
-		}
-		if key1.GetType() != kms.KeyType_AES {
-			assert.NoError(t, errors.New(fmt.Sprintf("Key type is not correct. Want %d got %d", kms.KeyType_AES, key1.GetType())))
-		}
-		key2, err := keystore.GetKeyByName(ctx, RSA_KEY_NAME)
-		if err != nil {
-			assert.NoError(t, err)
-		}
-		if key2.GetType() != kms.KeyType_RSA_Private {
-			assert.NoError(t, errors.New(fmt.Sprintf("Key type is not correct. Want %d got %d", kms.KeyType_RSA_Private, key2.GetType())))
-		}
+	if err != nil || verifier == nil {
+		t.Fatalf("Failed to initialize Verifier for algorithm %d", algo)
+	}
+
+	err = verifier.Close(ctx, []byte(message), signature)
+	if err != nil {
+		t.Fatalf("Failed to verify signature for algorithm %d", algo)
+	}
+
+	// Verify with wrong message - must fail
+	verifier, err = (*publicKey).NewRemoteDigestVerifier(ctx, &kms.VerifierParameters{
+		Algorithm: algo,
 	})
-	t.Run("Key: GetLength", func(t *testing.T) {
-		ctx := t.Context()
-		keystore, err := NewKeyStore(provider)
-		assert.NoError(t, err)
-		key1, err := keystore.GetKeyByName(ctx, AES_KEY_NAME)
-		if err != nil {
-			assert.NoError(t, err)
-		}
-		if key1.GetLength() != 256 {
-			assert.NoError(t, errors.New(fmt.Sprintf("Key size is not correct. Want %d got %d", 256, key1.GetLength())))
-		}
-		key2, err := keystore.GetKeyByName(ctx, RSA_KEY_NAME)
-		if err != nil {
-			assert.NoError(t, err)
-		}
-		if key2.GetLength() != 2048 {
-			assert.NoError(t, errors.New(fmt.Sprintf("Key size is not correct. Want %d got %d", 2048, key2.GetLength())))
-		}
-	})
-	t.Run("Encrypt/Decrypt: Cipher_AES_GCM", func(t *testing.T) {
-		ctx := t.Context()
-		keystore, err := NewKeyStore(provider)
-		assert.NoError(t, err)
-		aesKey, err := GenerateTestKeyAES(ctx, keystore)
-		assert.NoError(t, err)
-		ctx = WithSecretKey(ctx, aesKey)
-		cipherEncrypt, err := CipherFactory{}.NewCipher(ctx, kms.CipherOp_Encrypt, &kms.CipherParameters{
-			Algorithm: kms.CipherMode_AES_GCM,
-		})
-		assert.NoError(t, err)
-		update, err := cipherEncrypt.Update(ctx, []byte("te"))
-		if update == nil {
-			assert.NoError(t, errors.New(fmt.Sprintf("cipher encrypt update is nil. Want %s", "te")))
-		}
-		if string(update) != "te" {
-			assert.NoError(t, errors.New(fmt.Sprintf("cipher encrypt update is %s. Want %s", string(update), "te")))
-		}
-		assert.NoError(t, err)
-		encryptedPayload, err := cipherEncrypt.Close(ctx, []byte("st"))
-		assert.NoError(t, err)
+	if err != nil || verifier == nil {
+		t.Fatalf("Failed to initialize Verifier for algorithm %d", algo)
+	}
 
-		decryptCipher, err := CipherFactory{}.NewCipher(ctx, kms.CipherOp_Decrypt, &kms.CipherParameters{
-			Algorithm: kms.CipherMode_AES_GCM,
-		})
-		payload, err := decryptCipher.Close(ctx, encryptedPayload)
-		assert.NoError(t, err)
-		if string(payload) != "test" {
-			assert.NoError(t, errors.New(fmt.Sprintf("cipher decrypted payload is %s. Want %s", string(payload), "test")))
-		}
-		err = RemoveKey(ctx, aesKey, keystore)
-		assert.NoError(t, err)
+	wrongMsg := []byte(message)
+	wrongMsg[0] ^= 0xFF
+	err = verifier.Close(ctx, wrongMsg, signature)
+	if err == nil {
+		t.Fatalf("Verify signature for algorithm %d must fail with wrong message", algo)
+	}
 
-	})
-	//t.Run("Encrypt/Decrypt: Cipher_AES_ECB", func(t *testing.T) { ctx := t.Context()
-	//	keystore, err := NewKeyStore(provider)
-	//	assert.NoError(t, err)
-	//	aesKey, err := GenerateTestKeyAES(keystore)
-	//	assert.NoError(t, err)
-	//	cipherEncrypt, err := NewCipher(kms.Encrypt, aesKey, &kms.CipherParameters{
-	//		Algorithm: kms.Cipher_AES_ECB,
-	//	})
-	//	assert.NoError(t, err)
-	//	update, err := cipherEncrypt.Update([]byte("te"))
-	//	if update == nil {
-	//		assert.NoError(t, errors.New(fmt.Sprintf("cipher encrypt update is nil. Want %s", "te")))
-	//	}
-	//	if string(update) != "te" {
-	//		assert.NoError(t, errors.New(fmt.Sprintf("cipher encrypt update is %s. Want %s", string(update), "te")))
-	//	}
-	//	assert.NoError(t, err)
-	//	encryptedPayload, iv, mac, err := cipherEncrypt.Close([]byte("st"))
-	//	assert.NoError(t, err)
-	//
-	//	decryptCipher, err := NewCipher(kms.Decrypt, aesKey, &kms.CipherParameters{
-	//		Algorithm: kms.Cipher_AES_ECB,
-	//		IV:        iv,
-	//		MAC:       mac,
-	//	})
-	//	payload, _, _, err := decryptCipher.Close(encryptedPayload)
-	//	assert.NoError(t, err)
-	//	if string(payload) != "test" {
-	//		assert.NoError(t, errors.New(fmt.Sprintf("cipher decrypted payload is %s. Want %s", string(payload), "test")))
-	//	}
-	//	err = RemoveKey(aesKey, keystore)
-	//	assert.NoError(t, err)
-	//
-	//})
-	//t.Run("Encrypt/Decrypt: Cipher_AES_CTR", func(t *testing.T) { ctx := t.Context()
-	//	keystore, err := NewKeyStore(provider)
-	//	assert.NoError(t, err)
-	//	aesKey, err := GenerateTestKeyAES(keystore)
-	//	assert.NoError(t, err)
-	//	cipherEncrypt, err := NewCipher(kms.Encrypt, aesKey, &kms.CipherParameters{
-	//		Algorithm: kms.Cipher_AES_CTR,
-	//	})
-	//	assert.NoError(t, err)
-	//	update, err := cipherEncrypt.Update([]byte("te"))
-	//	if update == nil {
-	//		assert.NoError(t, errors.New(fmt.Sprintf("cipher encrypt update is nil. Want %s", "te")))
-	//	}
-	//	if string(update) != "te" {
-	//		assert.NoError(t, errors.New(fmt.Sprintf("cipher encrypt update is %s. Want %s", string(update), "te")))
-	//	}
-	//	assert.NoError(t, err)
-	//	encryptedPayload, iv, mac, err := cipherEncrypt.Close([]byte("st"))
-	//	assert.NoError(t, err)
-	//
-	//	decryptCipher, err := NewCipher(kms.Decrypt, aesKey, &kms.CipherParameters{
-	//		Algorithm: kms.Cipher_AES_CTR,
-	//		IV:        iv,
-	//		MAC:       mac,
-	//	})
-	//	payload, _, _, err := decryptCipher.Close(encryptedPayload)
-	//	assert.NoError(t, err)
-	//	if string(payload) != "test" {
-	//		assert.NoError(t, errors.New(fmt.Sprintf("cipher decrypted payload is %s. Want %s", string(payload), "test")))
-	//	}
-	//	err = RemoveKey(aesKey, keystore)
-	//	assert.NoError(t, err)
-	//
-	//})
-	//t.Run("Encrypt/Decrypt: Cipher_AES_CBC", func(t *testing.T) { ctx := t.Context()
-	//	keystore, err := NewKeyStore(provider)
-	//	assert.NoError(t, err)
-	//	aesKey, err := GenerateTestKeyAES(keystore)
-	//	assert.NoError(t, err)
-	//	cipherEncrypt, err := NewCipher(kms.Encrypt, aesKey, &kms.CipherParameters{
-	//		Algorithm: kms.Cipher_AES_CBC,
-	//	})
-	//	assert.NoError(t, err)
-	//	update, err := cipherEncrypt.Update([]byte("te"))
-	//	if update == nil {
-	//		assert.NoError(t, errors.New(fmt.Sprintf("cipher encrypt update is nil. Want %s", "te")))
-	//	}
-	//	if string(update) != "te" {
-	//		assert.NoError(t, errors.New(fmt.Sprintf("cipher encrypt update is %s. Want %s", string(update), "te")))
-	//	}
-	//	assert.NoError(t, err)
-	//	encryptedPayload, iv, mac, err := cipherEncrypt.Close([]byte("st"))
-	//	assert.NoError(t, err)
-	//
-	//	decryptCipher, err := NewCipher(kms.Decrypt, aesKey, &kms.CipherParameters{
-	//		Algorithm: kms.Cipher_AES_CBC,
-	//		IV:        iv,
-	//		MAC:       mac,
-	//	})
-	//	payload, _, _, err := decryptCipher.Close(encryptedPayload)
-	//	assert.NoError(t, err)
-	//	if string(payload) != "test" {
-	//		assert.NoError(t, errors.New(fmt.Sprintf("cipher decrypted payload is %s. Want %s", string(payload), "test")))
-	//	}
-	//	err = RemoveKey(aesKey, keystore)
-	//	assert.NoError(t, err)
-	//
-	//})
-	//t.Run("Encrypt/Decrypt: Cipher_RSA_MODE", func(t *testing.T) { ctx := t.Context()
-	//	keystore, err := NewKeyStore(provider)
-	//	assert.NoError(t, err)
-	//	rsaKey, err := GenerateTestKeyRSA(keystore)
-	//	assert.NoError(t, err)
-	//	cipherEncrypt, err := NewCipher(kms.Encrypt, rsaKey, &kms.CipherParameters{
-	//		Algorithm: kms.Cipher_RSA_MODE,
-	//	})
-	//	assert.NoError(t, err)
-	//	update, err := cipherEncrypt.Update([]byte("te"))
-	//	if update == nil {
-	//		assert.NoError(t, errors.New(fmt.Sprintf("cipher encrypt update is nil. Want %s", "te")))
-	//	}
-	//	if string(update) != "te" {
-	//		assert.NoError(t, errors.New(fmt.Sprintf("cipher encrypt update is %s. Want %s", string(update), "te")))
-	//	}
-	//	assert.NoError(t, err)
-	//	encryptedPayload, iv, mac, err := cipherEncrypt.Close([]byte("st"))
-	//	assert.NoError(t, err)
-	//
-	//	decryptCipher, err := NewCipher(kms.Decrypt, rsaKey, &kms.CipherParameters{
-	//		Algorithm: kms.Cipher_RSA_MODE,
-	//		IV:        iv,
-	//		MAC:       mac,
-	//	})
-	//	payload, _, _, err := decryptCipher.Close(encryptedPayload)
-	//	assert.NoError(t, err)
-	//	if string(payload) != "test" {
-	//		assert.NoError(t, errors.New(fmt.Sprintf("cipher decrypted payload is %s. Want %s", string(payload), "test")))
-	//	}
-	//	err = RemoveKey(rsaKey, keystore)
-	//	assert.NoError(t, err)
-	//
-	//})
-	//t.Run("Encrypt/Decrypt: Cipher_RSA_PADDING_OAEP", func(t *testing.T) { ctx := t.Context()
-	//	keystore, err := NewKeyStore(provider)
-	//	assert.NoError(t, err)
-	//	rsaKey, err := GenerateTestKeyRSA(keystore)
-	//	assert.NoError(t, err)
-	//	cipherEncrypt, err := NewCipher(kms.Encrypt, rsaKey, &kms.CipherParameters{
-	//		Algorithm: kms.Cipher_RSA_PADDING_OAEP,
-	//	})
-	//	assert.NoError(t, err)
-	//	update, err := cipherEncrypt.Update([]byte("te"))
-	//	if update == nil {
-	//		assert.NoError(t, errors.New(fmt.Sprintf("cipher encrypt update is nil. Want %s", "te")))
-	//	}
-	//	if string(update) != "te" {
-	//		assert.NoError(t, errors.New(fmt.Sprintf("cipher encrypt update is %s. Want %s", string(update), "te")))
-	//	}
-	//	assert.NoError(t, err)
-	//	encryptedPayload, iv, mac, err := cipherEncrypt.Close([]byte("st"))
-	//	assert.NoError(t, err)
-	//
-	//	decryptCipher, err := NewCipher(kms.Decrypt, rsaKey, &kms.CipherParameters{
-	//		Algorithm: kms.Cipher_RSA_PADDING_OAEP,
-	//		IV:        iv,
-	//		MAC:       mac,
-	//	})
-	//	payload, _, _, err := decryptCipher.Close(encryptedPayload)
-	//	assert.NoError(t, err)
-	//	if string(payload) != "test" {
-	//		assert.NoError(t, errors.New(fmt.Sprintf("cipher decrypted payload is %s. Want %s", string(payload), "test")))
-	//	}
-	//	err = RemoveKey(rsaKey, keystore)
-	//	assert.NoError(t, err)
-	//
-	//})
-	//t.Run("Encrypt/Decrypt: Cipher_RSA_PADDING_OAEP_SHA1", func(t *testing.T) { ctx := t.Context()
-	//	keystore, err := NewKeyStore(provider)
-	//	assert.NoError(t, err)
-	//	rsaKey, err := GenerateTestKeyRSA(keystore)
-	//	assert.NoError(t, err)
-	//	cipherEncrypt, err := NewCipher(kms.Encrypt, rsaKey, &kms.CipherParameters{
-	//		Algorithm: kms.Cipher_RSA_PADDING_OAEP_SHA1,
-	//	})
-	//	assert.NoError(t, err)
-	//	update, err := cipherEncrypt.Update([]byte("te"))
-	//	if update == nil {
-	//		assert.NoError(t, errors.New(fmt.Sprintf("cipher encrypt update is nil. Want %s", "te")))
-	//	}
-	//	if string(update) != "te" {
-	//		assert.NoError(t, errors.New(fmt.Sprintf("cipher encrypt update is %s. Want %s", string(update), "te")))
-	//	}
-	//	assert.NoError(t, err)
-	//	encryptedPayload, iv, mac, err := cipherEncrypt.Close([]byte("st"))
-	//	assert.NoError(t, err)
-	//
-	//	decryptCipher, err := NewCipher(kms.Decrypt, rsaKey, &kms.CipherParameters{
-	//		Algorithm: kms.Cipher_RSA_PADDING_OAEP_SHA1,
-	//		IV:        iv,
-	//		MAC:       mac,
-	//	})
-	//	payload, _, _, err := decryptCipher.Close(encryptedPayload)
-	//	assert.NoError(t, err)
-	//	if string(payload) != "test" {
-	//		assert.NoError(t, errors.New(fmt.Sprintf("cipher decrypted payload is %s. Want %s", string(payload), "test")))
-	//	}
-	//	err = RemoveKey(rsaKey, keystore)
-	//	assert.NoError(t, err)
-	//
-	//})
-	//t.Run("Encrypt/Decrypt: Cipher_RSA_PADDING_OAEP_SHA224", func(t *testing.T) { ctx := t.Context()
-	//	keystore, err := NewKeyStore(provider)
-	//	assert.NoError(t, err)
-	//	rsaKey, err := GenerateTestKeyRSA(keystore)
-	//	assert.NoError(t, err)
-	//	cipherEncrypt, err := NewCipher(kms.Encrypt, rsaKey, &kms.CipherParameters{
-	//		Algorithm: kms.Cipher_RSA_PADDING_OAEP_SHA224,
-	//	})
-	//	assert.NoError(t, err)
-	//	update, err := cipherEncrypt.Update([]byte("te"))
-	//	if update == nil {
-	//		assert.NoError(t, errors.New(fmt.Sprintf("cipher encrypt update is nil. Want %s", "te")))
-	//	}
-	//	if string(update) != "te" {
-	//		assert.NoError(t, errors.New(fmt.Sprintf("cipher encrypt update is %s. Want %s", string(update), "te")))
-	//	}
-	//	assert.NoError(t, err)
-	//	encryptedPayload, iv, mac, err := cipherEncrypt.Close([]byte("st"))
-	//	assert.NoError(t, err)
-	//
-	//	decryptCipher, err := NewCipher(kms.Decrypt, rsaKey, &kms.CipherParameters{
-	//		Algorithm: kms.Cipher_RSA_PADDING_OAEP_SHA224,
-	//		IV:        iv,
-	//		MAC:       mac,
-	//	})
-	//	payload, _, _, err := decryptCipher.Close(encryptedPayload)
-	//	assert.NoError(t, err)
-	//	if string(payload) != "test" {
-	//		assert.NoError(t, errors.New(fmt.Sprintf("cipher decrypted payload is %s. Want %s", string(payload), "test")))
-	//	}
-	//	err = RemoveKey(rsaKey, keystore)
-	//	assert.NoError(t, err)
-	//
-	//})
-	t.Run("Encrypt/Decrypt: Cipher_RSA_PADDING_OAEP_SHA256", func(t *testing.T) {
-		ctx := t.Context()
-		keystore, err := NewKeyStore(provider)
-		assert.NoError(t, err)
-		rsaKey, err := GenerateTestKeyRSA(ctx, keystore)
-		assert.NoError(t, err)
-		ctx = WithPrivateKey(ctx, rsaKey)
+}
 
-		cipherEncrypt, err := CipherFactory{}.NewCipher(ctx, kms.CipherOp_Encrypt, &kms.CipherParameters{
-			Algorithm: kms.CipherMode_RSA_OAEP_SHA256,
-		})
-		assert.NoError(t, err)
-		update, err := cipherEncrypt.Update(ctx, []byte("te"))
-		if update == nil {
-			assert.NoError(t, errors.New(fmt.Sprintf("cipher encrypt update is nil. Want %s", "te")))
-		}
-		if string(update) != "te" {
-			assert.NoError(t, errors.New(fmt.Sprintf("cipher encrypt update is %s. Want %s", string(update), "te")))
-		}
-		assert.NoError(t, err)
-		encryptedPayload, err := cipherEncrypt.Close(ctx, []byte("st"))
-		assert.NoError(t, err)
+func getKmsConfigFromEnvVars(t *testing.T) map[string]interface{} {
+	t.Helper()
 
-		decryptCipher, err := CipherFactory{}.NewCipher(ctx, kms.CipherOp_Decrypt, &kms.CipherParameters{
-			Algorithm: kms.CipherMode_RSA_OAEP_SHA256,
-		})
-		payload, err := decryptCipher.Close(ctx, encryptedPayload)
-		assert.NoError(t, err)
-		if string(payload) != "test" {
-			assert.NoError(t, errors.New(fmt.Sprintf("cipher decrypted payload is %s. Want %s", string(payload), "test")))
-		}
-		err = RemoveKey(ctx, rsaKey, keystore)
-		assert.NoError(t, err)
+	// Skip tests if we are not running acceptance tests
+	if os.Getenv("VAULT_ACC") == "" {
+		t.SkipNow()
+	}
 
-	})
-	t.Run("Encrypt/Decrypt: Cipher_RSA_PADDING_OAEP_SHA384", func(t *testing.T) {
-		ctx := t.Context()
-		keystore, err := NewKeyStore(provider)
-		assert.NoError(t, err)
-		rsaKey, err := GenerateTestKeyRSA(ctx, keystore)
-		assert.NoError(t, err)
-		ctx = WithPrivateKey(ctx, rsaKey)
+	var kmsConfig = map[string]interface{}{
+		"restapi":     "",
+		"auth":        "TOKEN",
+		"bearertoken": "",
+	}
 
-		cipherEncrypt, err := CipherFactory{}.NewCipher(ctx, kms.CipherOp_Encrypt, &kms.CipherParameters{
-			Algorithm: kms.CipherMode_RSA_OAEP_SHA384,
-		})
-		assert.NoError(t, err)
-		update, err := cipherEncrypt.Update(ctx, []byte("te"))
-		if update == nil {
-			assert.NoError(t, errors.New(fmt.Sprintf("cipher encrypt update is nil. Want %s", "te")))
-		}
-		if string(update) != "te" {
-			assert.NoError(t, errors.New(fmt.Sprintf("cipher encrypt update is %s. Want %s", string(update), "te")))
-		}
-		assert.NoError(t, err)
-		encryptedPayload, err := cipherEncrypt.Close(ctx, []byte("st"))
-		assert.NoError(t, err)
+	kmsConfig["restapi"] = os.Getenv(SECUROSYS_HSM_RESTAPI_ENV_VAR)
+	if kmsConfig["restapi"] == "" {
+		t.Fatalf("unable to get Securosys HSM REST API endpoint via environment variable %s", SECUROSYS_HSM_RESTAPI_ENV_VAR)
+	}
 
-		decryptCipher, err := CipherFactory{}.NewCipher(ctx, kms.CipherOp_Decrypt, &kms.CipherParameters{
-			Algorithm: kms.CipherMode_RSA_OAEP_SHA384,
-		})
-		payload, err := decryptCipher.Close(ctx, encryptedPayload)
-		assert.NoError(t, err)
-		if string(payload) != "test" {
-			assert.NoError(t, errors.New(fmt.Sprintf("cipher decrypted payload is %s. Want %s", string(payload), "test")))
-		}
-		err = RemoveKey(ctx, rsaKey, keystore)
-		assert.NoError(t, err)
-	})
-	t.Run("Encrypt/Decrypt: Cipher_RSA_PADDING_OAEP_SHA512", func(t *testing.T) {
-		ctx := t.Context()
-		keystore, err := NewKeyStore(provider)
-		assert.NoError(t, err)
-		rsaKey, err := GenerateTestKeyRSA(ctx, keystore)
-		assert.NoError(t, err)
-		ctx = WithPrivateKey(ctx, rsaKey)
+	kmsConfig["bearertoken"] = os.Getenv(SECUROSYS_BEARER_TOKEN_ENV_VAR)
+	if kmsConfig["bearertoken"] == "" {
+		t.Fatalf("unable to get Securosys bearer token via environment variable %s", SECUROSYS_BEARER_TOKEN_ENV_VAR)
+	}
 
-		cipherEncrypt, err := CipherFactory{}.NewCipher(ctx, kms.CipherOp_Encrypt, &kms.CipherParameters{
-			Algorithm: kms.CipherMode_RSA_OAEP_SHA512,
-		})
-		assert.NoError(t, err)
-		update, err := cipherEncrypt.Update(ctx, []byte("te"))
-		if update == nil {
-			assert.NoError(t, errors.New(fmt.Sprintf("cipher encrypt update is nil. Want %s", "te")))
-		}
-		if string(update) != "te" {
-			assert.NoError(t, errors.New(fmt.Sprintf("cipher encrypt update is %s. Want %s", string(update), "te")))
-		}
-		assert.NoError(t, err)
-		encryptedPayload, err := cipherEncrypt.Close(ctx, []byte("st"))
-		assert.NoError(t, err)
-
-		decryptCipher, err := CipherFactory{}.NewCipher(ctx, kms.CipherOp_Decrypt, &kms.CipherParameters{
-			Algorithm: kms.CipherMode_RSA_OAEP_SHA512,
-		})
-		payload, err := decryptCipher.Close(ctx, encryptedPayload)
-		assert.NoError(t, err)
-		if string(payload) != "test" {
-			assert.NoError(t, errors.New(fmt.Sprintf("cipher decrypted payload is %s. Want %s", string(payload), "test")))
-		}
-		err = RemoveKey(ctx, rsaKey, keystore)
-		assert.NoError(t, err)
-
-	})
-	//t.Run("Sign/Verify: Sign_SHA224_RSA_PKCS1_PSS", func(t *testing.T) {
-	//	ctx := t.Context()
-	//	keystore, err := NewKeyStore(provider)
-	//	assert.NoError(t, err)
-	//	rsaKey, err := GenerateTestKeyRSA(keystore)
-	//	assert.NoError(t, err)
-	//	signer, err := NewSigner(rsaKey, &kms.SignerParameters{
-	//		Algorithm: kms.Sign_SHA224_RSA_PKCS1_PSS,
-	//	})
-	//	assert.NoError(t, err)
-	//	err = signer.Update([]byte("te"))
-	//	assert.NoError(t, err)
-	//	signature, err := signer.Close([]byte("st"))
-	//	assert.NoError(t, err)
-	//
-	//	verifier, err := NewVerifier(rsaKey, &kms.VerifierParameters{
-	//		Algorithm: kms.Sign_SHA224_RSA_PKCS1_PSS,
-	//		Signature: signature,
-	//	})
-	//	err = verifier.Update([]byte("te"))
-	//	assert.NoError(t, err)
-	//	err = verifier.Close([]byte("st"))
-	//	assert.NoError(t, err)
-	//	err = verifier.CloseEx([]byte("test"), signature)
-	//	assert.NoError(t, err)
-	//	err = RemoveKey(rsaKey, keystore)
-	//	assert.NoError(t, err)
-	//
-	//})
-	//t.Run("Sign/Verify: Sign_SHA256_RSA_PKCS1_PSS", func(t *testing.T) {
-	//	ctx := t.Context()
-	//	keystore, err := NewKeyStore(provider)
-	//	assert.NoError(t, err)
-	//	rsaKey, err := GenerateTestKeyRSA(keystore)
-	//	assert.NoError(t, err)
-	//	signer, err := NewSigner(rsaKey, &kms.SignerParameters{
-	//		Algorithm: kms.Sign_SHA256_RSA_PKCS1_PSS,
-	//	})
-	//	assert.NoError(t, err)
-	//	err = signer.Update([]byte("te"))
-	//	assert.NoError(t, err)
-	//	signature, err := signer.Close([]byte("st"))
-	//	assert.NoError(t, err)
-	//
-	//	verifier, err := NewVerifier(rsaKey, &kms.VerifierParameters{
-	//		Algorithm: kms.Sign_SHA256_RSA_PKCS1_PSS,
-	//		Signature: signature,
-	//	})
-	//	err = verifier.Update([]byte("te"))
-	//	assert.NoError(t, err)
-	//	err = verifier.Close([]byte("st"))
-	//	assert.NoError(t, err)
-	//	err = verifier.CloseEx([]byte("test"), signature)
-	//	assert.NoError(t, err)
-	//	err = RemoveKey(rsaKey, keystore)
-	//	assert.NoError(t, err)
-	//
-	//})
-	//t.Run("Sign/Verify: Sign_SHA384_RSA_PKCS1_PSS", func(t *testing.T) {
-	//	ctx := t.Context()
-	//	keystore, err := NewKeyStore(provider)
-	//	assert.NoError(t, err)
-	//	rsaKey, err := GenerateTestKeyRSA(keystore)
-	//	assert.NoError(t, err)
-	//	signer, err := NewSigner(rsaKey, &kms.SignerParameters{
-	//		Algorithm: kms.Sign_SHA384_RSA_PKCS1_PSS,
-	//	})
-	//	assert.NoError(t, err)
-	//	err = signer.Update([]byte("te"))
-	//	assert.NoError(t, err)
-	//	signature, err := signer.Close([]byte("st"))
-	//	assert.NoError(t, err)
-	//
-	//	verifier, err := NewVerifier(rsaKey, &kms.VerifierParameters{
-	//		Algorithm: kms.Sign_SHA384_RSA_PKCS1_PSS,
-	//		Signature: signature,
-	//	})
-	//	err = verifier.Update([]byte("te"))
-	//	assert.NoError(t, err)
-	//	err = verifier.Close([]byte("st"))
-	//	assert.NoError(t, err)
-	//	err = verifier.CloseEx([]byte("test"), signature)
-	//	assert.NoError(t, err)
-	//	err = RemoveKey(rsaKey, keystore)
-	//	assert.NoError(t, err)
-	//
-	//})
-	//t.Run("Sign/Verify: Sign_SHA512_RSA_PKCS1_PSS", func(t *testing.T) {
-	//	ctx := t.Context()
-	//	keystore, err := NewKeyStore(provider)
-	//	assert.NoError(t, err)
-	//	rsaKey, err := GenerateTestKeyRSA(keystore)
-	//	assert.NoError(t, err)
-	//	signer, err := NewSigner(rsaKey, &kms.SignerParameters{
-	//		Algorithm: kms.Sign_SHA512_RSA_PKCS1_PSS,
-	//	})
-	//	assert.NoError(t, err)
-	//	err = signer.Update([]byte("te"))
-	//	assert.NoError(t, err)
-	//	signature, err := signer.Close([]byte("st"))
-	//	assert.NoError(t, err)
-	//
-	//	verifier, err := NewVerifier(rsaKey, &kms.VerifierParameters{
-	//		Algorithm: kms.Sign_SHA512_RSA_PKCS1_PSS,
-	//		Signature: signature,
-	//	})
-	//	err = verifier.Update([]byte("te"))
-	//	assert.NoError(t, err)
-	//	err = verifier.Close([]byte("st"))
-	//	assert.NoError(t, err)
-	//	err = verifier.CloseEx([]byte("test"), signature)
-	//	assert.NoError(t, err)
-	//	err = RemoveKey(rsaKey, keystore)
-	//	assert.NoError(t, err)
-	//
-	//})
-	//t.Run("Sign/Verify: Sign_SHA224_RSA", func(t *testing.T) {
-	//	ctx := t.Context()
-	//	keystore, err := NewKeyStore(provider)
-	//	assert.NoError(t, err)
-	//	rsaKey, err := GenerateTestKeyRSA(keystore)
-	//	assert.NoError(t, err)
-	//	signer, err := NewSigner(rsaKey, &kms.SignerParameters{
-	//		Algorithm: kms.Sign_SHA224_RSA,
-	//	})
-	//	assert.NoError(t, err)
-	//	err = signer.Update([]byte("te"))
-	//	assert.NoError(t, err)
-	//	signature, err := signer.Close([]byte("st"))
-	//	assert.NoError(t, err)
-	//
-	//	verifier, err := NewVerifier(rsaKey, &kms.VerifierParameters{
-	//		Algorithm: kms.Sign_SHA224_RSA,
-	//		Signature: signature,
-	//	})
-	//	err = verifier.Update([]byte("te"))
-	//	assert.NoError(t, err)
-	//	err = verifier.Close([]byte("st"))
-	//	assert.NoError(t, err)
-	//	err = verifier.CloseEx([]byte("test"), signature)
-	//	assert.NoError(t, err)
-	//	err = RemoveKey(rsaKey, keystore)
-	//	assert.NoError(t, err)
-	//
-	//})
-	t.Run("Sign/Verify: Sign_SHA256_RSA", func(t *testing.T) {
-		ctx := t.Context()
-		keystore, err := NewKeyStore(provider)
-		assert.NoError(t, err)
-		rsaKey, err := GenerateTestKeyRSA(ctx, keystore)
-		assert.NoError(t, err)
-		ctx = WithPrivateKey(ctx, rsaKey)
-		signer, err := SignerFactory{}.NewSigner(ctx, &kms.SignerParameters{
-			Algorithm: kms.SignAlgo_RSA_PKCS1_PSS_SHA_256,
-		})
-		assert.NoError(t, err)
-		err = signer.Update(ctx, []byte("te"))
-		assert.NoError(t, err)
-		signature, err := signer.Close(ctx, []byte("st"))
-		assert.NoError(t, err)
-
-		verifier, err := VerifierFactory{}.NewVerifier(ctx, &kms.VerifierParameters{
-			Algorithm: kms.SignAlgo_RSA_PKCS1_PSS_SHA_256,
-			Signature: signature,
-		})
-		err = verifier.Update(ctx, []byte("te"))
-		assert.NoError(t, err)
-		err = verifier.Close(ctx, []byte("st"), nil)
-		assert.NoError(t, err)
-		err = verifier.Close(ctx, []byte("test"), signature)
-		assert.NoError(t, err)
-		err = RemoveKey(ctx, rsaKey, keystore)
-		assert.NoError(t, err)
-
-	})
-	t.Run("Sign/Verify: Sign_SHA384_RSA", func(t *testing.T) {
-		ctx := t.Context()
-		keystore, err := NewKeyStore(provider)
-		assert.NoError(t, err)
-		rsaKey, err := GenerateTestKeyRSA(ctx, keystore)
-		assert.NoError(t, err)
-		ctx = WithPrivateKey(ctx, rsaKey)
-		signer, err := SignerFactory{}.NewSigner(ctx, &kms.SignerParameters{
-			Algorithm: kms.SignAlgo_RSA_PKCS1_PSS_SHA_384,
-		})
-		assert.NoError(t, err)
-		err = signer.Update(ctx, []byte("te"))
-		assert.NoError(t, err)
-		signature, err := signer.Close(ctx, []byte("st"))
-		assert.NoError(t, err)
-
-		verifier, err := VerifierFactory{}.NewVerifier(ctx, &kms.VerifierParameters{
-			Algorithm: kms.SignAlgo_RSA_PKCS1_PSS_SHA_384,
-			Signature: signature,
-		})
-		err = verifier.Update(ctx, []byte("te"))
-		assert.NoError(t, err)
-		err = verifier.Close(ctx, []byte("st"), nil)
-		assert.NoError(t, err)
-		err = verifier.Close(ctx, []byte("test"), signature)
-		assert.NoError(t, err)
-		err = RemoveKey(ctx, rsaKey, keystore)
-		assert.NoError(t, err)
-	})
-	t.Run("Sign/Verify: Sign_SHA512_RSA", func(t *testing.T) {
-		ctx := t.Context()
-		keystore, err := NewKeyStore(provider)
-		assert.NoError(t, err)
-		rsaKey, err := GenerateTestKeyRSA(ctx, keystore)
-		assert.NoError(t, err)
-		ctx = WithPrivateKey(ctx, rsaKey)
-		signer, err := SignerFactory{}.NewSigner(ctx, &kms.SignerParameters{
-			Algorithm: kms.SignAlgo_RSA_PKCS1_PSS_SHA_512,
-		})
-		assert.NoError(t, err)
-		err = signer.Update(ctx, []byte("te"))
-		assert.NoError(t, err)
-		signature, err := signer.Close(ctx, []byte("st"))
-		assert.NoError(t, err)
-
-		verifier, err := VerifierFactory{}.NewVerifier(ctx, &kms.VerifierParameters{
-			Algorithm: kms.SignAlgo_RSA_PKCS1_PSS_SHA_512,
-			Signature: signature,
-		})
-		err = verifier.Update(ctx, []byte("te"))
-		assert.NoError(t, err)
-		err = verifier.Close(ctx, []byte("st"), nil)
-		assert.NoError(t, err)
-		err = verifier.Close(ctx, []byte("test"), signature)
-		assert.NoError(t, err)
-		err = RemoveKey(ctx, rsaKey, keystore)
-		assert.NoError(t, err)
-
-	})
-	//t.Run("Sign/Verify: Sign_SHA1_ECDSA", func(t *testing.T) {
-	//	ctx := t.Context()
-	//	keystore, err := NewKeyStore(provider)
-	//	assert.NoError(t, err)
-	//	ecKey, err := GenerateTestKeyEC(keystore)
-	//	assert.NoError(t, err)
-	//	signer, err := NewSigner(ecKey, &kms.SignerParameters{
-	//		Algorithm: kms.Sign_SHA1_ECDSA,
-	//	})
-	//	assert.NoError(t, err)
-	//	err = signer.Update([]byte("te"))
-	//	assert.NoError(t, err)
-	//	signature, err := signer.Close([]byte("st"))
-	//	assert.NoError(t, err)
-	//
-	//	verifier, err := NewVerifier(ecKey, &kms.VerifierParameters{
-	//		Algorithm: kms.Sign_SHA1_ECDSA,
-	//		Signature: signature,
-	//	})
-	//	err = verifier.Update([]byte("te"))
-	//	assert.NoError(t, err)
-	//	err = verifier.Close([]byte("st"))
-	//	assert.NoError(t, err)
-	//	err = verifier.CloseEx([]byte("test"), signature)
-	//	assert.NoError(t, err)
-	//	err = RemoveKey(ecKey, keystore)
-	//	assert.NoError(t, err)
-	//
-	//})
-	//t.Run("Sign/Verify: Sign_SHA224_ECDSA", func(t *testing.T) {
-	//	ctx := t.Context()
-	//	keystore, err := NewKeyStore(provider)
-	//	assert.NoError(t, err)
-	//	ecKey, err := GenerateTestKeyEC(keystore)
-	//	assert.NoError(t, err)
-	//	signer, err := NewSigner(ecKey, &kms.SignerParameters{
-	//		Algorithm: kms.Sign_SHA224_ECDSA,
-	//	})
-	//	assert.NoError(t, err)
-	//	err = signer.Update([]byte("te"))
-	//	assert.NoError(t, err)
-	//	signature, err := signer.Close([]byte("st"))
-	//	assert.NoError(t, err)
-	//
-	//	verifier, err := NewVerifier(ecKey, &kms.VerifierParameters{
-	//		Algorithm: kms.Sign_SHA224_ECDSA,
-	//		Signature: signature,
-	//	})
-	//	err = verifier.Update([]byte("te"))
-	//	assert.NoError(t, err)
-	//	err = verifier.Close([]byte("st"))
-	//	assert.NoError(t, err)
-	//	err = verifier.CloseEx([]byte("test"), signature)
-	//	assert.NoError(t, err)
-	//	err = RemoveKey(ecKey, keystore)
-	//	assert.NoError(t, err)
-	//
-	//})
-	t.Run("Sign/Verify: Sign_SHA256_ECDSA", func(t *testing.T) {
-		ctx := t.Context()
-		keystore, err := NewKeyStore(provider)
-		assert.NoError(t, err)
-		ecKey, err := GenerateTestKeyEC(ctx, kms.Curve_P256, keystore)
-		assert.NoError(t, err)
-		ctx = WithPrivateKey(ctx, ecKey)
-		signer, err := SignerFactory{}.NewSigner(ctx, &kms.SignerParameters{
-			Algorithm: kms.SignAlgo_EC_P256,
-		})
-		assert.NoError(t, err)
-		err = signer.Update(ctx, []byte("te"))
-		assert.NoError(t, err)
-		signature, err := signer.Close(ctx, []byte("st"))
-		assert.NoError(t, err)
-
-		verifier, err := VerifierFactory{}.NewVerifier(ctx, &kms.VerifierParameters{
-			Algorithm: kms.SignAlgo_EC_P256,
-			Signature: signature,
-		})
-		err = verifier.Update(ctx, []byte("te"))
-		assert.NoError(t, err)
-		err = verifier.Close(ctx, []byte("st"), nil)
-		assert.NoError(t, err)
-		err = verifier.Close(ctx, []byte("test"), signature)
-		assert.NoError(t, err)
-		err = RemoveKey(ctx, ecKey, keystore)
-		assert.NoError(t, err)
-	})
-	t.Run("Sign/Verify: Sign_SHA384_ECDSA", func(t *testing.T) {
-		ctx := t.Context()
-		keystore, err := NewKeyStore(provider)
-		assert.NoError(t, err)
-		ecKey, err := GenerateTestKeyEC(ctx, kms.Curve_P384, keystore)
-		assert.NoError(t, err)
-		ctx = WithPrivateKey(ctx, ecKey)
-		signer, err := SignerFactory{}.NewSigner(ctx, &kms.SignerParameters{
-			Algorithm: kms.SignAlgo_EC_P384,
-		})
-		assert.NoError(t, err)
-		err = signer.Update(ctx, []byte("te"))
-		assert.NoError(t, err)
-		signature, err := signer.Close(ctx, []byte("st"))
-		assert.NoError(t, err)
-
-		verifier, err := VerifierFactory{}.NewVerifier(ctx, &kms.VerifierParameters{
-			Algorithm: kms.SignAlgo_EC_P384,
-			Signature: signature,
-		})
-		err = verifier.Update(ctx, []byte("te"))
-		assert.NoError(t, err)
-		err = verifier.Close(ctx, []byte("st"), nil)
-		assert.NoError(t, err)
-		err = verifier.Close(ctx, []byte("test"), signature)
-		assert.NoError(t, err)
-		err = RemoveKey(ctx, ecKey, keystore)
-		assert.NoError(t, err)
-
-	})
-	t.Run("Sign/Verify: Sign_SHA512_ECDSA", func(t *testing.T) {
-		ctx := t.Context()
-		keystore, err := NewKeyStore(provider)
-		assert.NoError(t, err)
-		ecKey, err := GenerateTestKeyEC(ctx, kms.Curve_P521, keystore)
-		assert.NoError(t, err)
-		ctx = WithPrivateKey(ctx, ecKey)
-		signer, err := SignerFactory{}.NewSigner(ctx, &kms.SignerParameters{
-			Algorithm: kms.SignAlgo_EC_P521,
-		})
-		assert.NoError(t, err)
-		err = signer.Update(ctx, []byte("te"))
-		assert.NoError(t, err)
-		signature, err := signer.Close(ctx, []byte("st"))
-		assert.NoError(t, err)
-
-		verifier, err := VerifierFactory{}.NewVerifier(ctx, &kms.VerifierParameters{
-			Algorithm: kms.SignAlgo_EC_P521,
-			Signature: signature,
-		})
-		err = verifier.Update(ctx, []byte("te"))
-		assert.NoError(t, err)
-		err = verifier.Close(ctx, []byte("st"), nil)
-		assert.NoError(t, err)
-		err = verifier.Close(ctx, []byte("test"), signature)
-		assert.NoError(t, err)
-		err = RemoveKey(ctx, ecKey, keystore)
-		assert.NoError(t, err)
-
-	})
-	t.Run("Sign/Verify: Ed25519", func(t *testing.T) {
-		ctx := t.Context()
-		keystore, err := NewKeyStore(provider)
-		assert.NoError(t, err)
-		edKey, err := GenerateTestKeyED(ctx, keystore)
-		assert.NoError(t, err)
-		ctx = WithPrivateKey(ctx, edKey)
-		signer, err := SignerFactory{}.NewSigner(ctx, &kms.SignerParameters{
-			Algorithm: kms.SignAlgo_ED,
-		})
-		assert.NoError(t, err)
-		err = signer.Update(ctx, []byte("te"))
-		assert.NoError(t, err)
-		signature, err := signer.Close(ctx, []byte("st"))
-		assert.NoError(t, err)
-
-		verifier, err := VerifierFactory{}.NewVerifier(ctx, &kms.VerifierParameters{
-			Algorithm: kms.SignAlgo_ED,
-			Signature: signature,
-		})
-		err = verifier.Update(ctx, []byte("te"))
-		assert.NoError(t, err)
-		err = verifier.Close(ctx, []byte("st"), nil)
-		assert.NoError(t, err)
-		err = verifier.Close(ctx, []byte("test"), signature)
-		assert.NoError(t, err)
-		err = RemoveKey(ctx, edKey, keystore)
-		assert.NoError(t, err)
-
-	})
-
-	//t.Run("Sign/Verify: Sign_SHA3224_ECDSA", func(t *testing.T) {
-	//	ctx := t.Context()
-	//	keystore, err := NewKeyStore(provider)
-	//	assert.NoError(t, err)
-	//	ecKey, err := GenerateTestKeyEC(keystore)
-	//	assert.NoError(t, err)
-	//	signer, err := NewSigner(ecKey, &kms.SignerParameters{
-	//		Algorithm: kms.Sign_SHA3224_ECDSA,
-	//	})
-	//	assert.NoError(t, err)
-	//	err = signer.Update([]byte("te"))
-	//	assert.NoError(t, err)
-	//	signature, err := signer.Close([]byte("st"))
-	//	assert.NoError(t, err)
-	//
-	//	verifier, err := NewVerifier(ecKey, &kms.VerifierParameters{
-	//		Algorithm: kms.Sign_SHA3224_ECDSA,
-	//		Signature: signature,
-	//	})
-	//	err = verifier.Update([]byte("te"))
-	//	assert.NoError(t, err)
-	//	err = verifier.Close([]byte("st"))
-	//	assert.NoError(t, err)
-	//	err = verifier.CloseEx([]byte("test"), signature)
-	//	assert.NoError(t, err)
-	//	err = RemoveKey(ecKey, keystore)
-	//	assert.NoError(t, err)
-	//
-	//})
-	//t.Run("Sign/Verify: Sign_SHA3256_ECDSA", func(t *testing.T) {
-	//	ctx := t.Context()
-	//	keystore, err := NewKeyStore(provider)
-	//	assert.NoError(t, err)
-	//	ecKey, err := GenerateTestKeyEC(keystore)
-	//	assert.NoError(t, err)
-	//	signer, err := NewSigner(ecKey, &kms.SignerParameters{
-	//		Algorithm: kms.Sign_SHA3256_ECDSA,
-	//	})
-	//	assert.NoError(t, err)
-	//	err = signer.Update([]byte("te"))
-	//	assert.NoError(t, err)
-	//	signature, err := signer.Close([]byte("st"))
-	//	assert.NoError(t, err)
-	//
-	//	verifier, err := NewVerifier(ecKey, &kms.VerifierParameters{
-	//		Algorithm: kms.Sign_SHA3256_ECDSA,
-	//		Signature: signature,
-	//	})
-	//	err = verifier.Update([]byte("te"))
-	//	assert.NoError(t, err)
-	//	err = verifier.Close([]byte("st"))
-	//	assert.NoError(t, err)
-	//	err = verifier.CloseEx([]byte("test"), signature)
-	//	assert.NoError(t, err)
-	//	err = RemoveKey(ecKey, keystore)
-	//	assert.NoError(t, err)
-	//
-	//})
-	//t.Run("Sign/Verify: Sign_SHA3384_ECDSA", func(t *testing.T) {
-	//	ctx := t.Context()
-	//	keystore, err := NewKeyStore(provider)
-	//	assert.NoError(t, err)
-	//	ecKey, err := GenerateTestKeyEC(keystore)
-	//	assert.NoError(t, err)
-	//	signer, err := NewSigner(ecKey, &kms.SignerParameters{
-	//		Algorithm: kms.Sign_SHA3384_ECDSA,
-	//	})
-	//	assert.NoError(t, err)
-	//	err = signer.Update([]byte("te"))
-	//	assert.NoError(t, err)
-	//	signature, err := signer.Close([]byte("st"))
-	//	assert.NoError(t, err)
-	//
-	//	verifier, err := NewVerifier(ecKey, &kms.VerifierParameters{
-	//		Algorithm: kms.Sign_SHA3384_ECDSA,
-	//		Signature: signature,
-	//	})
-	//	err = verifier.Update([]byte("te"))
-	//	assert.NoError(t, err)
-	//	err = verifier.Close([]byte("st"))
-	//	assert.NoError(t, err)
-	//	err = verifier.CloseEx([]byte("test"), signature)
-	//	assert.NoError(t, err)
-	//	err = RemoveKey(ecKey, keystore)
-	//	assert.NoError(t, err)
-	//
-	//})
-	//t.Run("Sign/Verify: Sign_SHA3512_ECDSA", func(t *testing.T) {
-	//	ctx := t.Context()
-	//	keystore, err := NewKeyStore(provider)
-	//	assert.NoError(t, err)
-	//	ecKey, err := GenerateTestKeyEC(keystore)
-	//	assert.NoError(t, err)
-	//	signer, err := NewSigner(ecKey, &kms.SignerParameters{
-	//		Algorithm: kms.Sign_SHA3512_ECDSA,
-	//	})
-	//	assert.NoError(t, err)
-	//	err = signer.Update([]byte("te"))
-	//	assert.NoError(t, err)
-	//	signature, err := signer.Close([]byte("st"))
-	//	assert.NoError(t, err)
-	//
-	//	verifier, err := NewVerifier(ecKey, &kms.VerifierParameters{
-	//		Algorithm: kms.Sign_SHA3512_ECDSA,
-	//		Signature: signature,
-	//	})
-	//	err = verifier.Update([]byte("te"))
-	//	assert.NoError(t, err)
-	//	err = verifier.Close([]byte("st"))
-	//	assert.NoError(t, err)
-	//	err = verifier.CloseEx([]byte("test"), signature)
-	//	assert.NoError(t, err)
-	//	err = RemoveKey(ecKey, keystore)
-	//	assert.NoError(t, err)
-	//
-	//})
+	return kmsConfig
 }

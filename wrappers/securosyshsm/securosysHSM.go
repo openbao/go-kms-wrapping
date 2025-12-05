@@ -86,7 +86,7 @@ func (s *Wrapper) Encrypt(_ context.Context, plaintext []byte, _ ...wrapping.Opt
 
 	payload := data
 	splitKey := strings.Split(string(payload), ":")
-	if len(splitKey) != 4 {
+	if len(splitKey) != 3 {
 		return nil, errors.New("invalid ciphertext returned")
 	}
 	keyId := splitKey[1]
@@ -104,12 +104,12 @@ func (s *Wrapper) Encrypt(_ context.Context, plaintext []byte, _ ...wrapping.Opt
 // Decrypt is used to decrypt the ciphertext
 func (s *Wrapper) Decrypt(_ context.Context, in *wrapping.BlobInfo, _ ...wrapping.Option) ([]byte, error) {
 	splitKey := strings.Split(string(in.Ciphertext), ":")
-	if len(splitKey) != 4 {
+	if len(splitKey) != 3 {
 		return nil, errors.New("invalid ciphertext returned")
 	}
 	keyId := splitKey[1]
 
-	plaintext, err := s.hsmClient.Decrypt(splitKey[2], keyId, splitKey[3])
+	plaintext, err := s.hsmClient.Decrypt(splitKey[2], keyId)
 	if err != nil {
 		return nil, err
 	}

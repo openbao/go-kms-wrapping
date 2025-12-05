@@ -19,14 +19,20 @@ func (c *TSBClient) Sign(label string, password string, payload string, payloadT
 		passwordString = `"keyPassword": ` + string(charsPasswordJson) + `,`
 
 	}
+	signatureType := ``
+	if signatureAlgorithm == "EDDSA" {
+		signatureType = `,"signatureType":"RAW"`
+	}
 
 	var jsonStr = []byte(`{
 		"signRequest": {
-		  "payload": "` + payload + `",
-		  "payloadType": "` + payloadType + `",
-		  ` + passwordString + `
-		  "signKeyName": "` + label + `",
-		  "signatureAlgorithm": "` + signatureAlgorithm + `"
+		"payload": "` + payload + `",
+		"payloadType": "` + payloadType + `",
+		` + passwordString + `
+		"signKeyName": "` + label + `",
+		"signatureAlgorithm": "` + signatureAlgorithm + `"
+  		` + signatureType + `
+
 		}
 	  }`)
 
@@ -65,6 +71,10 @@ func (c *TSBClient) AsyncSign(label string, password string, payload string, pay
 		metaDataSignatureString = `"` + *metaDataSignature + `"`
 
 	}
+	signatureType := ``
+	if signatureAlgorithm == "EDDSA" {
+		signatureType = `,"signatureType":"RAW"`
+	}
 	requestJson := `{
 		"payload": "` + payload + `",
 		"payloadType": "` + payloadType + `",
@@ -73,12 +83,13 @@ func (c *TSBClient) AsyncSign(label string, password string, payload string, pay
 		"signatureAlgorithm": "` + signatureAlgorithm + `",
 		"metaData": "` + metaDataB64 + `",
 		"metaDataSignature": ` + metaDataSignatureString + `
+		` + signatureType + `
+
 	  }`
 	var jsonStr = []byte(helpers.MinifyJson(`{
 		"signRequest": ` + requestJson + `,
 		"requestSignature":` + string(c.GenerateRequestSignature(requestJson)) + `
 	  }`))
-
 	req, err := http.NewRequest("POST", c.HostURL+"/v1/sign", bytes.NewBuffer(jsonStr))
 	if err != nil {
 		return "", 500, err
@@ -108,7 +119,7 @@ func (c *TSBClient) Verify(label string, password string, payload string, signat
 	var jsonStr = []byte(`{
 		"verifySignatureRequest": {
 		  "payload": "` + payload + `",
-		  ` + passwordString + `	
+		  ` + passwordString + `
 		  "signKeyName": "` + label + `",
 		  "signatureAlgorithm": "` + signatureAlgorithm + `",
 		  "signature": "` + signature + `"
