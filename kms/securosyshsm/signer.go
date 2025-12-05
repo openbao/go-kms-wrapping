@@ -12,8 +12,14 @@ import (
 	kms "github.com/openbao/go-kms-wrapping/v2/kms"
 )
 
+// Ensure KeyStoreFactory implements KeyStoreFactory
+var _ kms.RemoteDigestSignerFactory = (*MessageSignerFactory)(nil)
+
 // Ensure KeyStore implements KeyStore
 var _ kms.Signer = (*signer)(nil)
+
+type MessageSignerFactory struct {
+}
 
 type signer struct {
 	key          *PrivateKey
@@ -92,19 +98,13 @@ func (s *signer) Sign(ctx context.Context) ([]byte, error) {
 	return signature, nil
 }
 
-type SignerFactory struct {
-}
-
-// Ensure KeyStoreFactory implements KeyStoreFactory
-var _ kms.SignerFactory = (*SignerFactory)(nil)
-
-func (s SignerFactory) DigestSign(ctx context.Context, signerParams *kms.SignerParameters, digest []byte) ([]byte, error) {
+func (s MessageSignerFactory) DigestSign(ctx context.Context, signerParams *kms.SignerParameters, digest []byte) ([]byte, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
 	}
-	newSigner, err := s.NewSigner(ctx, signerParams)
+	newSigner, err := s.NewRemoteDigestSigner(ctx, signerParams)
 	if err != nil {
 		return nil, err
 	}
@@ -122,10 +122,10 @@ func (s SignerFactory) DigestSign(ctx context.Context, signerParams *kms.SignerP
 
 }
 
-func (s SignerFactory) NewSigner(ctx context.Context, signerParams *kms.SignerParameters) (kms.Signer, error) {
+func (s MessageSignerFactory) NewRemoteDigestSigner(ctx context.Context, signerParams *kms.SignerParameters) (kms.Signer, error) {
 	privateKey := PrivateKeyFromContext(ctx)
 	if privateKey.GetType() != kms.KeyType_RSA_Private && privateKey.GetType() != kms.KeyType_EC_Private && privateKey.GetType() != kms.KeyType_ED_Private {
-		return nil, errors.New("invalid key type. Only RSA, EC or ED keys are supported")
+		return nil, errors.New("invalid key type. Only RSA, EC or ED private keys are supported")
 	}
 
 	return &signer{

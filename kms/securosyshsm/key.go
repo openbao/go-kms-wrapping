@@ -16,18 +16,41 @@ import (
 	kms "github.com/openbao/go-kms-wrapping/v2/kms"
 )
 
-// Ensure KeyStore implements KeyStore
+// Ensure Key implements Key
 var _ kms.Key = (*key)(nil)
+
+// Ensure Securosys key implements CipherFactory
+var _ kms.CipherFactory = (*SecretKey)(nil)
+var _ kms.CipherFactory = (*PrivateKey)(nil)
+var _ kms.CipherFactory = (*PublicKey)(nil)
 
 var (
 	_ kms.AsymmetricKey = (*PublicKey)(nil)
 	_ kms.AsymmetricKey = (*PrivateKey)(nil)
 )
 
+type contextKey string
+
+const CONTEXT_KEY_NAME contextKey = "key"
+
 type key struct {
 	key      helpers.KeyAttributes
 	client   *client.SecurosysClient
 	password string
+}
+
+type SecretKey struct {
+	key
+}
+
+type PublicKey struct {
+	key
+	publicKeyString string
+}
+
+type PrivateKey struct {
+	key
+	publicKeyString string
 }
 
 func (k key) IsAsymmetric() bool {
@@ -63,7 +86,7 @@ func (k key) GetType() kms.KeyType {
 	case "ED":
 		return kms.KeyType_ED_Private
 	}
-	return kms.Keytype_Unsupported
+	return kms.KeyType_Unknown
 }
 
 func (k key) GetProtectedKeyAttributes() *kms.ProtectedKeyAttributes {
@@ -133,15 +156,6 @@ func (s key) GetKeyAttributes() *kms.KeyAttributes {
 	return &keyAttributes
 }
 
-type SecretKey struct {
-	key
-}
-
-type PublicKey struct {
-	key
-	publicKeyString string
-}
-
 func (p *PublicKey) GetPublic(ctx context.Context) (kms.Key, error) {
 	return p, nil
 }
@@ -176,11 +190,6 @@ func (p *PublicKey) ExportComponentPublic(ctx context.Context) (interface{}, err
 	return nil, nil
 }
 
-type PrivateKey struct {
-	key
-	publicKeyString string
-}
-
 func (p *PrivateKey) GetPublic(ctx context.Context) (kms.Key, error) {
 	return p, nil
 }
@@ -204,10 +213,10 @@ func (p *PrivateKey) ExportPublic(ctx context.Context) ([]byte, error) {
 	}
 
 	// Optional: verify it’s a valid public key
-	_, err = x509.ParsePKIXPublicKey(derBytes)
-	if err != nil {
-		return nil, fmt.Errorf("invalid ASN.1 public key: %w", err)
-	}
+	//_, err = x509.ParsePKIXPublicKey(derBytes)
+	//if err != nil {
+	//	return nil, fmt.Errorf("invalid ASN.1 public key: %w", err)
+	//}
 	return derBytes, nil
 }
 
@@ -231,17 +240,17 @@ func convertPolicyToMap(policy *helpers.Policy) map[string]interface{} {
 	return result
 }
 func WithPrivateKey(ctx context.Context, key *PrivateKey) context.Context {
-	return context.WithValue(ctx, kms.CONTEXT_KEY_NAME, key)
+	return context.WithValue(ctx, CONTEXT_KEY_NAME, key)
 }
 func WithPublicKey(ctx context.Context, key *PublicKey) context.Context {
-	return context.WithValue(ctx, kms.CONTEXT_KEY_NAME, key)
+	return context.WithValue(ctx, CONTEXT_KEY_NAME, key)
 }
 func WithSecretKey(ctx context.Context, key *SecretKey) context.Context {
-	return context.WithValue(ctx, kms.CONTEXT_KEY_NAME, key)
+	return context.WithValue(ctx, CONTEXT_KEY_NAME, key)
 }
 
 func PrivateKeyFromContext(ctx context.Context) *PrivateKey {
-	val := ctx.Value(kms.CONTEXT_KEY_NAME)
+	val := ctx.Value(CONTEXT_KEY_NAME)
 	ctxValue, ok := val.(*PrivateKey)
 	if !ok {
 		// handle missing or wrong type safely
@@ -250,7 +259,7 @@ func PrivateKeyFromContext(ctx context.Context) *PrivateKey {
 	return ctxValue
 }
 func PublicKeyFromContext(ctx context.Context) *PublicKey {
-	val := ctx.Value(kms.CONTEXT_KEY_NAME)
+	val := ctx.Value(CONTEXT_KEY_NAME)
 	ctxValue, ok := val.(*PublicKey)
 	if !ok {
 		// handle missing or wrong type safely
@@ -259,11 +268,41 @@ func PublicKeyFromContext(ctx context.Context) *PublicKey {
 	return ctxValue
 }
 func SecretKeyFromContext(ctx context.Context) *SecretKey {
-	val := ctx.Value(kms.CONTEXT_KEY_NAME)
+	val := ctx.Value(CONTEXT_KEY_NAME)
 	ctxValue, ok := val.(*SecretKey)
 	if !ok {
 		// handle missing or wrong type safely
 		return nil // or return an error
 	}
 	return ctxValue
+}
+
+func (key *SecretKey) NewCipher(ctx context.Context, operation kms.CipherOperation, cipherParams *kms.CipherParameters) (kms.Cipher, error) {
+
+	ctx = WithSecretKey(ctx, key)
+	return CipherFactory{}.NewCipher(ctx, operation, cipherParams)
+}
+
+func (key *PrivateKey) NewCipher(ctx context.Context, operation kms.CipherOperation, cipherParams *kms.CipherParameters) (kms.Cipher, error) {
+
+	ctx = WithPrivateKey(ctx, key)
+	return CipherFactory{}.NewCipher(ctx, operation, cipherParams)
+}
+
+func (key *PublicKey) NewCipher(ctx context.Context, operation kms.CipherOperation, cipherParams *kms.CipherParameters) (kms.Cipher, error) {
+
+	ctx = WithPublicKey(ctx, key)
+	return CipherFactory{}.NewCipher(ctx, operation, cipherParams)
+}
+
+func (key *PrivateKey) NewRemoteDigestSigner(ctx context.Context, signerParams *kms.SignerParameters) (kms.Signer, error) {
+
+	ctx = WithPrivateKey(ctx, key)
+	return MessageSignerFactory{}.NewRemoteDigestSigner(ctx, signerParams)
+}
+
+func (key *PublicKey) NewRemoteDigestVerifier(ctx context.Context, verifierParams *kms.VerifierParameters) (kms.Verifier, error) {
+
+	ctx = WithPublicKey(ctx, key)
+	return MessageVerifierFactory{}.NewRemoteDigestVerifier(ctx, verifierParams)
 }

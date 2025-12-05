@@ -133,7 +133,7 @@ func main() {
 	}
 	ctx = securosyshsm.WithSecretKey(ctx, key.(*securosyshsm.SecretKey))
 	encrypt, err := securosyshsm.CipherFactory{}.NewCipher(ctx, kms.CipherOp_Encrypt, &kms.CipherParameters{
-		Algorithm:  kms.CipherMode_AES_GCM,
+		Algorithm:  kms.CipherMode_AES_GCM96,
 		Parameters: kms.AESGCMCipherParameters{AAD: nil},
 	})
 	if err != nil {
@@ -149,7 +149,7 @@ func main() {
 	}
 	
 	decrypt, err := securosyshsm.CipherFactory{}.NewCipher(ctx, kms.CipherOp_Decrypt, &kms.CipherParameters{
-		Algorithm:  kms.CipherMode_AES_GCM,
+		Algorithm:  kms.CipherMode_AES_GCM96,
 		Parameters: kms.AESGCMCipherParameters{AAD: nil},
 	})
 	if err != nil {

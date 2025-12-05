@@ -108,7 +108,7 @@ func (c *TSBClient) Verify(label string, password string, payload string, signat
 	var jsonStr = []byte(`{
 		"verifySignatureRequest": {
 		  "payload": "` + payload + `",
-		  ` + passwordString + `	
+		  ` + passwordString + `
 		  "signKeyName": "` + label + `",
 		  "signatureAlgorithm": "` + signatureAlgorithm + `",
 		  "signature": "` + signature + `"
