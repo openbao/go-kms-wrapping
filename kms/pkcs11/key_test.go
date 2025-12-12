@@ -8,10 +8,15 @@ import (
 	"testing"
 
 	"github.com/openbao/go-kms-wrapping/kms/pkcs11/v2/internal/keybuilder"
+	"github.com/openbao/go-kms-wrapping/kms/pkcs11/v2/internal/module"
 	"github.com/openbao/go-kms-wrapping/kms/pkcs11/v2/internal/session"
 	"github.com/openbao/go-kms-wrapping/v2/kms"
 	"github.com/stretchr/testify/require"
 )
+
+func TestMain(m *testing.M) {
+	module.TestSetup(m)
+}
 
 func TestKey(t *testing.T) {
 	s, p := session.TestSession(t)
@@ -72,7 +77,6 @@ func TestKey(t *testing.T) {
 
 			require.Equal(t, a.KeyType, kms.KeyType_RSA_Private)
 
-			// SoftHSM defaults all of these to true.
 			require.True(t, a.CanSign)
 			require.True(t, a.CanVerify)
 			require.True(t, a.CanDecrypt)
@@ -110,7 +114,6 @@ func TestKey(t *testing.T) {
 
 					require.Equal(t, a.KeyType, kms.KeyType_EC_Private)
 
-					// SoftHSM defaults all these to true, even on EC keys.
 					require.True(t, a.CanSign)
 					require.True(t, a.CanVerify)
 					require.True(t, a.CanDecrypt)

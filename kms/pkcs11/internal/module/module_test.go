@@ -6,21 +6,22 @@ package module
 import (
 	"testing"
 
-	"github.com/openbao/go-kms-wrapping/kms/pkcs11/v2/internal/softhsm"
 	"github.com/stretchr/testify/require"
 )
 
+func TestMain(m *testing.M) {
+	TestSetup(m)
+}
+
 func Test(t *testing.T) {
 	t.Run("Get+Drop", func(t *testing.T) {
-		hsm := softhsm.New(t)
-
-		m1, err := Open(hsm.Path)
+		m1, err := Open(TestPath)
 		require.NoError(t, err, "module should open")
 
 		require.Len(t, cache, 1, "cache should have one module")
 		require.Equal(t, m1.refs, 1, "module should have one reference")
 
-		m2, err := Open(hsm.Path)
+		m2, err := Open(TestPath)
 		require.NoError(t, err, "module should open")
 
 		require.Equal(t, m1.module, m2.module, "modules referenced should be equal")
@@ -39,59 +40,44 @@ func Test(t *testing.T) {
 	})
 
 	t.Run("GetToken", func(t *testing.T) {
-		t.Run("no tokens", func(t *testing.T) {
-			hsm := softhsm.New(t)
-			mod := TestOpen(t, hsm.Path)
+		mod, tokens := TestTokens(t, 5)
 
-			token, err := mod.GetToken(SelectID(123))
-			require.Nil(t, token, "should not find bogus token")
-			require.Error(t, err, "should error when token is not found")
-		})
-
-		t.Run("many tokens", func(t *testing.T) {
-			hsm := softhsm.New(t)
-
-			// Note: These must be initialized before loading the module,
-			// or they will not be visible in GetSlotList().
-			label1, _ := hsm.InitToken()
-			label2, _ := hsm.InitToken()
-
-			mod := TestOpen(t, hsm.Path)
-
-			token1, err := mod.GetToken(SelectLabel(label1))
-			require.NoError(t, err, "should find token by label")
-			require.Equal(t, label1, token1.Info.Label, "label in token info should match search label")
-
-			token2, err := mod.GetToken(SelectLabel(label2))
-			require.NoError(t, err, "should find token by label")
-			require.Equal(t, label2, token2.Info.Label, "label in token info should match search label")
-
+		for _, token := range tokens {
 			{
-				token, err := mod.GetToken(SelectID(token1.ID))
-				require.NoError(t, err, "should find token by ID")
-				require.Equal(t, token1.ID, token.ID, "slot ID should match search ID")
-				require.Equal(t, label1, token.Info.Label, "label in token info should match known label")
+				tok, err := mod.GetToken(SelectID(token.ID))
+				require.NoError(t, err, "should find token by slot ID")
+				require.Equal(t, token.ID, tok.ID, "slot ID should match search ID")
 			}
 
 			{
-				token, err := mod.GetToken(SelectID(token2.ID), SelectLabel(label2))
-				require.NoError(t, err, "should find token")
-				require.Equal(t, token2.ID, token.ID, "slot ID should match search ID")
-				require.Equal(t, label2, token.Info.Label, "label in token info should match search label")
-			}
-
-			{
-				token, err := mod.GetToken(SelectSerial(token2.Info.SerialNumber))
-				require.NoError(t, err, "should find token")
-				require.Equal(t, token2.Info.SerialNumber, token.Info.SerialNumber, "serial in token info should match search serial")
-				require.Equal(t, label2, token.Info.Label, "label in token info should match known label")
-			}
-
-			{
-				token, err := mod.GetToken(SelectLabel("foobar"))
-				require.Nil(t, token, "should not find bogus token")
+				tok, err := mod.GetToken(SelectID(token.ID), SelectLabel("foobar"))
+				require.Nil(t, tok, "should not find bogus token")
 				require.Error(t, err, "should error when token is not found")
 			}
-		})
+
+			{
+				tok, err := mod.GetToken(SelectLabel(token.Info.Label))
+				require.NoError(t, err, "should find token by label")
+				require.Equal(t, token.Info.Label, tok.Info.Label, "label should match search label")
+				require.Equal(t, token.ID, tok.ID, "slot ID should match known ID")
+
+				tok, err = mod.GetToken(SelectID(tok.ID), SelectLabel(tok.Info.Label))
+				require.NoError(t, err, "should find token")
+				require.Equal(t, token.ID, tok.ID, "slot ID should match search ID")
+				require.Equal(t, token.Info.Label, tok.Info.Label, "label should match search label")
+			}
+
+			{
+				tok, err := mod.GetToken(SelectSerial(token.Info.SerialNumber))
+				require.NoError(t, err, "should find token")
+				require.Equal(t, token.Info.SerialNumber, tok.Info.SerialNumber, "serial should match search serial")
+				require.Equal(t, token.ID, tok.ID, "slot ID should match known ID")
+
+				tok, err = mod.GetToken(SelectID(tok.ID), SelectSerial(tok.Info.SerialNumber))
+				require.NoError(t, err, "should find token")
+				require.Equal(t, token.ID, tok.ID, "slot ID should match search ID")
+				require.Equal(t, token.Info.SerialNumber, tok.Info.SerialNumber, "label should match search label")
+			}
+		}
 	})
 }
