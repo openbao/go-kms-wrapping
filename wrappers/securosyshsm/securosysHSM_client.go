@@ -33,7 +33,7 @@ const (
 type securosysHSMClientEncryptor interface {
 	Close()
 	Encrypt(plaintext string) (data []byte, err error)
-	Decrypt(ciphertext string, keyVersion string, initializationVector string) (plaintext []byte, err error)
+	Decrypt(ciphertext string, keyVersion string) (plaintext []byte, err error)
 }
 type SecurosysHSMClient struct {
 	keystore kms.KeyStore
@@ -53,10 +53,10 @@ func newSecurosysHSMClient(logger hclog.Logger, opts *options) (*SecurosysHSMCli
 		return nil, nil, fmt.Errorf("key_label is required")
 	}
 
-	switch {
-	case opts.withKeyPassword != "":
-		keyPassword = opts.withKeyPassword
-	}
+	// switch {
+	// case opts.withKeyPassword != "":
+	// 	keyPassword = opts.withKeyPassword
+	// }
 	switch {
 	case opts.withApprovalTimeout != "":
 		approvalTimeout = opts.withApprovalTimeout
@@ -288,10 +288,10 @@ func (c *SecurosysHSMClient) Encrypt(plaintext string) ([]byte, error) {
 		return nil, err
 	}
 	encryptedBase64 := base64.StdEncoding.EncodeToString(encrypted)
-	return []byte(fmt.Sprintf("securosys:%s:%s:%s", "v1", encryptedBase64, nil)), nil
+	return []byte(fmt.Sprintf("securosys:%s:%s", "v1", encryptedBase64)), nil
 }
 
-func (c *SecurosysHSMClient) Decrypt(encryptedPayload string, keyVersion string, initializationVector string) ([]byte, error) {
+func (c *SecurosysHSMClient) Decrypt(encryptedPayload string, keyVersion string) ([]byte, error) {
 	ctx := context.Background()
 	ctx = securosyshsm.WithPrivateKey(ctx, c.key.(*securosyshsm.PrivateKey))
 	cipher, err := securosyshsm.CipherFactory{}.NewCipher(ctx, kms.CipherOp_Decrypt, &kms.CipherParameters{
