@@ -18,7 +18,8 @@ import (
 type KeyType int
 
 const (
-	KeyType_Generic_Secret KeyType = iota + 1
+	KeyType_Unknown KeyType = iota
+	KeyType_Generic_Secret
 	KeyType_AES
 	KeyType_RSA_Public
 	KeyType_RSA_Private
@@ -30,6 +31,8 @@ const (
 
 func (k KeyType) String() string {
 	switch k {
+	case KeyType_Unknown:
+		return "unknown"
 	case KeyType_Generic_Secret:
 		return "generic"
 	case KeyType_AES:

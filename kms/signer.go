@@ -16,10 +16,11 @@ import (
 type SignAlgorithm int
 
 const (
+	SignAlgo_Unknown SignAlgorithm = iota
 	// SignAlgo_RSA_PKCS1_PSS_SHA_256 and related constants all use consistent
 	// message digest and mask generation function hashes. That is, this
 	// selection uses SHA-256 for both hash function invocations.
-	SignAlgo_RSA_PKCS1_PSS_SHA_256 = iota + 1
+	SignAlgo_RSA_PKCS1_PSS_SHA_256
 	SignAlgo_RSA_PKCS1_PSS_SHA_384
 	SignAlgo_RSA_PKCS1_PSS_SHA_512
 
@@ -37,6 +38,8 @@ const (
 
 func (s SignAlgorithm) String() string {
 	switch s {
+	case SignAlgo_Unknown:
+		return "unknown"
 	case SignAlgo_RSA_PKCS1_PSS_SHA_256:
 		return "rsa-pss-sha-256"
 	case SignAlgo_RSA_PKCS1_PSS_SHA_384:
