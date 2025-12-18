@@ -24,6 +24,11 @@ const (
 	// attributes.
 	IdAttr = "id"
 
+	// UniqueIdAttr is CKA_UNIQUE_ID. This attribute may be passed to
+	// GetKeyByAttrs as []byte or string. It is always present as []byte in
+	// ProviderSpecific key attributes.
+	UniqueIdAttr = "unique-id"
+
 	// LabelAttr is CKA_LABEL. This attribute may be passed to GetKeyByAttrs as
 	// []byte or string. String values that start with "0x" are decoded as Hex.
 	// It is always present as []byte in ProviderSpecific key attributes.
@@ -42,8 +47,8 @@ const (
 type key struct {
 	pool *session.PoolRef
 
-	// As-is CKA_ID and CKA_LABEL values.
-	CKA_ID, CKA_LABEL []byte
+	// As-is CKA_ID, CKA_UNIQUE_ID and CKA_LABEL values.
+	CKA_ID, CKA_UNIQUE_ID, CKA_LABEL []byte
 	// As-is CKA_KEY_TYPE and CKA_CLASS values.
 	CKA_KEY_TYPE, CKA_CLASS uint
 
@@ -63,9 +68,19 @@ type key struct {
 func (k *key) Resolved() bool                           { return true }
 func (k *key) Resolve(context.Context) (kms.Key, error) { return k, nil }
 
-func (k *key) GetId() string      { return "" }
-func (k *key) GetName() string    { return "" }
-func (k *key) GetGroupId() string { return "" }
+func (k *key) GetId() string {
+	switch {
+	case len(k.CKA_UNIQUE_ID) != 0:
+		return string(k.CKA_UNIQUE_ID)
+	case len(k.CKA_LABEL) != 0 || len(k.CKA_ID) != 0:
+		return fmt.Sprintf("%s:%s", k.CKA_LABEL, k.CKA_ID)
+	default:
+		return ""
+	}
+}
+
+func (k *key) GetName() string    { return string(k.CKA_LABEL) }
+func (k *key) GetGroupId() string { return string(k.CKA_ID) }
 
 func (k *key) IsSensitive() bool  { return k.CKA_SENSITIVE }
 func (k *key) IsPersistent() bool { return k.CKA_TOKEN }
@@ -104,6 +119,9 @@ func (k *key) GetType() kms.KeyType {
 
 func (k *key) GetKeyAttributes() *kms.KeyAttributes {
 	return &kms.KeyAttributes{
+		KeyId:        k.GetId(),
+		Name:         k.GetName(),
+		GroupId:      k.GetGroupId(),
 		KeyType:      k.GetType(),
 		Curve:        k.curve,
 		BitKeyLen:    k.length,
@@ -115,10 +133,11 @@ func (k *key) GetKeyAttributes() *kms.KeyAttributes {
 		IsExportable: k.CKA_EXTRACTABLE,
 		IsPersistent: k.CKA_TOKEN,
 		ProviderSpecific: map[string]any{
-			IdAttr:    k.CKA_ID,
-			LabelAttr: k.CKA_LABEL,
-			ClassAttr: k.CKA_CLASS,
-			TypeAttr:  k.CKA_KEY_TYPE,
+			IdAttr:       k.CKA_ID,
+			UniqueIdAttr: k.CKA_UNIQUE_ID,
+			LabelAttr:    k.CKA_LABEL,
+			ClassAttr:    k.CKA_CLASS,
+			TypeAttr:     k.CKA_KEY_TYPE,
 		},
 	}
 }
@@ -195,11 +214,15 @@ func (p *pair) Resolve(ctx context.Context) (kms.Key, error)    { return p, nil 
 func (p *public) Resolve(ctx context.Context) (kms.Key, error)  { return p, nil }
 func (p *private) Resolve(ctx context.Context) (kms.Key, error) { return p, nil }
 
+// miekg/pkcs11 only has PKCS#11 v2.x functions and constants. CKA_UNIQUE_ID
+// is v3.0+ but easily queryable from a v2 "client", so declare it as a local
+// constant here.
+const _CKA_UNIQUE_ID = 0x00000004
+
 // fromObject constructs a key from an object handle by querying various
 // attributes.
 func fromObject(s *session.Handle, p *session.PoolRef, obj pkcs11.ObjectHandle) (kms.Key, error) {
-	var base key
-	base.pool = p
+	base := key{pool: p}
 
 	// These are generic attributes that can always be queried. Specialized
 	// attributes are retrieved in follow-up queries below.
@@ -207,6 +230,11 @@ func fromObject(s *session.Handle, p *session.PoolRef, obj pkcs11.ObjectHandle) 
 		pkcs11.NewAttribute(pkcs11.CKA_ID, 0),
 		pkcs11.NewAttribute(pkcs11.CKA_LABEL, 0),
 		pkcs11.NewAttribute(pkcs11.CKA_CLASS, 0),
+	}
+
+	version := p.Module().Info().CryptokiVersion
+	if version.Major >= 3 {
+		temp = append(temp, pkcs11.NewAttribute(_CKA_UNIQUE_ID, 0))
 	}
 
 	attrs, err := s.GetAttributeValue(obj, temp)
@@ -222,6 +250,8 @@ func fromObject(s *session.Handle, p *session.PoolRef, obj pkcs11.ObjectHandle) 
 			base.CKA_LABEL = attr.Value
 		case pkcs11.CKA_CLASS:
 			base.CKA_CLASS, err = bytesToUint(attr.Value)
+		case _CKA_UNIQUE_ID:
+			base.CKA_UNIQUE_ID = attr.Value
 		}
 		if err != nil {
 			return nil, err
