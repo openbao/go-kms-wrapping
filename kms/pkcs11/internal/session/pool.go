@@ -325,6 +325,16 @@ func mapErr(err error, op string) error {
 	}
 }
 
+// Module returns the pool's module reference.
+func (p *pool) Module() *module.Ref {
+	return p.mod
+}
+
+// Token returns the pool's token reference.
+func (p *pool) Token() *module.Token {
+	return p.token
+}
+
 // TestLogin is a test helper that logs into a pool and automatically drops it
 // on test completion, handling all errors.
 func TestLogin(t *testing.T, mod *module.Ref, token *module.Token, pin string) *PoolRef {
