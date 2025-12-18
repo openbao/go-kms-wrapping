@@ -29,7 +29,7 @@ type PairBuilder struct {
 func Secret(mech uint) *SecretBuilder {
 	return &SecretBuilder{
 		mech: pkcs11.NewMechanism(mech, nil),
-		temp: make(map[uint]any),
+		temp: map[uint]any{pkcs11.CKA_SENSITIVE: true},
 	}
 }
 
@@ -37,8 +37,8 @@ func Secret(mech uint) *SecretBuilder {
 func Pair(mech uint) *PairBuilder {
 	return &PairBuilder{
 		mech:    pkcs11.NewMechanism(mech, nil),
-		public:  make(map[uint]any),
-		private: make(map[uint]any),
+		public:  map[uint]any{},
+		private: map[uint]any{pkcs11.CKA_SENSITIVE: true},
 	}
 }
 

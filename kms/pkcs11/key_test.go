@@ -39,10 +39,10 @@ func TestKey(t *testing.T) {
 
 			require.True(t, a.CanDecrypt)
 			require.True(t, a.CanEncrypt)
+			require.True(t, a.IsSensitive)
 
 			require.False(t, a.CanSign)
 			require.False(t, a.CanVerify)
-			require.False(t, a.IsSensitive)
 			require.False(t, a.IsExportable)
 			require.False(t, a.IsPersistent)
 
@@ -77,8 +77,8 @@ func TestKey(t *testing.T) {
 			require.True(t, a.CanVerify)
 			require.True(t, a.CanDecrypt)
 			require.True(t, a.CanEncrypt)
+			require.True(t, a.IsSensitive)
 
-			require.False(t, a.IsSensitive)
 			require.False(t, a.IsExportable)
 			require.False(t, a.IsPersistent)
 
@@ -115,8 +115,8 @@ func TestKey(t *testing.T) {
 					require.True(t, a.CanVerify)
 					require.True(t, a.CanDecrypt)
 					require.True(t, a.CanEncrypt)
+					require.True(t, a.IsSensitive)
 
-					require.False(t, a.IsSensitive)
 					require.False(t, a.IsExportable)
 					require.False(t, a.IsPersistent)
 
@@ -216,10 +216,10 @@ func TestKey(t *testing.T) {
 
 			require.True(t, a.CanSign)
 			require.True(t, a.CanDecrypt)
+			require.True(t, a.IsSensitive)
 
 			require.False(t, a.CanVerify)
 			require.False(t, a.CanEncrypt)
-			require.False(t, a.IsSensitive)
 			require.False(t, a.IsPersistent)
 
 			require.Equal(t, a.BitKeyLen, uint32(4096))
@@ -247,10 +247,10 @@ func TestKey(t *testing.T) {
 
 			require.True(t, a.CanSign)
 			require.True(t, a.CanDecrypt)
+			require.True(t, a.IsSensitive)
 
 			require.False(t, a.CanVerify)
 			require.False(t, a.CanEncrypt)
-			require.False(t, a.IsSensitive)
 			require.False(t, a.IsExportable)
 			require.False(t, a.IsPersistent)
 
