@@ -7,21 +7,22 @@ type WrapperType string
 
 // These values define known types of Wrappers
 const (
-	WrapperTypeUnknown         WrapperType = "unknown"
-	WrapperTypeAead            WrapperType = "aead"
-	WrapperTypeAliCloudKms     WrapperType = "alicloudkms"
-	WrapperTypeAwsKms          WrapperType = "awskms"
-	WrapperTypeAzureKeyVault   WrapperType = "azurekeyvault"
-	WrapperTypeGcpCkms         WrapperType = "gcpckms"
-	WrapperTypeHuaweiCloudKms  WrapperType = "huaweicloudkms"
-	WrapperTypeKmip            WrapperType = "kmip"
-	WrapperTypeOciKms          WrapperType = "ocikms"
-	WrapperTypePkcs11          WrapperType = "pkcs11"
-	WrapperTypeSecurosysHsm    WrapperType = "securosys-hsm"
-	WrapperTypeTencentCloudKms WrapperType = "tencentcloudkms"
-	WrapperTypeTransit         WrapperType = "transit"
-	WrapperTypeStatic          WrapperType = "static"
-	WrapperTypeTest            WrapperType = "test-auto"
+	WrapperTypeUnknown             WrapperType = "unknown"
+	WrapperTypeAead                WrapperType = "aead"
+	WrapperTypeAliCloudKms         WrapperType = "alicloudkms"
+	WrapperTypeAwsKms              WrapperType = "awskms"
+	WrapperTypeAzureKeyVault       WrapperType = "azurekeyvault"
+	WrapperTypeGcpCkms             WrapperType = "gcpckms"
+	WrapperTypeHuaweiCloudKms      WrapperType = "huaweicloudkms"
+	WrapperTypeKmip                WrapperType = "kmip"
+	WrapperTypeOciKms              WrapperType = "ocikms"
+	WrapperTypeOpenTelekomCloudKms WrapperType = "opentelekomcloudkms"
+	WrapperTypePkcs11              WrapperType = "pkcs11"
+	WrapperTypeSecurosysHsm        WrapperType = "securosys-hsm"
+	WrapperTypeTencentCloudKms     WrapperType = "tencentcloudkms"
+	WrapperTypeTransit             WrapperType = "transit"
+	WrapperTypeStatic              WrapperType = "static"
+	WrapperTypeTest                WrapperType = "test-auto"
 )
 
 func (t WrapperType) String() string {
