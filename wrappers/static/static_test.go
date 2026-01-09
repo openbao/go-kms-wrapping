@@ -49,6 +49,14 @@ func TestStaticWrapper_Lifecycle(t *testing.T) {
 		t.Fatalf("key id does not match: expected %s, got %s", s.currentKeyId, kid)
 	}
 
+	// Test for compatibilty with OpenBao v2.5.0-beta20251125.
+	if _, err = s.Decrypt(context.Background(), &wrapping.BlobInfo{
+		KeyInfo:    swi.KeyInfo,
+		Ciphertext: append(swi.Iv, swi.Ciphertext...),
+	}); err != nil {
+		t.Fatalf("err: %s", err.Error())
+	}
+
 	// Ensure it works with AAD.
 	aad := []byte("testing-aad")
 	opts := wrapping.WithAad(aad)
