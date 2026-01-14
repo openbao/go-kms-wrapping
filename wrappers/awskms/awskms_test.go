@@ -24,14 +24,14 @@ func TestAwsKmsWrapper(t *testing.T) {
 	defer os.Setenv(EnvAwsKmsWrapperKeyId, oldKeyId)
 
 	os.Unsetenv(EnvAwsKmsWrapperKeyId)
-	_, err := s.SetConfig(t.Context())
+	_, err := s.SetConfig(t.Context(), WithRegion("dummy"))
 	if err == nil {
 		t.Fatal("expected error when AwsKms wrapping key ID is not provided")
 	}
 
 	// Set the key
 	os.Setenv(EnvAwsKmsWrapperKeyId, awsTestKeyId)
-	_, err = s.SetConfig(t.Context())
+	_, err = s.SetConfig(t.Context(), WithRegion("dummy"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestAwsKmsWrapper_IgnoreEnv(t *testing.T) {
 		"endpoint":          "my-endpoint",
 	}
 
-	_, err := wrapper.SetConfig(t.Context(), wrapping.WithConfigMap(config))
+	_, err := wrapper.SetConfig(t.Context(), wrapping.WithConfigMap(config), WithRegion("dummy"))
 	assert.NoError(t, err)
 
 	require.Equal(t, config["access_key"], wrapper.accessKey)
@@ -72,7 +72,7 @@ func TestAwsKmsWrapper_Lifecycle(t *testing.T) {
 	oldKeyId := os.Getenv(EnvAwsKmsWrapperKeyId)
 	os.Setenv(EnvAwsKmsWrapperKeyId, awsTestKeyId)
 	defer os.Setenv(EnvAwsKmsWrapperKeyId, oldKeyId)
-	testEncryptionRoundTrip(t, s)
+	testEncryptionRoundTrip(t, s, WithRegion("dummy"))
 }
 
 // This test executes real calls. The calls themselves should be free,
@@ -92,8 +92,8 @@ func TestAccAwsKmsWrapper_Lifecycle(t *testing.T) {
 	testEncryptionRoundTrip(t, s)
 }
 
-func testEncryptionRoundTrip(t *testing.T, w *Wrapper) {
-	_, err := w.SetConfig(t.Context())
+func testEncryptionRoundTrip(t *testing.T, w *Wrapper, opt ...wrapping.Option) {
+	_, err := w.SetConfig(t.Context(), opt...)
 	if err != nil {
 		t.Fatalf("err: %s", err.Error())
 	}
@@ -180,7 +180,7 @@ func TestAwsKmsWrapper_custom_endpoint(t *testing.T) {
 			if tc.Config != nil {
 				cfg = tc.Config
 			}
-			if _, err := s.SetConfig(t.Context(), wrapping.WithConfigMap(cfg)); err != nil {
+			if _, err := s.SetConfig(t.Context(), wrapping.WithConfigMap(cfg), WithRegion("dummy")); err != nil {
 				t.Fatalf("error setting config: %s", err)
 			}
 
