@@ -45,6 +45,7 @@ as they may have been used for past encryption operations.
   * * GCP CKMS (uses envelopes)
   * * Huawei Cloud KMS (uses envelopes)
   * * OCI KMS (uses envelopes)
+  * * OVHcloud KMS (uses envelopes)
   * * Tencent Cloud KMS (uses envelopes)
   * * Vault Transit mount
   * Supports generic integrations
