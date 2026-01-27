@@ -10,6 +10,7 @@ test:
 	cd wrappers/huaweicloudkms && go test ./... $(TESTARGS)
 	cd wrappers/kmip && go test ./... $(TESTARGS)
 	cd wrappers/ocikms && go test ./... $(TESTARGS)
+	cd wrappers/okms && go test ./... $(TESTARGS)
 	cd wrappers/pkcs11 && go test ./... $(TESTARGS)
 	cd wrappers/static && go test ./... $(TESTARGS)
 	cd wrappers/tencentcloudkms && go test ./... $(TESTARGS)
