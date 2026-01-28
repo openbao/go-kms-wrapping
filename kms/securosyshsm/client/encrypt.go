@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strconv"
 
-	helpers "github.com/openbao/go-kms-wrapping/keystores/securosyshsm/v2/helpers"
+	helpers "github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/helpers"
 )
 
 // Function thats sends asynchronous decrypt request to TSB

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	//"github.com/andreburgaud/crypt2go/padding"
-	"github.com/openbao/go-kms-wrapping/keystores/securosyshsm/v2/helpers"
+	"github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/helpers"
 	kms "github.com/openbao/go-kms-wrapping/v2/kms"
 )
 

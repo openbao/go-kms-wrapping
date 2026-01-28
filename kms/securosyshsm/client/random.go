@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/openbao/go-kms-wrapping/keystores/securosyshsm/v2/helpers"
+	"github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/helpers"
 )
 
 func (c *TSBClient) GenerateRandom(length int) (*helpers.RandomResponse, int, error) {

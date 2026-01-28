@@ -18,9 +18,9 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-hclog"
+	helpers "github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/helpers"
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 	"github.com/openbao/go-kms-wrapping/v2/kms"
-	helpers "github.com/openbao/go-kms-wrapping/v2/kms/securosyshsm/v2/helpers"
 )
 
 const (

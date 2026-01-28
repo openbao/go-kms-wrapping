@@ -10,7 +10,7 @@ import (
 
 	log "github.com/hashicorp/go-hclog"
 	"github.com/mitchellh/cli"
-	helpers "github.com/openbao/go-kms-wrapping/keystores/securosyshsm/v2/helpers"
+	helpers "github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/helpers"
 )
 
 // Struct storing generated data

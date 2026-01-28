@@ -101,7 +101,7 @@ import (
 	b64 "encoding/base64"
 	"fmt"
 	"os"
-	securosyshsm "github.com/openbao/go-kms-wrapping/keystores/securosyshsm/v2"
+	securosyshsm "github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2"
 	"github.com/openbao/go-kms-wrapping/v2/kms"
 )
 

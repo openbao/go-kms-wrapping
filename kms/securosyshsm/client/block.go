@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/openbao/go-kms-wrapping/keystores/securosyshsm/v2/helpers"
+	"github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/helpers"
 )
 
 // Function thats send block request to TSB
