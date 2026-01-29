@@ -6,72 +6,74 @@ package kms
 import (
 	"context"
 	"crypto"
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rsa"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"hash"
 	"io"
 )
 
-// NewDigestSigner is a local signer which allows incremental computation of
-// the hash locally, when the underlying signature algorithm supports it. If
-// an algorithm doesn't, SignerParameters.Algorithm.Hash() will return nil.
-//
-// This uses SignerFactory which means local crypto (message hashing) is
-// performed. Only the digest is sent to the remote KMS provider.
-func NewDigestSigner(factory SignerFactory, signerParams *SignerParameters) (Signer, error) {
-	hasher := signerParams.Algorithm.Hash()
-	if hasher == nil {
-		return nil, fmt.Errorf("%w: %v", ErrUnknownDigestAlgorithm, signerParams.Algorithm.String())
+// NewLocalMessageSigner is a signer which allows incremental local computation
+// of the hash, when the underlying signature algorithm supports it (and will
+// return an error otherwise).
+func NewLocalMessageSigner(signer DigestSigner, params *SignerParameters) (Signer, error) {
+	hash := params.Algorithm.Hash()
+	if hash == crypto.Hash(0) {
+		return nil, fmt.Errorf("%w: %s", ErrUnknownDigestAlgorithm, params.Algorithm)
 	}
 
-	return &signer{factory: factory, params: signerParams, hash: hasher}, nil
+	return &localMessageSigner{signer: signer, params: params, hash: hash.New()}, nil
 }
 
-type signer struct {
-	factory SignerFactory
-	params  *SignerParameters
-
-	hash hash.Hash
+type localMessageSigner struct {
+	signer DigestSigner
+	params *SignerParameters
+	hash   hash.Hash
 }
 
-func (s *signer) Update(ctx context.Context, data []byte) error {
+func (s *localMessageSigner) Update(ctx context.Context, data []byte) error {
 	_, err := s.hash.Write(data)
 	return err
 }
 
-func (s *signer) Close(ctx context.Context, data []byte) ([]byte, error) {
+func (s *localMessageSigner) Close(ctx context.Context, data []byte) ([]byte, error) {
 	if err := s.Update(ctx, data); err != nil {
 		return nil, err
 	}
 
-	return s.factory.Sign(ctx, s.params, s.hash.Sum(nil))
+	return s.signer.SignDigest(ctx, s.params, s.hash.Sum(nil))
 }
 
-// NewDigestVerifier will mutate its passed verifierParams.
-func NewDigestVerifier(factory VerifierFactory, verifierParams *VerifierParameters) (Verifier, error) {
-	hasher := verifierParams.Algorithm.Hash()
-	if hasher == nil {
-		return nil, fmt.Errorf("%w: %v", ErrUnknownDigestAlgorithm, verifierParams.Algorithm.String())
+// NewLocalMessageVerifier is a verifier which allows incremental local
+// computation of the hash, when the underlying signature algorithm supports it
+// (and will return an error otherwise).
+//
+// If a non-nil signature is passed to Close, the Signature field of the
+// originally passed VerifierParams will be mutated.
+func NewLocalMessageVerifier(verifier DigestVerifier, params *VerifierParameters) (Verifier, error) {
+	hash := params.Algorithm.Hash()
+	if hash == crypto.Hash(0) {
+		return nil, fmt.Errorf("%w: %s", ErrUnknownDigestAlgorithm, params.Algorithm)
 	}
 
-	return &verifier{factory: factory, params: verifierParams, hash: hasher}, nil
+	return &localMessageVerifier{verifier: verifier, params: params, hash: hash.New()}, nil
 }
 
-type verifier struct {
-	factory VerifierFactory
-	params  *VerifierParameters
-
-	hash hash.Hash
+type localMessageVerifier struct {
+	verifier DigestVerifier
+	params   *VerifierParameters
+	hash     hash.Hash
 }
 
-func (v *verifier) Update(ctx context.Context, data []byte) error {
+func (v *localMessageVerifier) Update(ctx context.Context, data []byte) error {
 	_, err := v.hash.Write(data)
 	return err
 }
 
-func (v *verifier) Close(ctx context.Context, data []byte, signature []byte) error {
+func (v *localMessageVerifier) Close(ctx context.Context, data []byte, signature []byte) error {
 	if err := v.Update(ctx, data); err != nil {
 		return err
 	}
@@ -80,159 +82,165 @@ func (v *verifier) Close(ctx context.Context, data []byte, signature []byte) err
 		v.params.Signature = signature
 	}
 
-	return v.factory.Verify(ctx, v.params, v.hash.Sum(nil))
+	return v.verifier.VerifyDigest(ctx, v.params, v.hash.Sum(nil))
 }
 
-var _ crypto.Signer = (*Certx509SigningKey)(nil)
-var _ crypto.MessageSigner = (*Certx509SigningKey)(nil)
+// NewStandardSigner returns a signer that implements the standard
+// [crypto.Signer] & [crypto.MessageSigner] interfaces on top of a Key.
+// StandardSigner supports both DigestSigner and RemoteDigestSignerFactory
+// and will dispatch to these based on the signing algorithm, the method used
+// (Sign vs SignMessage) and additional configuration fields available on
+// StandardSigner.
+func NewStandardSigner(ctx context.Context, key Key) (*StandardSigner, error) {
+	asymmetricKey, ok := key.(AsymmetricKey)
+	if !ok {
+		return nil, errors.New("key is not an AsymmetricKey")
+	}
 
-type Certx509SigningKey struct {
-	SignPrivateKey Key
-	SignAlgo       SignAlgorithm // If specified, use this algorithm for signing x509 certificates. Otherwise, infer from key type.
+	pub, err := asymmetricKey.ExportComponentPublic(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	switch pub := pub.(type) {
+	case *ecdsa.PublicKey, *rsa.PublicKey, ed25519.PublicKey:
+	default:
+		return nil, fmt.Errorf("expected well-known crypto.PublicKey type, got %T", pub)
+	}
+
+	return &StandardSigner{key: key, pub: pub, ctx: ctx}, nil
 }
 
-func (sk *Certx509SigningKey) Sign(rand io.Reader, message []byte, opts crypto.SignerOpts) (signature []byte, err error) {
+// StandardSigner implements [crypto.Signer] and [crypto.MessageSigner].
+type StandardSigner struct {
+	// EnforceRemoteDigest should be set to true to enforce that the digest is
+	// computed remotely, i.e., guarantees that the backing KMS will see the
+	// original payload.
+	EnforceRemoteDigest bool
 
-	var signAlgo SignAlgorithm = sk.SignAlgo
-	ctx := context.Background()
-
-	if signAlgo == SignAlgo_Unknown {
-		// Infer signing algorithm from key type (see crypto/x509)
-		switch (sk.SignPrivateKey).GetType() {
-		case KeyType_RSA_Private:
-			signAlgo = SignAlgo_RSA_PKCS1_PSS_SHA_256
-		case KeyType_EC_Private:
-			signAlgo = SignAlgo_EC_P256
-			/* FIXME: Enable curve-based sign algorithm selection once EC key curve is implemented
-			switch sk.key.key.GetCurve() {
-			case "P-256":
-				signAlgo = SignAlgo_EC_P256
-			case "P-384":
-				signAlgo = SignAlgo_EC_P384
-			case "P-521":
-				signAlgo = SignAlgo_EC_P521
-			default:
-				return nil, errors.New("unsupported EC curve for signing")
-			}
-			*/
-		case KeyType_ED_Private:
-			signAlgo = SignAlgo_ED
-		default:
-			return nil, errors.New("unsupported key type for signing")
-		}
-	}
-
-	if signAlgo == SignAlgo_ED {
-		if signerFactory, ok := (sk.SignPrivateKey).(RemoteDigestSignerFactory); ok {
-			signer, err := signerFactory.NewRemoteDigestSigner(ctx, &SignerParameters{
-				Algorithm: signAlgo,
-			})
-			if err != nil || signer == nil {
-				return nil, err
-			}
-
-			signature, err = signer.Close(ctx, message)
-
-			return signature, err
-
-		} else {
-			return nil, errors.New("provided key cannot be used for x509 certificate signing")
-		}
-	}
-
-	if signerFactory, ok := (sk.SignPrivateKey).(SignerFactory); ok {
-		return signerFactory.Sign(ctx, &SignerParameters{
-			Algorithm: signAlgo,
-		}, message)
-
-	} else {
-		return nil, errors.New("provided key cannot be used for x509 certificate signing")
-	}
+	key Key
+	pub crypto.PublicKey
+	ctx context.Context
 }
 
-func (sk *Certx509SigningKey) SignMessage(rand io.Reader, msg []byte, opts crypto.SignerOpts) (signature []byte, err error) {
-	var signAlgo SignAlgorithm = sk.SignAlgo
-	ctx := context.Background()
+func (s *StandardSigner) Public() crypto.PublicKey {
+	return s.pub
+}
 
-	if signAlgo == SignAlgo_Unknown {
-		// Infer signing algorithm from key type (see crypto/x509)
-		switch (sk.SignPrivateKey).GetType() {
-		case KeyType_RSA_Private:
-			if pssOptions, ok := opts.(*rsa.PSSOptions); ok {
-				switch pssOptions.Hash {
-				case crypto.SHA256:
-					signAlgo = SignAlgo_RSA_PKCS1_PSS_SHA_256
-				case crypto.SHA384:
-					signAlgo = SignAlgo_RSA_PKCS1_PSS_SHA_384
-				case crypto.SHA512:
-					signAlgo = SignAlgo_RSA_PKCS1_PSS_SHA_512
-				default:
-					return nil, errors.New("unsupported hash for RSA-PSS signing")
+func (s *StandardSigner) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+	params, err := s.params(opts)
+	if err != nil {
+		return nil, err
+	}
+
+	if s.EnforceRemoteDigest && params.Algorithm.Hash() != crypto.Hash(0) {
+		return nil, errors.New("cannot enforce remote digest policy")
+	}
+
+	if signer, ok := s.key.(DigestSigner); ok {
+		return signer.SignDigest(s.ctx, params, digest)
+	}
+
+	return nil, errors.New("key is not a DigestSigner")
+}
+
+func (s *StandardSigner) SignMessage(rand io.Reader, msg []byte, opts crypto.SignerOpts) ([]byte, error) {
+	params, err := s.params(opts)
+	if err != nil {
+		return nil, err
+	}
+
+	hash := params.Algorithm.Hash()
+	if !s.EnforceRemoteDigest || hash == crypto.Hash(0) {
+		// Prefer DigestSigner by default to use the more commonly implemented
+		// API and to save bandwidth if local digests are allowed.
+		if signer, ok := s.key.(DigestSigner); ok {
+			// Compute the digest if needed.
+			if hash != crypto.Hash(0) {
+				h := hash.New()
+				if _, err := h.Write(msg); err != nil {
+					return nil, err
 				}
-			} else {
-				return nil, errors.New("RSA PKCS #1 v1.5 signing is not supported for x509 certificates")
+				msg = h.Sum(nil)
 			}
-
-		case KeyType_EC_Private:
-			if opts.HashFunc() != crypto.SHA256 {
-				return nil, errors.New("unsupported hash for ECDSA signing")
-			}
-
-			keyAttr := sk.SignPrivateKey.GetKeyAttributes()
-
-			switch keyAttr.Curve {
-			case Curve_P256:
-				signAlgo = SignAlgo_EC_P256
-			case Curve_P384:
-				signAlgo = SignAlgo_EC_P384
-			case Curve_P521:
-				signAlgo = SignAlgo_EC_P521
-			default:
-				return nil, errors.New("unsupported EC curve for signing")
-			}
-		case KeyType_ED_Private:
-			signAlgo = SignAlgo_ED
-		default:
-			return nil, errors.New("unsupported key type for signing")
+			return signer.SignDigest(s.ctx, params, msg)
 		}
 	}
 
-	if signerFactory, ok := (sk.SignPrivateKey).(RemoteDigestSignerFactory); ok {
-		signer, err := signerFactory.NewRemoteDigestSigner(ctx, &SignerParameters{
-			Algorithm: signAlgo,
-		})
-		if err != nil || signer == nil {
+	// Fall back to RemoteMessageSignerFactory.
+	if factory, ok := s.key.(RemoteMessageSignerFactory); ok {
+		signer, err := factory.NewRemoteMessageSigner(s.ctx, params)
+		if err != nil {
 			return nil, err
 		}
-
-		signature, err = signer.Close(ctx, msg)
-
-		return signature, err
-
-	} else {
-		return nil, errors.New("provided key cannot be used for x509 certificate signing")
+		return signer.Close(s.ctx, msg)
 	}
+
+	return nil, errors.New("key is not a DigestSigner or RemoteDigestSignerFactory")
 }
 
-func (sk *Certx509SigningKey) Public() crypto.PublicKey {
-	// Extract the public key from the private key
-	ctx := context.Background()
-	if privateKey, ok := (sk.SignPrivateKey).(AsymmetricKey); ok {
-		derBytes, err := privateKey.ExportPublic(ctx)
-		if err != nil {
-			// Return nil if we can't extract the public key
-			return nil
+func (s *StandardSigner) params(opts crypto.SignerOpts) (*SignerParameters, error) {
+	hash, params := opts.HashFunc(), &SignerParameters{}
+
+	// Quoting the doc comment on crypto.MessageSigner:
+	//
+	// > MessageSigner.SignMessage and MessageSigner.Sign should
+	// produce the same > result given the same opts. In particular,
+	// MessageSigner.SignMessage > should only accept a zero opts.HashFunc if
+	// the Signer would also accept > messages which are not pre-hashed.
+	//
+	// ...so we should still ensure that opts.HashFunc is correct, no matter if
+	// this is called via Sign or SignMessage.
+
+	switch pub := s.pub.(type) {
+	case ed25519.PublicKey:
+		params.Algorithm = SignAlgo_ED
+		if hash != crypto.Hash(0) {
+			return nil, errors.New("pre-hashed Ed25519 variants are not supported, expected opts.HashFunc() zero")
 		}
 
-		// Parse the DER bytes into a crypto.PublicKey
-		pubKey, err := x509.ParsePKIXPublicKey(derBytes)
-		if err != nil {
-			// Return nil if we can't parse the public key
-			return nil
+	case *ecdsa.PublicKey:
+		switch pub.Curve {
+		case elliptic.P256():
+			params.Algorithm = SignAlgo_EC_P256
+		case elliptic.P384():
+			params.Algorithm = SignAlgo_EC_P384
+		case elliptic.P521():
+			params.Algorithm = SignAlgo_EC_P521
+		default:
+			return nil, errors.New("unsupported elliptic curve")
+		}
+		if expected := params.Algorithm.Hash(); hash != expected {
+			return nil, fmt.Errorf("opts.HashFunc() %s does not match expected standard hash %s for %s",
+				hash, expected, params.Algorithm)
 		}
 
-		return pubKey
-	} else {
-		return nil
+	case *rsa.PublicKey:
+		opts, ok := opts.(*rsa.PSSOptions)
+		if !ok {
+			return nil, errors.New("RSA PKCS#1 v1.5 signing is not supported")
+		}
+		switch opts.SaltLength {
+		case rsa.PSSSaltLengthEqualsHash, rsa.PSSSaltLengthAuto:
+		default:
+			return nil, errors.New("custom RSA PSS salt lengths are not supported")
+		}
+		switch hash {
+		case crypto.SHA256:
+			params.Algorithm = SignAlgo_RSA_PKCS1_PSS_SHA_256
+		case crypto.SHA384:
+			params.Algorithm = SignAlgo_RSA_PKCS1_PSS_SHA_384
+		case crypto.SHA512:
+			params.Algorithm = SignAlgo_RSA_PKCS1_PSS_SHA_512
+		default:
+			return nil, fmt.Errorf("unsupported hash function for RSA-OAEP signing: %s", hash)
+		}
+
+	default:
+		// NewStandardSigner should ensure that the public key always matches
+		// one of the above well-known public key types.
+		panic("unreachable")
 	}
+
+	return params, nil
 }
