@@ -27,8 +27,8 @@ func TestKey(t *testing.T) {
 			require.IsType(t, &secret{}, sec)
 			require.Implements(t, (*kms.Key)(nil), sec)
 			require.NotImplements(t, (*kms.AsymmetricKey)(nil), sec)
-			require.NotImplements(t, (*kms.SignerFactory)(nil), sec)
-			require.NotImplements(t, (*kms.VerifierFactory)(nil), sec)
+			require.NotImplements(t, (*kms.DigestSigner)(nil), sec)
+			require.NotImplements(t, (*kms.DigestVerifier)(nil), sec)
 
 			// TODO(satoqz): Implement these interfaces.
 			// require.Implements(t, (*kms.CipherFactory)(nil), sec)
@@ -137,7 +137,7 @@ func TestKey(t *testing.T) {
 
 			require.IsType(t, &public{}, pub)
 			require.Implements(t, (*kms.Key)(nil), pub)
-			require.NotImplements(t, (*kms.SignerFactory)(nil), pub)
+			require.NotImplements(t, (*kms.DigestSigner)(nil), pub)
 
 			// TODO(satoqz): Implement these interfaces.
 			// require.Implements(t, (*kms.AsymmetricKey)(nil), pub)
@@ -169,7 +169,7 @@ func TestKey(t *testing.T) {
 
 			require.IsType(t, &public{}, pub)
 			require.Implements(t, (*kms.Key)(nil), pub)
-			require.NotImplements(t, (*kms.SignerFactory)(nil), pub)
+			require.NotImplements(t, (*kms.DigestVerifier)(nil), pub)
 
 			// TODO(satoqz): Implement these interfaces.
 			// require.Implements(t, (*kms.AsymmetricKey)(nil), pub)
@@ -203,7 +203,7 @@ func TestKey(t *testing.T) {
 
 			require.IsType(t, &private{}, pub)
 			require.Implements(t, (*kms.Key)(nil), pub)
-			require.NotImplements(t, (*kms.VerifierFactory)(nil), pub)
+			require.NotImplements(t, (*kms.DigestVerifier)(nil), pub)
 
 			// TODO(satoqz): Implement these interfaces.
 			// require.Implements(t, (*kms.AsymmetricKey)(nil), pub)
@@ -235,7 +235,7 @@ func TestKey(t *testing.T) {
 
 			require.IsType(t, &private{}, pub)
 			require.Implements(t, (*kms.Key)(nil), pub)
-			require.NotImplements(t, (*kms.VerifierFactory)(nil), pub)
+			require.NotImplements(t, (*kms.DigestVerifier)(nil), pub)
 
 			// TODO(satoqz): Implement these interfaces.
 			// require.Implements(t, (*kms.CipherFactory)(nil), pub)

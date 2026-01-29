@@ -5,6 +5,7 @@ package kms
 
 import (
 	"context"
+	"crypto"
 	"encoding/asn1"
 	"errors"
 	"fmt"
@@ -228,5 +229,5 @@ type AsymmetricKey interface {
 	//
 	// When Go's standard library implements a given type, we expect that to
 	// be returned instead of a custom type.
-	ExportComponentPublic(ctx context.Context) (interface{}, error)
+	ExportComponentPublic(ctx context.Context) (crypto.PublicKey, error)
 }
