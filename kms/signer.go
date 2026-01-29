@@ -34,6 +34,9 @@ const (
 
 	// This ed25519 / ed448; NOT ed25519ph and ed448ph.
 	SignAlgo_ED
+
+	SignAlgo_Provider_Specific_Base SignAlgorithm = 65536
+	SignAlgo_Provider_Specific_Top  SignAlgorithm = 165536
 )
 
 func (s SignAlgorithm) String() string {
