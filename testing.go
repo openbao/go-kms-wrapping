@@ -6,8 +6,6 @@ package wrapping
 import (
 	"context"
 	"fmt"
-
-	"github.com/openbao/go-kms-wrapping/v2/internal/xor"
 )
 
 // TestWrapper is a wrapper that can be used for tests
@@ -230,17 +228,12 @@ func (t *TestWrapper) obscureBytes(in []byte) ([]byte, error) {
 		// make sure they are the same length
 		localSecret := make([]byte, len(in))
 		copy(localSecret, t.secret)
-
-		var err error
-
-		out, err = xor.XorBytes(in, localSecret)
-		if err != nil {
-			return nil, err
+		for i := range in {
+			out[i] = in[i] ^ localSecret[i]
 		}
-
 	} else {
 		// if there is no secret, simply reverse the string
-		for i := 0; i < len(in); i++ {
+		for i := range in {
 			out[i] = in[len(in)-1-i]
 		}
 	}
