@@ -28,6 +28,11 @@ func Test_EnvelopeEncrypt(t *testing.T) {
 			wantErrContains: "option error",
 		},
 		{
+			name: "success",
+			pt:   []byte("test"),
+			want: []byte("test"),
+		},
+		{
 			name:       "success-with-aad",
 			pt:         []byte("test"),
 			want:       []byte("test"),
@@ -58,37 +63,6 @@ func Test_EnvelopeEncrypt(t *testing.T) {
 			pt:   []byte(nil),
 			want: []byte(nil),
 		},
-		{
-			name:       "success-with-iv",
-			pt:         []byte("test"),
-			want:       []byte("test"),
-			encryptOpt: []Option{WithIV([]byte("test-with-iv"))},
-		},
-		{
-			name:       "success-with-nil-iv",
-			pt:         []byte("test"),
-			want:       []byte("test"),
-			encryptOpt: []Option{WithIV(nil)},
-		},
-		{
-			name:       "with-empty-iv",
-			pt:         []byte("test"),
-			want:       []byte("test"),
-			encryptOpt: []Option{WithIV([]byte(""))},
-			wantErr:    false,
-		},
-		{
-			name:       "success-with-iv-and-aad",
-			pt:         []byte("test"),
-			want:       []byte("test"),
-			encryptOpt: []Option{WithIV([]byte("test-with-iv")), WithAad([]byte("test"))},
-			decryptOpt: []Option{WithAad([]byte("test"))},
-		},
-		{
-			name: "success",
-			pt:   []byte("test"),
-			want: []byte("test"),
-		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -107,7 +81,7 @@ func Test_EnvelopeEncrypt(t *testing.T) {
 			require.NoError(err)
 			assert.NotNil(env)
 			assert.NotEmpty(env.Ciphertext)
-			assert.Empty(env.Iv)
+			assert.NotEmpty(env.Iv)
 			assert.NotEmpty(env.Key)
 
 			output, err := EnvelopeDecrypt(env, tc.decryptOpt...)

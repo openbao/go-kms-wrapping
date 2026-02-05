@@ -38,9 +38,16 @@ func EnvelopeEncrypt(plaintext []byte, opt ...Option) (*EnvelopeInfo, error) {
 		return nil, err
 	}
 
+	ciphertext := aead.Seal(nil, nil, plaintext, opts.WithAad)
+
 	return &EnvelopeInfo{
-		Ciphertext: aead.Seal(nil, nil, plaintext, opts.WithAad),
-		Key:        key,
+		// 12 bytes = 96-bit nonce. Split these for backwards
+		// compatibility with OpenBao v2.4 and lower.
+		// Also see:
+		// - https://github.com/openbao/openbao/issues/2230
+		// - https://github.com/openbao/openbao/issues/2417
+		Iv: ciphertext[:12], Ciphertext: ciphertext[12:],
+		Key: key,
 	}, nil
 }
 
@@ -68,7 +75,16 @@ func EnvelopeDecrypt(data *EnvelopeInfo, opt ...Option) ([]byte, error) {
 		return nil, err
 	}
 
-	return aead.Open(nil, nil, data.Ciphertext, opts.WithAad)
+	// OpenBao v2.5.0-beta20251125 and OpenBao v2.5.0 did not return
+	// a split nonce + ciphertext pair from EnvelopeEncrypt, which was
+	// backwards-incompatible. For maximum compatibility, we must handle
+	// both split and combined nonce + ciphertext pairs here, which is easily
+	// achieved by concatenating both fields.
+	// Also see:
+	// - https://github.com/openbao/openbao/issues/2230
+	// - https://github.com/openbao/openbao/issues/2417
+	ciphertext := append(data.Iv, data.Ciphertext...)
+	return aead.Open(nil, nil, ciphertext, opts.WithAad)
 }
 
 func aeadEncrypter(key []byte) (cipher.AEAD, error) {
