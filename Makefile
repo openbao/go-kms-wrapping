@@ -1,6 +1,5 @@
 test:
 	go test ./... $(TESTARGS)
-	cd entropy && go test ./... $(TESTARGS)
 	cd plugin && go test ./... $(TESTARGS)
 	cd wrappers/aead && go test ./...  $(TESTARGS)
 	cd wrappers/alicloudkms && go test ./... $(TESTARGS)
@@ -34,7 +33,6 @@ tools:
 
 .PHONY: tidy-all
 tidy-all:
-	cd entropy && go mod tidy
 	cd examples/plugin-cli && go mod tidy
 	cd examples/plugin-cli/plugins/mains/transit && go mod tidy
 	cd plugin && go mod tidy
@@ -56,7 +54,6 @@ tidy-all:
 
 .PHONY: generate-all
 generate-all:
-	cd entropy && GOARCH= GOOS= go generate ./...
 	cd plugin && GOARCH= GOOS= go generate ./...
 	cd wrappers/aead && GOARCH= GOOS= go generate ./...
 	cd wrappers/alicloudkms && GOARCH= GOOS= go generate ./...
