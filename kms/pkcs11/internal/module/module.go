@@ -22,6 +22,8 @@ type module struct {
 
 	path string // Original dynamic library path.
 	refs int    // Reference count.
+
+	info pkcs11.Info // Result of C_GetInfo.
 }
 
 var (
@@ -80,15 +82,31 @@ func Open(path string) (*Ref, error) {
 		return nil, errors.New("failed to load dynamic library")
 	}
 
-	if err := ctx.Initialize(); err != nil {
+	m, err := func() (*module, error) {
+		if err := ctx.Initialize(); err != nil {
+			return nil, fmt.Errorf("failed to pkcs#11 Initialize: %w", err)
+		}
+
+		info, err := ctx.GetInfo()
+		if err != nil {
+			return nil, fmt.Errorf("failed to pkcs#11 GetInfo: %w", err)
+		}
+
+		return &module{
+			Ctx:  ctx,
+			path: path,
+			refs: 1,
+			info: info,
+		}, nil
+	}()
+
+	if err != nil {
 		// If we can't initialize, just drop the entire dynamic library again.
 		ctx.Destroy()
-		return nil, fmt.Errorf("failed to pkcs#11 Initialize: %w", err)
+		return nil, err
 	}
 
-	m := &module{Ctx: ctx, path: path, refs: 1}
 	cache[path] = m
-
 	return &Ref{module: m}, nil
 }
 
@@ -142,6 +160,11 @@ func (m *module) Path() string {
 	return m.path
 }
 
+// Info returns the module's info struct.
+func (m *module) Info() *pkcs11.Info {
+	return &m.info
+}
+
 // Token holds token information, including the associated slot ID.
 type Token struct {
 	ID   uint // ID is the slot ID the token is present in.
@@ -162,6 +185,13 @@ func SelectID(id uint) TokenSelector {
 func SelectLabel(label string) TokenSelector {
 	return func(slot uint, info *pkcs11.TokenInfo) bool {
 		return info.Label != "" && info.Label == label
+	}
+}
+
+// SelectSerial matches a token by serial number.
+func SelectSerial(serial string) TokenSelector {
+	return func(slot uint, info *pkcs11.TokenInfo) bool {
+		return info.SerialNumber != "" && info.SerialNumber == serial
 	}
 }
 
