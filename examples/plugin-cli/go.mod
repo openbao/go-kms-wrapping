@@ -1,6 +1,6 @@
 module github.com/openbao/go-kms-wrapping/v2/examples/plugin-cli
 
-go 1.22.1
+go 1.25.0
 
 replace github.com/openbao/go-kms-wrapping/v2 => ../../
 

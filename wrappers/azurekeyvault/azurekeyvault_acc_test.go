@@ -10,12 +10,13 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
-	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"math/big"
 	"os"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 
 	"github.com/Azure/go-autorest/autorest/azure"
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
@@ -204,6 +205,9 @@ func TestWrapper_getCredential_CertificateCredential(t *testing.T) {
 }
 
 func TestCreds_getCertificate(t *testing.T) {
+	if os.Getenv("VAULT_ACC") == "" {
+		t.SkipNow()
+	}
 	ctx := context.Background()
 
 	clientID := os.Getenv("TEST_AZURE_CLIENT_ID")
