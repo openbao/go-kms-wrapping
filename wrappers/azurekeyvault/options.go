@@ -73,6 +73,16 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 				opts.withVaultName = v
 			case "key_name":
 				opts.withKeyName = v
+			case "auth_method":
+				opts.withAuthMethod = v
+			case "cert_path":
+				opts.withCertPath = v
+			case "cert_password":
+				opts.withCertPass = v
+			case "managed_id_kind":
+				opts.withManagedIdKind = v
+			case "resource_id":
+				opts.withResourceId = v
 			}
 		}
 	}
@@ -105,11 +115,16 @@ type options struct {
 	withKeyNotRequired  bool
 	withTenantId        string
 	withClientId        string
+	withResourceId      string
+	withManagedIdKind   string
 	withClientSecret    string
 	withEnvironment     string
 	withResource        string
 	withVaultName       string
 	withKeyName         string
+	withAuthMethod      string
+	withCertPath        string
+	withCertPass        string
 
 	withLogger hclog.Logger
 }
