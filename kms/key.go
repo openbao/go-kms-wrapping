@@ -27,6 +27,9 @@ const (
 	KeyType_EC_Private
 	KeyType_ED_Public
 	KeyType_ED_Private
+
+	KeyType_Provider_Specific_Base KeyType = 65536
+	KeyType_Provider_Specific_Top  KeyType = 165536
 )
 
 func (k KeyType) String() string {
@@ -67,6 +70,9 @@ const (
 	Curve_P256
 	Curve_P384
 	Curve_P521
+
+	Curve_Provider_Specific_Base Curve = 65536
+	Curve_Provider_Specific_Top  Curve = 165536
 )
 
 func (c Curve) String() string {
