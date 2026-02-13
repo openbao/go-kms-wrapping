@@ -18,7 +18,7 @@ var (
 )
 
 type wrapClient struct {
-	impl WrappingClient
+	impl WrapperClient
 }
 
 func (wc *wrapClient) Type(ctx context.Context) (wrapping.WrapperType, error) {

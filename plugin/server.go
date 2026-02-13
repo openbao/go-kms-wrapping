@@ -12,7 +12,7 @@ import (
 )
 
 type wrapServer struct {
-	UnimplementedWrappingServer
+	UnimplementedWrapperServer
 	impl wrapping.Wrapper
 }
 

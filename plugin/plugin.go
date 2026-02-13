@@ -45,7 +45,7 @@ func ServePlugin(wrapper wrapping.Wrapper, opt ...Option) error {
 		}
 	}()
 
-	wrapServer, err := NewWrapperServer(wrapper)
+	wrapServer, err := NewWrapperPluginServer(wrapper)
 	if err != nil {
 		return err
 	}
@@ -60,7 +60,7 @@ func ServePlugin(wrapper wrapping.Wrapper, opt ...Option) error {
 	return nil
 }
 
-func NewWrapperServer(impl wrapping.Wrapper) (*wrapper, error) {
+func NewWrapperPluginServer(impl wrapping.Wrapper) (*wrapper, error) {
 	if impl == nil {
 		return nil, fmt.Errorf("empty underlying wrapper passed in")
 	}
@@ -70,7 +70,7 @@ func NewWrapperServer(impl wrapping.Wrapper) (*wrapper, error) {
 	}, nil
 }
 
-func NewWrapperClient(pluginPath string, opt ...Option) (*gp.Client, error) {
+func NewWrapperPluginClient(pluginPath string, opt ...Option) (*gp.Client, error) {
 	opts, err := getOpts(opt...)
 	if err != nil {
 		return nil, err
@@ -92,10 +92,10 @@ func NewWrapperClient(pluginPath string, opt ...Option) (*gp.Client, error) {
 }
 
 func (w *wrapper) GRPCServer(broker *gp.GRPCBroker, s *grpc.Server) error {
-	RegisterWrappingServer(s, &wrapServer{impl: w.impl})
+	RegisterWrapperServer(s, &wrapServer{impl: w.impl})
 	return nil
 }
 
 func (w *wrapper) GRPCClient(ctx context.Context, broker *gp.GRPCBroker, c *grpc.ClientConn) (interface{}, error) {
-	return &wrapClient{impl: NewWrappingClient(c)}, nil
+	return &wrapClient{impl: NewWrapperClient(c)}, nil
 }

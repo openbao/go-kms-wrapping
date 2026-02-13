@@ -17,20 +17,6 @@ test:
 	cd kms/pkcs11 && go test ./... $(TESTARGS)
 	cd kms/securosyshsm && go test ./... $(TESTARGS)
 
-.PHONY: proto
-proto:
-	find . -type f -name "*.pb.go" -delete
-	buf generate
-	buf format -w
-
-	# inject classification tags (see: https://github.com/hashicorp/go-eventlogger/tree/main/filters/encrypt)
-	@protoc-go-inject-tag -input=./github.com.openbao.go.kms.wrapping.v2.types.pb.go
-
-.PHONY: tools
-tools:
-	go install github.com/favadi/protoc-go-inject-tag@v1.4.0
-	go install github.com/bufbuild/buf/cmd/buf@v1.15.1
-
 .PHONY: tidy-all
 tidy-all:
 	cd examples/plugin-cli && go mod tidy
@@ -75,3 +61,8 @@ generate-all:
 .PHONY: fmt
 fmt:
 	find . -name '*.go' | grep -v pb.go | grep -v vendor | xargs go run mvdan.cc/gofumpt@latest -w
+
+.PHONY: proto
+proto:
+	buf generate
+	buf format -w
