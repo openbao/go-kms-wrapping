@@ -7,11 +7,6 @@ import (
 	"context"
 )
 
-type HmacComputer interface {
-	// HmacKeyID is the ID of the key currently used for HMACing (if any)
-	HmacKeyId(context.Context) (string, error)
-}
-
 type InitFinalizer interface {
 	// Init allows performing any necessary setup calls before using a
 	// Wrapper.

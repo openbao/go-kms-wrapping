@@ -115,18 +115,6 @@ func (ws *wrapServer) Finalize(ctx context.Context, req *FinalizeRequest) (*Fina
 	return &FinalizeResponse{}, nil
 }
 
-func (ws *wrapServer) HmacKeyId(ctx context.Context, req *HmacKeyIdRequest) (*HmacKeyIdResponse, error) {
-	hmacComputer, ok := ws.impl.(wrapping.HmacComputer)
-	if !ok {
-		return nil, status.Error(codes.Unimplemented, "this wrapper does not implement HmacComputer")
-	}
-	hmacKeyId, err := hmacComputer.HmacKeyId(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return &HmacKeyIdResponse{KeyId: hmacKeyId}, nil
-}
-
 func (ws *wrapServer) KeyBytes(ctx context.Context, req *KeyBytesRequest) (*KeyBytesResponse, error) {
 	keyExporter, ok := ws.impl.(wrapping.KeyExporter)
 	if !ok {

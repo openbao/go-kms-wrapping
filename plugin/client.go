@@ -14,7 +14,6 @@ import (
 var (
 	_ wrapping.Wrapper       = (*wrapClient)(nil)
 	_ wrapping.InitFinalizer = (*wrapClient)(nil)
-	_ wrapping.HmacComputer  = (*wrapClient)(nil)
 	_ wrapping.KeyExporter   = (*wrapClient)(nil)
 )
 
@@ -108,18 +107,6 @@ func (ifc *wrapClient) Finalize(ctx context.Context, options ...wrapping.Option)
 		return wrapping.ErrFunctionNotImplemented
 	}
 	return err
-}
-
-func (wc *wrapClient) HmacKeyId(ctx context.Context) (string, error) {
-	resp, err := wc.impl.HmacKeyId(ctx, new(HmacKeyIdRequest))
-	switch {
-	case err == nil:
-	case status.Code(err) == codes.Unimplemented:
-		return "", wrapping.ErrFunctionNotImplemented
-	default:
-		return "", err
-	}
-	return resp.KeyId, nil
 }
 
 func (wc *wrapClient) KeyBytes(ctx context.Context) ([]byte, error) {

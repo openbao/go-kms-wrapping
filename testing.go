@@ -25,18 +25,11 @@ type TestInitFinalizer struct {
 	*TestWrapper
 }
 
-type TestInitFinalizerHmacComputer struct {
-	*TestInitFinalizer
-}
-
 var (
 	_ Wrapper       = (*TestWrapper)(nil)
 	_ KeyExporter   = (*TestWrapper)(nil)
 	_ InitFinalizer = (*TestInitFinalizer)(nil)
 	_ KeyExporter   = (*TestInitFinalizer)(nil)
-	_ InitFinalizer = (*TestInitFinalizerHmacComputer)(nil)
-	_ HmacComputer  = (*TestInitFinalizerHmacComputer)(nil)
-	_ KeyExporter   = (*TestInitFinalizerHmacComputer)(nil)
 )
 
 // NewTestWrapper constructs a test wrapper
@@ -59,19 +52,6 @@ func NewTestInitFinalizer(secret []byte) *TestInitFinalizer {
 	}
 }
 
-// NewTestInitFinalizerHmacComputer constructs a test wrapper
-func NewTestInitFinalizerHmacComputer(secret []byte) *TestInitFinalizerHmacComputer {
-	return &TestInitFinalizerHmacComputer{
-		TestInitFinalizer: &TestInitFinalizer{
-			TestWrapper: &TestWrapper{
-				wrapperType: WrapperTypeTest,
-				secret:      secret,
-				keyId:       "static-key",
-			},
-		},
-	}
-}
-
 // NewTestWrapper constructs a test wrapper
 func NewTestEnvelopeWrapper(secret []byte) *TestWrapper {
 	return &TestWrapper{
@@ -80,11 +60,6 @@ func NewTestEnvelopeWrapper(secret []byte) *TestWrapper {
 		keyId:       "static-key",
 		envelope:    true,
 	}
-}
-
-// HmacKeyId returns the HMAC key id
-func (t *TestInitFinalizerHmacComputer) HmacKeyId(_ context.Context) (string, error) {
-	return "hmac-key", nil
 }
 
 // Init initializes the test wrapper
@@ -120,11 +95,6 @@ func (t *TestWrapper) SetConfig(_ context.Context, opt ...Option) (*WrapperConfi
 	t.keyId = opts.WithKeyId
 
 	return nil, nil
-}
-
-// HmacKeyId returns the configured HMAC key ID
-func (t *TestWrapper) HmacKeyId(_ context.Context) string {
-	return ""
 }
 
 // SetKeyID allows setting the test wrapper's key ID

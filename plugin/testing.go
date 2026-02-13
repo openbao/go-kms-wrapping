@@ -76,8 +76,6 @@ func TestPlugin(
 	require.True(ok)
 	_, ok = raw.(wrapping.InitFinalizer)
 	require.True(ok)
-	_, ok = raw.(wrapping.HmacComputer)
-	require.True(ok)
 	require.NotNil(pluginWrapper)
 
 	return
