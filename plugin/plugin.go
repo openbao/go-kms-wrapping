@@ -9,8 +9,10 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"syscall"
 
 	gp "github.com/hashicorp/go-plugin"
+	"github.com/openbao/go-kms-wrapping/plugin/v2/pb"
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 	grpc "google.golang.org/grpc"
 )
@@ -38,7 +40,7 @@ func ServePlugin(wrapper wrapping.Wrapper, opt ...Option) error {
 	}
 
 	signalCh := make(chan os.Signal, 1)
-	signal.Notify(signalCh, sighup)
+	signal.Notify(signalCh, syscall.SIGHUP)
 	go func() {
 		for {
 			<-signalCh
@@ -92,10 +94,10 @@ func NewWrapperPluginClient(pluginPath string, opt ...Option) (*gp.Client, error
 }
 
 func (w *wrapper) GRPCServer(broker *gp.GRPCBroker, s *grpc.Server) error {
-	RegisterWrapperServer(s, &wrapServer{impl: w.impl})
+	pb.RegisterWrapperServer(s, &wrapServer{impl: w.impl})
 	return nil
 }
 
 func (w *wrapper) GRPCClient(ctx context.Context, broker *gp.GRPCBroker, c *grpc.ClientConn) (interface{}, error) {
-	return &wrapClient{impl: NewWrapperClient(c)}, nil
+	return &wrapClient{impl: pb.NewWrapperClient(c)}, nil
 }
