@@ -5,97 +5,78 @@ package plugin
 
 import (
 	"context"
-	"fmt"
 	"os"
-	"os/exec"
-	"os/signal"
-	"syscall"
 
+	log "github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin"
 	"github.com/openbao/go-kms-wrapping/plugin/v2/pb"
 	"github.com/openbao/go-kms-wrapping/v2"
 	"google.golang.org/grpc"
 )
 
-// HandshakeConfig is a shared config that can be used regardless of wrapper, to
-// avoid having to know type-specific things about each plugin
-var HandshakeConfig = plugin.HandshakeConfig{
-	MagicCookieKey:   "HASHICORP_GKW_PLUGIN",
-	MagicCookieValue: "wrapper",
+// ServeOpts configures a KMS plugin server.
+type ServeOpts struct {
+	WrapperFactoryFunc func() wrapping.Wrapper
+	Logger             log.Logger
 }
 
-// wrapper embeds Plugin and is used as the top-level
-type wrapper struct {
-	// Embeding this will disable the netRPC protocol
-	plugin.NetRPCUnsupportedPlugin
-
-	impl wrapping.Wrapper
-}
-
-// ServePlugin is a generic function to start serving a wrapper as a plugin
-func ServePlugin(wrapper wrapping.Wrapper, opt ...Option) error {
-	opts, err := getOpts(opt...)
-	if err != nil {
-		return err
+// Serve is used to serve a KMS plugin. This is typically called in the plugin's
+// main function.
+func Serve(opts *ServeOpts) {
+	logger := opts.Logger
+	if logger == nil {
+		logger = log.New(&log.LoggerOptions{
+			Level:      log.Info,
+			Output:     os.Stderr,
+			JSONFormat: true,
+		})
 	}
 
-	signalCh := make(chan os.Signal, 1)
-	signal.Notify(signalCh, syscall.SIGHUP)
-	go func() {
-		for {
-			<-signalCh
-		}
-	}()
-
-	wrapServer, err := NewWrapperPluginServer(wrapper)
-	if err != nil {
-		return err
-	}
-	plugin.Serve(&plugin.ServeConfig{
-		HandshakeConfig: HandshakeConfig,
-		VersionedPlugins: map[int]plugin.PluginSet{
-			1: {"wrapping": wrapServer},
+	plugins := map[int]plugin.PluginSet{
+		1: {
+			"wrapper": &gRPCWrapperPlugin{
+				factory: opts.WrapperFactoryFunc,
+			},
 		},
-		Logger:     opts.withLogger,
-		GRPCServer: plugin.DefaultGRPCServer,
+	}
+
+	plugin.Serve(&plugin.ServeConfig{
+		HandshakeConfig:  HandshakeConfig,
+		VersionedPlugins: plugins,
+		Logger:           logger,
+		GRPCServer:       plugin.DefaultGRPCServer,
+	})
+}
+
+// HandshakeConfig is the handshake config to use with plugins compiled against
+// this package.
+var HandshakeConfig = plugin.HandshakeConfig{
+	MagicCookieKey:   "OPENBAO_KMS_PLUGIN",
+	MagicCookieValue: "39704a18-7da7-4bda-9a2d-f7c488d70328",
+}
+
+// PluginSets are the versioned plugin sets to use on the client side.
+var PluginSets = map[int]plugin.PluginSet{
+	1: {
+		"wrapper": &gRPCWrapperPlugin{},
+	},
+}
+
+type gRPCWrapperPlugin struct {
+	factory func() wrapping.Wrapper
+
+	// Embedding this will disable the netRPC protocol.
+	plugin.NetRPCUnsupportedPlugin
+}
+
+func (wp *gRPCWrapperPlugin) GRPCServer(broker *plugin.GRPCBroker, s *grpc.Server) error {
+	pb.RegisterWrapperServer(s, &gRPCWrapperServer{
+		factory:   wp.factory,
+		instances: make(map[string]wrapping.Wrapper),
 	})
 	return nil
 }
 
-func NewWrapperPluginServer(impl wrapping.Wrapper) (*wrapper, error) {
-	if impl == nil {
-		return nil, fmt.Errorf("empty underlying wrapper passed in")
-	}
-
-	return &wrapper{
-		impl: impl,
-	}, nil
-}
-
-func NewWrapperPluginClient(pluginPath string, opt ...Option) (*plugin.Client, error) {
-	opts, err := getOpts(opt...)
-	if err != nil {
-		return nil, err
-	}
-
-	return plugin.NewClient(&plugin.ClientConfig{
-		HandshakeConfig: HandshakeConfig,
-		VersionedPlugins: map[int]plugin.PluginSet{
-			1: {"wrapping": &wrapper{}},
-		},
-		Cmd:              exec.Command(pluginPath),
-		AllowedProtocols: []plugin.Protocol{plugin.ProtocolGRPC},
-		Logger:           opts.withLogger,
-		AutoMTLS:         true,
-		SecureConfig:     opts.withSecureConfig,
-	}), nil
-}
-
-func (w *wrapper) GRPCServer(broker *plugin.GRPCBroker, s *grpc.Server) error {
-	pb.RegisterWrapperServer(s, &gRPCWrapperServer{impl: w.impl})
-	return nil
-}
-
-func (w *wrapper) GRPCClient(ctx context.Context, broker *plugin.GRPCBroker, c *grpc.ClientConn) (any, error) {
-	return &gRPCWrapperClient{impl: pb.NewWrapperClient(c)}, nil
+func (wp *gRPCWrapperPlugin) GRPCClient(ctx context.Context, broker *plugin.GRPCBroker, c *grpc.ClientConn) (any, error) {
+	return &gRPCWrapperClient{client: pb.NewWrapperClient(c)}, nil
 }

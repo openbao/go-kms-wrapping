@@ -22,28 +22,26 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
+	Wrapper_SetConfig_FullMethodName = "/pb.Wrapper/SetConfig"
 	Wrapper_Type_FullMethodName      = "/pb.Wrapper/Type"
 	Wrapper_KeyId_FullMethodName     = "/pb.Wrapper/KeyId"
-	Wrapper_SetConfig_FullMethodName = "/pb.Wrapper/SetConfig"
 	Wrapper_Encrypt_FullMethodName   = "/pb.Wrapper/Encrypt"
 	Wrapper_Decrypt_FullMethodName   = "/pb.Wrapper/Decrypt"
 	Wrapper_Init_FullMethodName      = "/pb.Wrapper/Init"
 	Wrapper_Finalize_FullMethodName  = "/pb.Wrapper/Finalize"
-	Wrapper_KeyBytes_FullMethodName  = "/pb.Wrapper/KeyBytes"
 )
 
 // WrapperClient is the client API for Wrapper service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type WrapperClient interface {
+	SetConfig(ctx context.Context, in *SetConfigRequest, opts ...grpc.CallOption) (*SetConfigResponse, error)
 	Type(ctx context.Context, in *TypeRequest, opts ...grpc.CallOption) (*TypeResponse, error)
 	KeyId(ctx context.Context, in *KeyIdRequest, opts ...grpc.CallOption) (*KeyIdResponse, error)
-	SetConfig(ctx context.Context, in *SetConfigRequest, opts ...grpc.CallOption) (*SetConfigResponse, error)
 	Encrypt(ctx context.Context, in *EncryptRequest, opts ...grpc.CallOption) (*EncryptResponse, error)
 	Decrypt(ctx context.Context, in *DecryptRequest, opts ...grpc.CallOption) (*DecryptResponse, error)
 	Init(ctx context.Context, in *InitRequest, opts ...grpc.CallOption) (*InitResponse, error)
 	Finalize(ctx context.Context, in *FinalizeRequest, opts ...grpc.CallOption) (*FinalizeResponse, error)
-	KeyBytes(ctx context.Context, in *KeyBytesRequest, opts ...grpc.CallOption) (*KeyBytesResponse, error)
 }
 
 type wrapperClient struct {
@@ -52,6 +50,16 @@ type wrapperClient struct {
 
 func NewWrapperClient(cc grpc.ClientConnInterface) WrapperClient {
 	return &wrapperClient{cc}
+}
+
+func (c *wrapperClient) SetConfig(ctx context.Context, in *SetConfigRequest, opts ...grpc.CallOption) (*SetConfigResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetConfigResponse)
+	err := c.cc.Invoke(ctx, Wrapper_SetConfig_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *wrapperClient) Type(ctx context.Context, in *TypeRequest, opts ...grpc.CallOption) (*TypeResponse, error) {
@@ -68,16 +76,6 @@ func (c *wrapperClient) KeyId(ctx context.Context, in *KeyIdRequest, opts ...grp
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(KeyIdResponse)
 	err := c.cc.Invoke(ctx, Wrapper_KeyId_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *wrapperClient) SetConfig(ctx context.Context, in *SetConfigRequest, opts ...grpc.CallOption) (*SetConfigResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(SetConfigResponse)
-	err := c.cc.Invoke(ctx, Wrapper_SetConfig_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -124,28 +122,17 @@ func (c *wrapperClient) Finalize(ctx context.Context, in *FinalizeRequest, opts 
 	return out, nil
 }
 
-func (c *wrapperClient) KeyBytes(ctx context.Context, in *KeyBytesRequest, opts ...grpc.CallOption) (*KeyBytesResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(KeyBytesResponse)
-	err := c.cc.Invoke(ctx, Wrapper_KeyBytes_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // WrapperServer is the server API for Wrapper service.
 // All implementations must embed UnimplementedWrapperServer
 // for forward compatibility.
 type WrapperServer interface {
+	SetConfig(context.Context, *SetConfigRequest) (*SetConfigResponse, error)
 	Type(context.Context, *TypeRequest) (*TypeResponse, error)
 	KeyId(context.Context, *KeyIdRequest) (*KeyIdResponse, error)
-	SetConfig(context.Context, *SetConfigRequest) (*SetConfigResponse, error)
 	Encrypt(context.Context, *EncryptRequest) (*EncryptResponse, error)
 	Decrypt(context.Context, *DecryptRequest) (*DecryptResponse, error)
 	Init(context.Context, *InitRequest) (*InitResponse, error)
 	Finalize(context.Context, *FinalizeRequest) (*FinalizeResponse, error)
-	KeyBytes(context.Context, *KeyBytesRequest) (*KeyBytesResponse, error)
 	mustEmbedUnimplementedWrapperServer()
 }
 
@@ -156,14 +143,14 @@ type WrapperServer interface {
 // pointer dereference when methods are called.
 type UnimplementedWrapperServer struct{}
 
+func (UnimplementedWrapperServer) SetConfig(context.Context, *SetConfigRequest) (*SetConfigResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetConfig not implemented")
+}
 func (UnimplementedWrapperServer) Type(context.Context, *TypeRequest) (*TypeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Type not implemented")
 }
 func (UnimplementedWrapperServer) KeyId(context.Context, *KeyIdRequest) (*KeyIdResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method KeyId not implemented")
-}
-func (UnimplementedWrapperServer) SetConfig(context.Context, *SetConfigRequest) (*SetConfigResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SetConfig not implemented")
 }
 func (UnimplementedWrapperServer) Encrypt(context.Context, *EncryptRequest) (*EncryptResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Encrypt not implemented")
@@ -176,9 +163,6 @@ func (UnimplementedWrapperServer) Init(context.Context, *InitRequest) (*InitResp
 }
 func (UnimplementedWrapperServer) Finalize(context.Context, *FinalizeRequest) (*FinalizeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Finalize not implemented")
-}
-func (UnimplementedWrapperServer) KeyBytes(context.Context, *KeyBytesRequest) (*KeyBytesResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method KeyBytes not implemented")
 }
 func (UnimplementedWrapperServer) mustEmbedUnimplementedWrapperServer() {}
 func (UnimplementedWrapperServer) testEmbeddedByValue()                 {}
@@ -199,6 +183,24 @@ func RegisterWrapperServer(s grpc.ServiceRegistrar, srv WrapperServer) {
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&Wrapper_ServiceDesc, srv)
+}
+
+func _Wrapper_SetConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetConfigRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WrapperServer).SetConfig(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Wrapper_SetConfig_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WrapperServer).SetConfig(ctx, req.(*SetConfigRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _Wrapper_Type_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -233,24 +235,6 @@ func _Wrapper_KeyId_Handler(srv interface{}, ctx context.Context, dec func(inter
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(WrapperServer).KeyId(ctx, req.(*KeyIdRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Wrapper_SetConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SetConfigRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(WrapperServer).SetConfig(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: Wrapper_SetConfig_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(WrapperServer).SetConfig(ctx, req.(*SetConfigRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -327,24 +311,6 @@ func _Wrapper_Finalize_Handler(srv interface{}, ctx context.Context, dec func(in
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Wrapper_KeyBytes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(KeyBytesRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(WrapperServer).KeyBytes(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: Wrapper_KeyBytes_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(WrapperServer).KeyBytes(ctx, req.(*KeyBytesRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 // Wrapper_ServiceDesc is the grpc.ServiceDesc for Wrapper service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -353,16 +319,16 @@ var Wrapper_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*WrapperServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
+			MethodName: "SetConfig",
+			Handler:    _Wrapper_SetConfig_Handler,
+		},
+		{
 			MethodName: "Type",
 			Handler:    _Wrapper_Type_Handler,
 		},
 		{
 			MethodName: "KeyId",
 			Handler:    _Wrapper_KeyId_Handler,
-		},
-		{
-			MethodName: "SetConfig",
-			Handler:    _Wrapper_SetConfig_Handler,
 		},
 		{
 			MethodName: "Encrypt",
@@ -379,10 +345,6 @@ var Wrapper_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Finalize",
 			Handler:    _Wrapper_Finalize_Handler,
-		},
-		{
-			MethodName: "KeyBytes",
-			Handler:    _Wrapper_KeyBytes_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
