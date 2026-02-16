@@ -4,121 +4,135 @@
 package plugin
 
 import (
-	context "context"
 	"crypto/rand"
 	"encoding/base64"
-	"errors"
+	"fmt"
 	"os"
-	"path/filepath"
+	"os/exec"
 	"testing"
 
-	wrapping "github.com/openbao/go-kms-wrapping/v2"
-	"github.com/stretchr/testify/assert"
+	"github.com/hashicorp/go-plugin"
+	"github.com/openbao/go-kms-wrapping/v2"
+	"github.com/openbao/go-kms-wrapping/v2/aead"
 	"github.com/stretchr/testify/require"
 )
 
-func TestAeadPluginWrapper(t *testing.T) {
-	require := require.New(t)
-	ctx := context.Background()
+// client is a test helper that spawns a plugin server by re-executing the
+// test binary into one of the TestServer_* tests below and returns a client
+// connected to it.
+func client(t *testing.T, test string) plugin.ClientProtocol {
+	cmd := exec.Command(os.Args[0], fmt.Sprintf("--test.run=TestServer_%s", test))
+	cmd.Env = append(cmd.Env, "OPENBAO_TEST_SERVER=1")
 
-	pluginPath := os.Getenv("PLUGIN_PATH")
-	if pluginPath == "" {
-		t.Skipf("skipping plugin test as no PLUGIN_PATH specified")
-	}
+	plug := plugin.NewClient(&plugin.ClientConfig{
+		Cmd:              cmd,
+		VersionedPlugins: PluginSets,
+		HandshakeConfig:  HandshakeConfig,
+		AllowedProtocols: []plugin.Protocol{plugin.ProtocolGRPC},
+		AutoMTLS:         true,
+	})
 
-	wrapper, cleanup := TestPlugin(t, pluginPath)
+	t.Cleanup(func() {
+		plug.Kill()
+	})
 
-	require.NotNil(cleanup)
-	defer cleanup()
+	client, err := plug.Client()
+	require.NoError(t, err)
 
-	rootKey := make([]byte, 32)
-	n, err := rand.Read(rootKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n != 32 {
-		t.Fatal(n)
-	}
-
-	_, err = wrapper.SetConfig(
-		context.Background(),
-		wrapping.WithKeyId("root"),
-		wrapping.WithConfigMap(map[string]string{
-			"key": base64.StdEncoding.EncodeToString(rootKey),
-		}),
-	)
-	require.NoError(err)
-
-	keyId, err := wrapper.KeyId(ctx)
-	require.NoError(err)
-	require.Equal(keyId, "root")
-
-	encBlob, err := wrapper.Encrypt(context.Background(), []byte("foobar"))
-	require.NoError(err)
-
-	// Sanity check
-	decVal, err := wrapper.Decrypt(context.Background(), encBlob)
-	require.NoError(err)
-	require.Equal("foobar", string(decVal))
-
-	// Check KeyExporter
-	keWrapper, ok := wrapper.(wrapping.KeyExporter)
-	require.True(ok)
-	buf, err := keWrapper.KeyBytes(ctx)
-	require.NoError(err)
-	require.NotEmpty(buf)
+	return client
 }
 
-func TestInterfaceWrapper(t *testing.T) {
-	require, assert := require.New(t), assert.New(t)
-	ctx := context.Background()
-
-	pluginPath := os.Getenv("PLUGIN_PATH")
-	if pluginPath == "" {
-		t.Skipf("skipping plugin test as no PLUGIN_PATH specified")
+func TestServer_TestWrapper(t *testing.T) {
+	if _, ok := os.LookupEnv("OPENBAO_TEST_SERVER"); !ok {
+		t.Skip()
 	}
-
-	var ok bool
-
-	wrapper, wrapperCleanup := TestPlugin(t, filepath.Join(pluginPath, "wrapperplugin"))
-	if wrapperCleanup != nil {
-		t.Cleanup(wrapperCleanup)
-	}
-	keyId, err := wrapper.KeyId(ctx)
-	assert.NoError(err)
-	assert.Equal(keyId, "static-key")
-
-	ifWrapper, ok := wrapper.(wrapping.InitFinalizer)
-	require.True(ok)
-	err = ifWrapper.Init(ctx)
-	require.Error(err)
-	assert.True(errors.Is(err, wrapping.ErrFunctionNotImplemented))
-	err = ifWrapper.Finalize(ctx)
-	require.Error(err)
-	assert.True(errors.Is(err, wrapping.ErrFunctionNotImplemented))
+	Serve(&ServeOpts{
+		WrapperFactoryFunc: func() wrapping.Wrapper {
+			return wrapping.NewTestInitFinalizer([]byte("test"))
+		},
+	})
 }
 
-func TestInterfaceAll(t *testing.T) {
-	require, assert := require.New(t), assert.New(t)
-	ctx := context.Background()
+func TestServer_AeadWrapper(t *testing.T) {
+	if _, ok := os.LookupEnv("OPENBAO_TEST_SERVER"); !ok {
+		t.Skip()
+	}
+	Serve(&ServeOpts{
+		WrapperFactoryFunc: func() wrapping.Wrapper {
+			return aead.NewWrapper()
+		},
+	})
+}
 
-	pluginPath := os.Getenv("PLUGIN_PATH")
-	if pluginPath == "" {
-		t.Skipf("skipping plugin test as no PLUGIN_PATH specified")
+func TestWrapper(t *testing.T) {
+	key := make([]byte, 32)
+	_, _ = rand.Read(key)
+
+	tests := []struct {
+		server string // See client().
+		opts   *wrapping.Options
+	}{
+		{
+			server: "TestWrapper",
+			opts: &wrapping.Options{
+				WithKeyId: "test",
+			},
+		},
+		{
+			server: "AeadWrapper",
+			opts: &wrapping.Options{
+				WithKeyId: "root",
+				WithConfigMap: map[string]string{
+					"key": base64.StdEncoding.EncodeToString(key),
+				},
+			},
+		},
 	}
 
-	var ok bool
-	// Now get one that does and validate it
-	wrapper, wrapperCleanup := TestPlugin(t, filepath.Join(pluginPath, "initfinalizerhmaccomputerplugin"))
-	if wrapperCleanup != nil {
-		t.Cleanup(wrapperCleanup)
-	}
-	keyId, err := wrapper.KeyId(ctx)
-	assert.NoError(err)
-	assert.Equal(keyId, "static-key")
+	for _, tt := range tests {
+		t.Run(tt.server, func(t *testing.T) {
+			raw, err := client(t, tt.server).Dispense("wrapper")
+			require.NoError(t, err)
 
-	ifWrapper, ok := wrapper.(wrapping.InitFinalizer)
-	require.True(ok)
-	require.NoError(ifWrapper.Init(ctx))
-	require.NoError(ifWrapper.Finalize(ctx))
+			ctx := t.Context()
+
+			wrapper, ok := raw.(interface {
+				wrapping.Wrapper
+				wrapping.InitFinalizer
+			})
+			require.True(t, ok)
+
+			_, err = wrapper.SetConfig(
+				ctx,
+				wrapping.WithKeyId(tt.opts.WithKeyId),
+				wrapping.WithConfigMap(tt.opts.WithConfigMap),
+			)
+			require.NoError(t, err)
+
+			t.Run("Init", func(t *testing.T) {
+				require.NoError(t, wrapper.Init(ctx))
+			})
+
+			t.Run("Encrypt+Decrypt", func(t *testing.T) {
+				input := "foobar"
+				blob, err := wrapper.Encrypt(ctx, []byte(input))
+				require.NoError(t, err)
+
+				plaintext, err := wrapper.Decrypt(ctx, blob)
+				require.NoError(t, err)
+				require.Equal(t, input, string(plaintext))
+			})
+
+			t.Run("KeyId", func(t *testing.T) {
+				id, err := wrapper.KeyId(ctx)
+				require.NoError(t, err)
+				require.Equal(t, tt.opts.WithKeyId, id)
+			})
+
+			t.Run("Finalize", func(t *testing.T) {
+				require.NoError(t, wrapper.Finalize(ctx))
+				require.ErrorContains(t, wrapper.Finalize(ctx), ErrNoInstance.Error())
+			})
+		})
+	}
 }
