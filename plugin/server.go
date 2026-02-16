@@ -88,7 +88,7 @@ func (ws *gRPCWrapperServer) Decrypt(ctx context.Context, req *pb.DecryptRequest
 func (ws *gRPCWrapperServer) Init(ctx context.Context, req *pb.InitRequest) (*pb.InitResponse, error) {
 	initFinalizer, ok := ws.impl.(wrapping.InitFinalizer)
 	if !ok {
-		return nil, status.Error(codes.Unimplemented, "this Wrapper does not implement InitFinalizer")
+		return &pb.InitResponse{}, nil
 	}
 	opts := req.Options
 	if opts == nil {
@@ -106,7 +106,7 @@ func (ws *gRPCWrapperServer) Init(ctx context.Context, req *pb.InitRequest) (*pb
 func (ws *gRPCWrapperServer) Finalize(ctx context.Context, req *pb.FinalizeRequest) (*pb.FinalizeResponse, error) {
 	initFinalizer, ok := ws.impl.(wrapping.InitFinalizer)
 	if !ok {
-		return nil, status.Error(codes.Unimplemented, "this Wrapper does not implement InitFinalizer")
+		return &pb.FinalizeResponse{}, nil
 	}
 	if err := initFinalizer.Finalize(
 		ctx,

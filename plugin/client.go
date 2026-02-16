@@ -90,9 +90,6 @@ func (ifc *gRPCWrapperClient) Init(ctx context.Context, options ...wrapping.Opti
 	_, err = ifc.impl.Init(ctx, &pb.InitRequest{
 		Options: opts,
 	})
-	if status.Code(err) == codes.Unimplemented {
-		return wrapping.ErrFunctionNotImplemented
-	}
 	return err
 }
 
@@ -104,9 +101,6 @@ func (wc *gRPCWrapperClient) Finalize(ctx context.Context, options ...wrapping.O
 	_, err = wc.impl.Finalize(ctx, &pb.FinalizeRequest{
 		Options: opts,
 	})
-	if status.Code(err) == codes.Unimplemented {
-		return wrapping.ErrFunctionNotImplemented
-	}
 	return err
 }
 
