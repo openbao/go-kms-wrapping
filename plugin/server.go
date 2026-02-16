@@ -4,20 +4,20 @@
 package plugin
 
 import (
-	context "context"
+	"context"
 
 	"github.com/openbao/go-kms-wrapping/plugin/v2/pb"
-	wrapping "github.com/openbao/go-kms-wrapping/v2"
+	"github.com/openbao/go-kms-wrapping/v2"
 	"google.golang.org/grpc/codes"
-	status "google.golang.org/grpc/status"
+	"google.golang.org/grpc/status"
 )
 
-type wrapServer struct {
+type gRPCWrapperServer struct {
 	pb.UnimplementedWrapperServer
 	impl wrapping.Wrapper
 }
 
-func (ws *wrapServer) Type(ctx context.Context, req *pb.TypeRequest) (*pb.TypeResponse, error) {
+func (ws *gRPCWrapperServer) Type(ctx context.Context, req *pb.TypeRequest) (*pb.TypeResponse, error) {
 	typ, err := ws.impl.Type(ctx)
 	if err != nil {
 		return nil, err
@@ -25,7 +25,7 @@ func (ws *wrapServer) Type(ctx context.Context, req *pb.TypeRequest) (*pb.TypeRe
 	return &pb.TypeResponse{Type: typ.String()}, nil
 }
 
-func (ws *wrapServer) KeyId(ctx context.Context, req *pb.KeyIdRequest) (*pb.KeyIdResponse, error) {
+func (ws *gRPCWrapperServer) KeyId(ctx context.Context, req *pb.KeyIdRequest) (*pb.KeyIdResponse, error) {
 	keyId, err := ws.impl.KeyId(ctx)
 	if err != nil {
 		return nil, err
@@ -33,7 +33,7 @@ func (ws *wrapServer) KeyId(ctx context.Context, req *pb.KeyIdRequest) (*pb.KeyI
 	return &pb.KeyIdResponse{KeyId: keyId}, nil
 }
 
-func (ws *wrapServer) SetConfig(ctx context.Context, req *pb.SetConfigRequest) (*pb.SetConfigResponse, error) {
+func (ws *gRPCWrapperServer) SetConfig(ctx context.Context, req *pb.SetConfigRequest) (*pb.SetConfigResponse, error) {
 	opts := req.Options
 	if opts == nil {
 		opts = new(wrapping.Options)
@@ -49,7 +49,7 @@ func (ws *wrapServer) SetConfig(ctx context.Context, req *pb.SetConfigRequest) (
 	return &pb.SetConfigResponse{WrapperConfig: wc}, nil
 }
 
-func (ws *wrapServer) Encrypt(ctx context.Context, req *pb.EncryptRequest) (*pb.EncryptResponse, error) {
+func (ws *gRPCWrapperServer) Encrypt(ctx context.Context, req *pb.EncryptRequest) (*pb.EncryptResponse, error) {
 	opts := req.Options
 	if opts == nil {
 		opts = new(wrapping.Options)
@@ -67,7 +67,7 @@ func (ws *wrapServer) Encrypt(ctx context.Context, req *pb.EncryptRequest) (*pb.
 	return &pb.EncryptResponse{Ciphertext: ct}, nil
 }
 
-func (ws *wrapServer) Decrypt(ctx context.Context, req *pb.DecryptRequest) (*pb.DecryptResponse, error) {
+func (ws *gRPCWrapperServer) Decrypt(ctx context.Context, req *pb.DecryptRequest) (*pb.DecryptResponse, error) {
 	opts := req.Options
 	if opts == nil {
 		opts = new(wrapping.Options)
@@ -85,10 +85,10 @@ func (ws *wrapServer) Decrypt(ctx context.Context, req *pb.DecryptRequest) (*pb.
 	return &pb.DecryptResponse{Plaintext: pt}, nil
 }
 
-func (ws *wrapServer) Init(ctx context.Context, req *pb.InitRequest) (*pb.InitResponse, error) {
+func (ws *gRPCWrapperServer) Init(ctx context.Context, req *pb.InitRequest) (*pb.InitResponse, error) {
 	initFinalizer, ok := ws.impl.(wrapping.InitFinalizer)
 	if !ok {
-		return nil, status.Error(codes.Unimplemented, "this wrapper does not implement InitFinalizer")
+		return nil, status.Error(codes.Unimplemented, "this Wrapper does not implement InitFinalizer")
 	}
 	opts := req.Options
 	if opts == nil {
@@ -103,10 +103,10 @@ func (ws *wrapServer) Init(ctx context.Context, req *pb.InitRequest) (*pb.InitRe
 	return &pb.InitResponse{}, nil
 }
 
-func (ws *wrapServer) Finalize(ctx context.Context, req *pb.FinalizeRequest) (*pb.FinalizeResponse, error) {
+func (ws *gRPCWrapperServer) Finalize(ctx context.Context, req *pb.FinalizeRequest) (*pb.FinalizeResponse, error) {
 	initFinalizer, ok := ws.impl.(wrapping.InitFinalizer)
 	if !ok {
-		return nil, status.Error(codes.Unimplemented, "this wrapper does not implement InitFinalizer")
+		return nil, status.Error(codes.Unimplemented, "this Wrapper does not implement InitFinalizer")
 	}
 	if err := initFinalizer.Finalize(
 		ctx,
@@ -116,10 +116,10 @@ func (ws *wrapServer) Finalize(ctx context.Context, req *pb.FinalizeRequest) (*p
 	return &pb.FinalizeResponse{}, nil
 }
 
-func (ws *wrapServer) KeyBytes(ctx context.Context, req *pb.KeyBytesRequest) (*pb.KeyBytesResponse, error) {
+func (ws *gRPCWrapperServer) KeyBytes(ctx context.Context, req *pb.KeyBytesRequest) (*pb.KeyBytesResponse, error) {
 	keyExporter, ok := ws.impl.(wrapping.KeyExporter)
 	if !ok {
-		return nil, status.Error(codes.Unimplemented, "this wrapper does not implement HmacComputer")
+		return nil, status.Error(codes.Unimplemented, "this Wrapper does not implement KeyExporter")
 	}
 	keyBytes, err := keyExporter.KeyBytes(ctx)
 	if err != nil {

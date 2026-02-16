@@ -4,25 +4,25 @@
 package plugin
 
 import (
-	context "context"
+	"context"
 
 	"github.com/openbao/go-kms-wrapping/plugin/v2/pb"
-	wrapping "github.com/openbao/go-kms-wrapping/v2"
+	"github.com/openbao/go-kms-wrapping/v2"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 var (
-	_ wrapping.Wrapper       = (*wrapClient)(nil)
-	_ wrapping.InitFinalizer = (*wrapClient)(nil)
-	_ wrapping.KeyExporter   = (*wrapClient)(nil)
+	_ wrapping.Wrapper       = (*gRPCWrapperClient)(nil)
+	_ wrapping.InitFinalizer = (*gRPCWrapperClient)(nil)
+	_ wrapping.KeyExporter   = (*gRPCWrapperClient)(nil)
 )
 
-type wrapClient struct {
+type gRPCWrapperClient struct {
 	impl pb.WrapperClient
 }
 
-func (wc *wrapClient) Type(ctx context.Context) (wrapping.WrapperType, error) {
+func (wc *gRPCWrapperClient) Type(ctx context.Context) (wrapping.WrapperType, error) {
 	resp, err := wc.impl.Type(ctx, new(pb.TypeRequest))
 	if err != nil {
 		return wrapping.WrapperTypeUnknown, err
@@ -30,7 +30,7 @@ func (wc *wrapClient) Type(ctx context.Context) (wrapping.WrapperType, error) {
 	return wrapping.WrapperType(resp.Type), nil
 }
 
-func (wc *wrapClient) KeyId(ctx context.Context) (string, error) {
+func (wc *gRPCWrapperClient) KeyId(ctx context.Context) (string, error) {
 	resp, err := wc.impl.KeyId(ctx, new(pb.KeyIdRequest))
 	if err != nil {
 		return "", err
@@ -38,7 +38,7 @@ func (wc *wrapClient) KeyId(ctx context.Context) (string, error) {
 	return resp.KeyId, nil
 }
 
-func (wc *wrapClient) SetConfig(ctx context.Context, options ...wrapping.Option) (*wrapping.WrapperConfig, error) {
+func (wc *gRPCWrapperClient) SetConfig(ctx context.Context, options ...wrapping.Option) (*wrapping.WrapperConfig, error) {
 	opts, err := wrapping.GetOpts(options...)
 	if err != nil {
 		return nil, err
@@ -52,7 +52,7 @@ func (wc *wrapClient) SetConfig(ctx context.Context, options ...wrapping.Option)
 	return resp.WrapperConfig, nil
 }
 
-func (wc *wrapClient) Encrypt(ctx context.Context, pt []byte, options ...wrapping.Option) (*wrapping.BlobInfo, error) {
+func (wc *gRPCWrapperClient) Encrypt(ctx context.Context, pt []byte, options ...wrapping.Option) (*wrapping.BlobInfo, error) {
 	opts, err := wrapping.GetOpts(options...)
 	if err != nil {
 		return nil, err
@@ -67,7 +67,7 @@ func (wc *wrapClient) Encrypt(ctx context.Context, pt []byte, options ...wrappin
 	return resp.Ciphertext, nil
 }
 
-func (wc *wrapClient) Decrypt(ctx context.Context, ct *wrapping.BlobInfo, options ...wrapping.Option) ([]byte, error) {
+func (wc *gRPCWrapperClient) Decrypt(ctx context.Context, ct *wrapping.BlobInfo, options ...wrapping.Option) ([]byte, error) {
 	opts, err := wrapping.GetOpts(options...)
 	if err != nil {
 		return nil, err
@@ -82,7 +82,7 @@ func (wc *wrapClient) Decrypt(ctx context.Context, ct *wrapping.BlobInfo, option
 	return resp.Plaintext, nil
 }
 
-func (ifc *wrapClient) Init(ctx context.Context, options ...wrapping.Option) error {
+func (ifc *gRPCWrapperClient) Init(ctx context.Context, options ...wrapping.Option) error {
 	opts, err := wrapping.GetOpts(options...)
 	if err != nil {
 		return err
@@ -96,12 +96,12 @@ func (ifc *wrapClient) Init(ctx context.Context, options ...wrapping.Option) err
 	return err
 }
 
-func (ifc *wrapClient) Finalize(ctx context.Context, options ...wrapping.Option) error {
+func (wc *gRPCWrapperClient) Finalize(ctx context.Context, options ...wrapping.Option) error {
 	opts, err := wrapping.GetOpts(options...)
 	if err != nil {
 		return err
 	}
-	_, err = ifc.impl.Finalize(ctx, &pb.FinalizeRequest{
+	_, err = wc.impl.Finalize(ctx, &pb.FinalizeRequest{
 		Options: opts,
 	})
 	if status.Code(err) == codes.Unimplemented {
@@ -110,7 +110,7 @@ func (ifc *wrapClient) Finalize(ctx context.Context, options ...wrapping.Option)
 	return err
 }
 
-func (wc *wrapClient) KeyBytes(ctx context.Context) ([]byte, error) {
+func (wc *gRPCWrapperClient) KeyBytes(ctx context.Context) ([]byte, error) {
 	resp, err := wc.impl.KeyBytes(ctx, new(pb.KeyBytesRequest))
 	switch {
 	case err == nil:
