@@ -3,8 +3,7 @@
 
 syntax = "proto3";
 
-package github.com.openbao.go.kms.wrapping.v2.types;
-
+package wrapping;
 option go_package = "github.com/openbao/go-kms-wrapping/v2;wrapping";
 
 // WrapperConfig is the result of a call to SetConfig on a wrapper, returning

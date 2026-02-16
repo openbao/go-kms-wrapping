@@ -3,11 +3,10 @@
 
 syntax = "proto3";
 
-package github.com.openbao.go.kms.wrapping.plugin.v2;
+package pb;
+option go_package = "github.com/openbao/go-kms-wrapping/plugin/v2/pb";
 
-import "github.com.openbao.go.kms.wrapping.v2.types.proto";
-
-option go_package = "github.com/openbao/go-kms-wrapping/v2/plugin;plugin";
+import "types.proto";
 
 message TypeRequest {}
 message TypeResponse {
@@ -20,35 +19,35 @@ message KeyIdResponse {
 }
 
 message SetConfigRequest {
-  github.com.openbao.go.kms.wrapping.v2.types.Options options = 20;
+  wrapping.Options options = 20;
 }
 message SetConfigResponse {
-  github.com.openbao.go.kms.wrapping.v2.types.WrapperConfig wrapper_config = 10;
+  wrapping.WrapperConfig wrapper_config = 10;
 }
 
 message EncryptRequest {
   bytes plaintext = 10;
-  github.com.openbao.go.kms.wrapping.v2.types.Options options = 20;
+  wrapping.Options options = 20;
 }
 message EncryptResponse {
-  github.com.openbao.go.kms.wrapping.v2.types.BlobInfo ciphertext = 10;
+  wrapping.BlobInfo ciphertext = 10;
 }
 
 message DecryptRequest {
-  github.com.openbao.go.kms.wrapping.v2.types.BlobInfo ciphertext = 10;
-  github.com.openbao.go.kms.wrapping.v2.types.Options options = 20;
+  wrapping.BlobInfo ciphertext = 10;
+  wrapping.Options options = 20;
 }
 message DecryptResponse {
   bytes plaintext = 10;
 }
 
 message InitRequest {
-  github.com.openbao.go.kms.wrapping.v2.types.Options options = 20;
+  wrapping.Options options = 20;
 }
 message InitResponse {}
 
 message FinalizeRequest {
-  github.com.openbao.go.kms.wrapping.v2.types.Options options = 20;
+  wrapping.Options options = 20;
 }
 message FinalizeResponse {}
 

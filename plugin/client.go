@@ -6,6 +6,7 @@ package plugin
 import (
 	context "context"
 
+	"github.com/openbao/go-kms-wrapping/plugin/v2/pb"
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -18,11 +19,11 @@ var (
 )
 
 type wrapClient struct {
-	impl WrapperClient
+	impl pb.WrapperClient
 }
 
 func (wc *wrapClient) Type(ctx context.Context) (wrapping.WrapperType, error) {
-	resp, err := wc.impl.Type(ctx, new(TypeRequest))
+	resp, err := wc.impl.Type(ctx, new(pb.TypeRequest))
 	if err != nil {
 		return wrapping.WrapperTypeUnknown, err
 	}
@@ -30,7 +31,7 @@ func (wc *wrapClient) Type(ctx context.Context) (wrapping.WrapperType, error) {
 }
 
 func (wc *wrapClient) KeyId(ctx context.Context) (string, error) {
-	resp, err := wc.impl.KeyId(ctx, new(KeyIdRequest))
+	resp, err := wc.impl.KeyId(ctx, new(pb.KeyIdRequest))
 	if err != nil {
 		return "", err
 	}
@@ -42,7 +43,7 @@ func (wc *wrapClient) SetConfig(ctx context.Context, options ...wrapping.Option)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := wc.impl.SetConfig(ctx, &SetConfigRequest{
+	resp, err := wc.impl.SetConfig(ctx, &pb.SetConfigRequest{
 		Options: opts,
 	})
 	if err != nil {
@@ -56,7 +57,7 @@ func (wc *wrapClient) Encrypt(ctx context.Context, pt []byte, options ...wrappin
 	if err != nil {
 		return nil, err
 	}
-	resp, err := wc.impl.Encrypt(ctx, &EncryptRequest{
+	resp, err := wc.impl.Encrypt(ctx, &pb.EncryptRequest{
 		Plaintext: pt,
 		Options:   opts,
 	})
@@ -71,7 +72,7 @@ func (wc *wrapClient) Decrypt(ctx context.Context, ct *wrapping.BlobInfo, option
 	if err != nil {
 		return nil, err
 	}
-	resp, err := wc.impl.Decrypt(ctx, &DecryptRequest{
+	resp, err := wc.impl.Decrypt(ctx, &pb.DecryptRequest{
 		Ciphertext: ct,
 		Options:    opts,
 	})
@@ -86,7 +87,7 @@ func (ifc *wrapClient) Init(ctx context.Context, options ...wrapping.Option) err
 	if err != nil {
 		return err
 	}
-	_, err = ifc.impl.Init(ctx, &InitRequest{
+	_, err = ifc.impl.Init(ctx, &pb.InitRequest{
 		Options: opts,
 	})
 	if status.Code(err) == codes.Unimplemented {
@@ -100,7 +101,7 @@ func (ifc *wrapClient) Finalize(ctx context.Context, options ...wrapping.Option)
 	if err != nil {
 		return err
 	}
-	_, err = ifc.impl.Finalize(ctx, &FinalizeRequest{
+	_, err = ifc.impl.Finalize(ctx, &pb.FinalizeRequest{
 		Options: opts,
 	})
 	if status.Code(err) == codes.Unimplemented {
@@ -110,7 +111,7 @@ func (ifc *wrapClient) Finalize(ctx context.Context, options ...wrapping.Option)
 }
 
 func (wc *wrapClient) KeyBytes(ctx context.Context) ([]byte, error) {
-	resp, err := wc.impl.KeyBytes(ctx, new(KeyBytesRequest))
+	resp, err := wc.impl.KeyBytes(ctx, new(pb.KeyBytesRequest))
 	switch {
 	case err == nil:
 	case status.Code(err) == codes.Unimplemented:
