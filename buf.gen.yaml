@@ -8,5 +8,4 @@ plugins:
     opt: paths=source_relative
   - plugin: buf.build/grpc/go
     out: .
-    opt:
-      - paths=source_relative
+    opt: paths=source_relative

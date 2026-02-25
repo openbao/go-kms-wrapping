@@ -6,7 +6,6 @@ package plugin
 import (
 	"fmt"
 	"io/fs"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -36,7 +35,7 @@ func TestPlugin(
 
 	require.NotEmpty(pluginLoc, "plugin location cannot be empty")
 
-	tmpDir, err := ioutil.TempDir("", "*")
+	tmpDir, err := os.MkdirTemp("", "*")
 	require.NoError(err)
 
 	// Set cleanup function
@@ -44,7 +43,7 @@ func TestPlugin(
 		require.NoError(os.RemoveAll(tmpDir))
 	}
 
-	pluginBytes, err := ioutil.ReadFile(pluginLoc)
+	pluginBytes, err := os.ReadFile(pluginLoc)
 	require.NoError(err)
 
 	pluginPath := filepath.Join(tmpDir, "plugin")
@@ -54,8 +53,8 @@ func TestPlugin(
 	if runtime.GOOS == "windows" {
 		pluginPath = fmt.Sprintf("%s.exe", pluginPath)
 	}
-	require.NoError(ioutil.WriteFile(pluginPath, pluginBytes, fs.FileMode(0o700)))
-	client, err := NewWrapperClient(pluginPath, opt...)
+	require.NoError(os.WriteFile(pluginPath, pluginBytes, fs.FileMode(0o700)))
+	client, err := NewWrapperPluginClient(pluginPath, opt...)
 	require.NoError(err)
 
 	// Now that we have a client, ensure it's killed at cleanup time
@@ -75,8 +74,6 @@ func TestPlugin(
 	pluginWrapper, ok = raw.(wrapping.Wrapper)
 	require.True(ok)
 	_, ok = raw.(wrapping.InitFinalizer)
-	require.True(ok)
-	_, ok = raw.(wrapping.HmacComputer)
 	require.True(ok)
 	require.NotNil(pluginWrapper)
 

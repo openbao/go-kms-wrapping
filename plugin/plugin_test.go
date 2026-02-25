@@ -96,13 +96,6 @@ func TestInterfaceWrapper(t *testing.T) {
 	err = ifWrapper.Finalize(ctx)
 	require.Error(err)
 	assert.True(errors.Is(err, wrapping.ErrFunctionNotImplemented))
-
-	hmacWrapper, ok := wrapper.(wrapping.HmacComputer)
-	require.True(ok)
-	keyId, err = hmacWrapper.HmacKeyId(ctx)
-	require.Error(err)
-	assert.Empty(keyId)
-	assert.True(errors.Is(err, wrapping.ErrFunctionNotImplemented))
 }
 
 func TestInterfaceAll(t *testing.T) {
@@ -128,10 +121,4 @@ func TestInterfaceAll(t *testing.T) {
 	require.True(ok)
 	require.NoError(ifWrapper.Init(ctx))
 	require.NoError(ifWrapper.Finalize(ctx))
-
-	hmacWrapper, ok := wrapper.(wrapping.HmacComputer)
-	require.True(ok)
-	keyId, err = hmacWrapper.HmacKeyId(ctx)
-	require.NoError(err)
-	assert.Equal(keyId, "hmac-key")
 }
