@@ -58,6 +58,8 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 	if opts.WithConfigMap != nil {
 		for k, v := range opts.WithConfigMap {
 			switch k {
+			case KmsConfigKeyId:
+				opts.WithKeyId = v
 			case KmsConfigCryptoEndpoint:
 				opts.withCryptoEndpoint = v
 			case KmsConfigManagementEndpoint:
