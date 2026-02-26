@@ -11,6 +11,11 @@ import (
 	"github.com/openbao/go-kms-wrapping/v2"
 )
 
+// ErrPluginShutdown is returned when a plugin client fails because the backing
+// plugin server/process has shut down. Catching this error can be used to
+// respawn plugin processes and retry the call if desired.
+var ErrPluginShutdown = errors.New("plugin is shut down")
+
 var (
 	_ wrapping.Wrapper       = (*gRPCWrapperClient)(nil)
 	_ wrapping.InitFinalizer = (*gRPCWrapperClient)(nil)
@@ -18,11 +23,19 @@ var (
 
 type gRPCWrapperClient struct {
 	id     string
+	ctx    context.Context
 	client pb.WrapperClient
 }
 
-func (wc *gRPCWrapperClient) SetConfig(ctx context.Context, options ...wrapping.Option) (*wrapping.WrapperConfig, error) {
-	if wc.id != "" {
+func (c *gRPCWrapperClient) handleError(err error) error {
+	if c.ctx.Err() != nil {
+		return ErrPluginShutdown
+	}
+	return err
+}
+
+func (c *gRPCWrapperClient) SetConfig(ctx context.Context, options ...wrapping.Option) (*wrapping.WrapperConfig, error) {
+	if c.id != "" {
 		// While the API of wrapping.Wrapper theoretically allows wrappers to
 		// be reconfigured, in practice most wrappers expect to be configured
 		// exactly once and would not correctly handle reconfiguration or
@@ -32,86 +45,89 @@ func (wc *gRPCWrapperClient) SetConfig(ctx context.Context, options ...wrapping.
 		// succeeds.
 		return nil, errors.New("already configured")
 	}
+
 	opts, err := wrapping.GetOpts(options...)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := wc.client.SetConfig(ctx, &pb.SetConfigRequest{Options: opts})
+
+	resp, err := c.client.SetConfig(ctx, &pb.SetConfigRequest{Options: opts})
 	if err != nil {
-		return nil, err
+		return nil, c.handleError(err)
 	}
-	wc.id = resp.WrapperId
+
+	c.id = resp.WrapperId
 	return resp.WrapperConfig, nil
 }
 
-func (wc *gRPCWrapperClient) Type(ctx context.Context) (wrapping.WrapperType, error) {
-	resp, err := wc.client.Type(ctx, &pb.TypeRequest{WrapperId: wc.id})
+func (c *gRPCWrapperClient) Type(ctx context.Context) (wrapping.WrapperType, error) {
+	resp, err := c.client.Type(ctx, &pb.TypeRequest{WrapperId: c.id})
 	if err != nil {
-		return wrapping.WrapperTypeUnknown, err
+		return wrapping.WrapperTypeUnknown, c.handleError(err)
 	}
 	return wrapping.WrapperType(resp.Type), nil
 }
 
-func (wc *gRPCWrapperClient) KeyId(ctx context.Context) (string, error) {
-	resp, err := wc.client.KeyId(ctx, &pb.KeyIdRequest{WrapperId: wc.id})
+func (c *gRPCWrapperClient) KeyId(ctx context.Context) (string, error) {
+	resp, err := c.client.KeyId(ctx, &pb.KeyIdRequest{WrapperId: c.id})
 	if err != nil {
-		return "", err
+		return "", c.handleError(err)
 	}
 	return resp.KeyId, nil
 }
 
-func (wc *gRPCWrapperClient) Encrypt(ctx context.Context, pt []byte, options ...wrapping.Option) (*wrapping.BlobInfo, error) {
+func (c *gRPCWrapperClient) Encrypt(ctx context.Context, pt []byte, options ...wrapping.Option) (*wrapping.BlobInfo, error) {
 	opts, err := wrapping.GetOpts(options...)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := wc.client.Encrypt(ctx, &pb.EncryptRequest{
+	resp, err := c.client.Encrypt(ctx, &pb.EncryptRequest{
 		Plaintext: pt,
 		Options:   opts,
-		WrapperId: wc.id,
+		WrapperId: c.id,
 	})
 	if err != nil {
-		return nil, err
+		return nil, c.handleError(err)
 	}
 	return resp.Ciphertext, nil
 }
 
-func (wc *gRPCWrapperClient) Decrypt(ctx context.Context, ct *wrapping.BlobInfo, options ...wrapping.Option) ([]byte, error) {
+func (c *gRPCWrapperClient) Decrypt(ctx context.Context, ct *wrapping.BlobInfo, options ...wrapping.Option) ([]byte, error) {
 	opts, err := wrapping.GetOpts(options...)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := wc.client.Decrypt(ctx, &pb.DecryptRequest{
+	resp, err := c.client.Decrypt(ctx, &pb.DecryptRequest{
 		Ciphertext: ct,
 		Options:    opts,
-		WrapperId:  wc.id,
+		WrapperId:  c.id,
 	})
 	if err != nil {
-		return nil, err
+		return nil, c.handleError(err)
 	}
 	return resp.Plaintext, nil
 }
 
-func (wc *gRPCWrapperClient) Init(ctx context.Context, options ...wrapping.Option) error {
+func (c *gRPCWrapperClient) Init(ctx context.Context, options ...wrapping.Option) error {
 	opts, err := wrapping.GetOpts(options...)
 	if err != nil {
 		return err
 	}
-	_, err = wc.client.Init(ctx, &pb.InitRequest{
+	_, err = c.client.Init(ctx, &pb.InitRequest{
 		Options:   opts,
-		WrapperId: wc.id,
+		WrapperId: c.id,
 	})
-	return err
+	return c.handleError(err)
 }
 
-func (wc *gRPCWrapperClient) Finalize(ctx context.Context, options ...wrapping.Option) error {
+func (c *gRPCWrapperClient) Finalize(ctx context.Context, options ...wrapping.Option) error {
 	opts, err := wrapping.GetOpts(options...)
 	if err != nil {
 		return err
 	}
-	_, err = wc.client.Finalize(ctx, &pb.FinalizeRequest{
+	_, err = c.client.Finalize(ctx, &pb.FinalizeRequest{
 		Options:   opts,
-		WrapperId: wc.id,
+		WrapperId: c.id,
 	})
-	return err
+	return c.handleError(err)
 }

@@ -78,5 +78,8 @@ func (wp *gRPCWrapperPlugin) GRPCServer(broker *plugin.GRPCBroker, s *grpc.Serve
 }
 
 func (wp *gRPCWrapperPlugin) GRPCClient(ctx context.Context, broker *plugin.GRPCBroker, c *grpc.ClientConn) (any, error) {
-	return &gRPCWrapperClient{client: pb.NewWrapperClient(c)}, nil
+	return &gRPCWrapperClient{
+		ctx:    ctx,
+		client: pb.NewWrapperClient(c),
+	}, nil
 }
