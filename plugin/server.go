@@ -26,18 +26,18 @@ type gRPCWrapperServer struct {
 	factory func() wrapping.Wrapper
 }
 
-func (ws *gRPCWrapperServer) get(id string) (wrapping.Wrapper, error) {
-	ws.instancesLock.Lock()
-	defer ws.instancesLock.Unlock()
+func (s *gRPCWrapperServer) get(id string) (wrapping.Wrapper, error) {
+	s.instancesLock.Lock()
+	defer s.instancesLock.Unlock()
 
-	if wrapper, ok := ws.instances[id]; ok {
+	if wrapper, ok := s.instances[id]; ok {
 		return wrapper, nil
 	}
 
 	return nil, ErrNoInstance
 }
 
-func (ws *gRPCWrapperServer) SetConfig(ctx context.Context, req *pb.SetConfigRequest) (*pb.SetConfigResponse, error) {
+func (s *gRPCWrapperServer) SetConfig(ctx context.Context, req *pb.SetConfigRequest) (*pb.SetConfigResponse, error) {
 	id, err := uuid.GenerateUUID()
 	if err != nil {
 		return nil, err
@@ -50,7 +50,7 @@ func (ws *gRPCWrapperServer) SetConfig(ctx context.Context, req *pb.SetConfigReq
 
 	// SetConfig drives initial wrapper construction.
 	// Also see comment in client.go.
-	wrapper := ws.factory()
+	wrapper := s.factory()
 	wc, err := wrapper.SetConfig(
 		ctx,
 		wrapping.WithKeyId(opts.WithKeyId),
@@ -60,15 +60,15 @@ func (ws *gRPCWrapperServer) SetConfig(ctx context.Context, req *pb.SetConfigReq
 		return nil, err
 	}
 
-	ws.instancesLock.Lock()
-	ws.instances[id] = wrapper
-	ws.instancesLock.Unlock()
+	s.instancesLock.Lock()
+	s.instances[id] = wrapper
+	s.instancesLock.Unlock()
 
 	return &pb.SetConfigResponse{WrapperConfig: wc, WrapperId: id}, nil
 }
 
-func (ws *gRPCWrapperServer) Type(ctx context.Context, req *pb.TypeRequest) (*pb.TypeResponse, error) {
-	wrapper, err := ws.get(req.WrapperId)
+func (s *gRPCWrapperServer) Type(ctx context.Context, req *pb.TypeRequest) (*pb.TypeResponse, error) {
+	wrapper, err := s.get(req.WrapperId)
 	if err != nil {
 		return nil, err
 	}
@@ -79,8 +79,8 @@ func (ws *gRPCWrapperServer) Type(ctx context.Context, req *pb.TypeRequest) (*pb
 	return &pb.TypeResponse{Type: typ.String()}, nil
 }
 
-func (ws *gRPCWrapperServer) KeyId(ctx context.Context, req *pb.KeyIdRequest) (*pb.KeyIdResponse, error) {
-	wrapper, err := ws.get(req.WrapperId)
+func (s *gRPCWrapperServer) KeyId(ctx context.Context, req *pb.KeyIdRequest) (*pb.KeyIdResponse, error) {
+	wrapper, err := s.get(req.WrapperId)
 	if err != nil {
 		return nil, err
 	}
@@ -91,8 +91,8 @@ func (ws *gRPCWrapperServer) KeyId(ctx context.Context, req *pb.KeyIdRequest) (*
 	return &pb.KeyIdResponse{KeyId: keyId}, nil
 }
 
-func (ws *gRPCWrapperServer) Encrypt(ctx context.Context, req *pb.EncryptRequest) (*pb.EncryptResponse, error) {
-	wrapper, err := ws.get(req.WrapperId)
+func (s *gRPCWrapperServer) Encrypt(ctx context.Context, req *pb.EncryptRequest) (*pb.EncryptResponse, error) {
+	wrapper, err := s.get(req.WrapperId)
 	if err != nil {
 		return nil, err
 	}
@@ -112,8 +112,8 @@ func (ws *gRPCWrapperServer) Encrypt(ctx context.Context, req *pb.EncryptRequest
 	return &pb.EncryptResponse{Ciphertext: ct}, nil
 }
 
-func (ws *gRPCWrapperServer) Decrypt(ctx context.Context, req *pb.DecryptRequest) (*pb.DecryptResponse, error) {
-	wrapper, err := ws.get(req.WrapperId)
+func (s *gRPCWrapperServer) Decrypt(ctx context.Context, req *pb.DecryptRequest) (*pb.DecryptResponse, error) {
+	wrapper, err := s.get(req.WrapperId)
 	if err != nil {
 		return nil, err
 	}
@@ -133,8 +133,8 @@ func (ws *gRPCWrapperServer) Decrypt(ctx context.Context, req *pb.DecryptRequest
 	return &pb.DecryptResponse{Plaintext: pt}, nil
 }
 
-func (ws *gRPCWrapperServer) Init(ctx context.Context, req *pb.InitRequest) (*pb.InitResponse, error) {
-	wrapper, err := ws.get(req.WrapperId)
+func (s *gRPCWrapperServer) Init(ctx context.Context, req *pb.InitRequest) (*pb.InitResponse, error) {
+	wrapper, err := s.get(req.WrapperId)
 	if err != nil {
 		return nil, err
 	}
@@ -148,8 +148,8 @@ func (ws *gRPCWrapperServer) Init(ctx context.Context, req *pb.InitRequest) (*pb
 	return &pb.InitResponse{}, nil
 }
 
-func (ws *gRPCWrapperServer) Finalize(ctx context.Context, req *pb.FinalizeRequest) (*pb.FinalizeResponse, error) {
-	wrapper, err := ws.get(req.WrapperId)
+func (s *gRPCWrapperServer) Finalize(ctx context.Context, req *pb.FinalizeRequest) (*pb.FinalizeResponse, error) {
+	wrapper, err := s.get(req.WrapperId)
 	if err != nil {
 		return nil, err
 	}
@@ -162,9 +162,9 @@ func (ws *gRPCWrapperServer) Finalize(ctx context.Context, req *pb.FinalizeReque
 	}
 
 	// Then remove the instance:
-	ws.instancesLock.Lock()
-	delete(ws.instances, req.WrapperId)
-	ws.instancesLock.Unlock()
+	s.instancesLock.Lock()
+	delete(s.instances, req.WrapperId)
+	s.instancesLock.Unlock()
 
 	return &pb.FinalizeResponse{}, nil
 }
