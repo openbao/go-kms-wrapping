@@ -4,40 +4,54 @@
 package plugin
 
 import (
-	context "context"
+	"context"
+	"errors"
+	"sync"
 
-	wrapping "github.com/openbao/go-kms-wrapping/v2"
-	"google.golang.org/grpc/codes"
-	status "google.golang.org/grpc/status"
+	"github.com/hashicorp/go-uuid"
+	"github.com/openbao/go-kms-wrapping/plugin/v2/pb"
+	"github.com/openbao/go-kms-wrapping/v2"
 )
 
-type wrapServer struct {
-	UnimplementedWrapperServer
-	impl wrapping.Wrapper
+// ErrNoInstance is returned when an RPC is called on a remote object that
+// doesn't exist.
+var ErrNoInstance = errors.New("instance not found")
+
+type gRPCWrapperServer struct {
+	pb.UnimplementedWrapperServer
+
+	instances     map[string]wrapping.Wrapper
+	instancesLock sync.Mutex
+
+	factory func() wrapping.Wrapper
 }
 
-func (ws *wrapServer) Type(ctx context.Context, req *TypeRequest) (*TypeResponse, error) {
-	typ, err := ws.impl.Type(ctx)
+func (s *gRPCWrapperServer) get(id string) (wrapping.Wrapper, error) {
+	s.instancesLock.Lock()
+	defer s.instancesLock.Unlock()
+
+	if wrapper, ok := s.instances[id]; ok {
+		return wrapper, nil
+	}
+
+	return nil, ErrNoInstance
+}
+
+func (s *gRPCWrapperServer) SetConfig(ctx context.Context, req *pb.SetConfigRequest) (*pb.SetConfigResponse, error) {
+	id, err := uuid.GenerateUUID()
 	if err != nil {
 		return nil, err
 	}
-	return &TypeResponse{Type: typ.String()}, nil
-}
 
-func (ws *wrapServer) KeyId(ctx context.Context, req *KeyIdRequest) (*KeyIdResponse, error) {
-	keyId, err := ws.impl.KeyId(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return &KeyIdResponse{KeyId: keyId}, nil
-}
-
-func (ws *wrapServer) SetConfig(ctx context.Context, req *SetConfigRequest) (*SetConfigResponse, error) {
 	opts := req.Options
 	if opts == nil {
 		opts = new(wrapping.Options)
 	}
-	wc, err := ws.impl.SetConfig(
+
+	// SetConfig drives initial wrapper construction.
+	// Also see comment in client.go.
+	wrapper := s.factory()
+	wc, err := wrapper.SetConfig(
 		ctx,
 		wrapping.WithKeyId(opts.WithKeyId),
 		wrapping.WithConfigMap(opts.WithConfigMap),
@@ -45,84 +59,112 @@ func (ws *wrapServer) SetConfig(ctx context.Context, req *SetConfigRequest) (*Se
 	if err != nil {
 		return nil, err
 	}
-	return &SetConfigResponse{WrapperConfig: wc}, nil
+
+	s.instancesLock.Lock()
+	s.instances[id] = wrapper
+	s.instancesLock.Unlock()
+
+	return &pb.SetConfigResponse{WrapperConfig: wc, WrapperId: id}, nil
 }
 
-func (ws *wrapServer) Encrypt(ctx context.Context, req *EncryptRequest) (*EncryptResponse, error) {
+func (s *gRPCWrapperServer) Type(ctx context.Context, req *pb.TypeRequest) (*pb.TypeResponse, error) {
+	wrapper, err := s.get(req.WrapperId)
+	if err != nil {
+		return nil, err
+	}
+	typ, err := wrapper.Type(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &pb.TypeResponse{Type: typ.String()}, nil
+}
+
+func (s *gRPCWrapperServer) KeyId(ctx context.Context, req *pb.KeyIdRequest) (*pb.KeyIdResponse, error) {
+	wrapper, err := s.get(req.WrapperId)
+	if err != nil {
+		return nil, err
+	}
+	keyId, err := wrapper.KeyId(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &pb.KeyIdResponse{KeyId: keyId}, nil
+}
+
+func (s *gRPCWrapperServer) Encrypt(ctx context.Context, req *pb.EncryptRequest) (*pb.EncryptResponse, error) {
+	wrapper, err := s.get(req.WrapperId)
+	if err != nil {
+		return nil, err
+	}
 	opts := req.Options
 	if opts == nil {
 		opts = new(wrapping.Options)
 	}
-	ct, err := ws.impl.Encrypt(
+	ct, err := wrapper.Encrypt(
 		ctx,
 		req.Plaintext,
 		wrapping.WithAad(opts.WithAad),
 		wrapping.WithKeyId(opts.WithKeyId),
-		wrapping.WithConfigMap(opts.WithConfigMap),
 	)
 	if err != nil {
 		return nil, err
 	}
-	return &EncryptResponse{Ciphertext: ct}, nil
+	return &pb.EncryptResponse{Ciphertext: ct}, nil
 }
 
-func (ws *wrapServer) Decrypt(ctx context.Context, req *DecryptRequest) (*DecryptResponse, error) {
+func (s *gRPCWrapperServer) Decrypt(ctx context.Context, req *pb.DecryptRequest) (*pb.DecryptResponse, error) {
+	wrapper, err := s.get(req.WrapperId)
+	if err != nil {
+		return nil, err
+	}
 	opts := req.Options
 	if opts == nil {
 		opts = new(wrapping.Options)
 	}
-	pt, err := ws.impl.Decrypt(
+	pt, err := wrapper.Decrypt(
 		ctx,
 		req.Ciphertext,
 		wrapping.WithAad(opts.WithAad),
 		wrapping.WithKeyId(opts.WithKeyId),
-		wrapping.WithConfigMap(opts.WithConfigMap),
 	)
 	if err != nil {
 		return nil, err
 	}
-	return &DecryptResponse{Plaintext: pt}, nil
+	return &pb.DecryptResponse{Plaintext: pt}, nil
 }
 
-func (ws *wrapServer) Init(ctx context.Context, req *InitRequest) (*InitResponse, error) {
-	initFinalizer, ok := ws.impl.(wrapping.InitFinalizer)
-	if !ok {
-		return nil, status.Error(codes.Unimplemented, "this wrapper does not implement InitFinalizer")
-	}
-	opts := req.Options
-	if opts == nil {
-		opts = new(wrapping.Options)
-	}
-	if err := initFinalizer.Init(
-		ctx,
-		wrapping.WithConfigMap(opts.WithConfigMap),
-	); err != nil {
-		return nil, err
-	}
-	return &InitResponse{}, nil
-}
-
-func (ws *wrapServer) Finalize(ctx context.Context, req *FinalizeRequest) (*FinalizeResponse, error) {
-	initFinalizer, ok := ws.impl.(wrapping.InitFinalizer)
-	if !ok {
-		return nil, status.Error(codes.Unimplemented, "this wrapper does not implement InitFinalizer")
-	}
-	if err := initFinalizer.Finalize(
-		ctx,
-	); err != nil {
-		return nil, err
-	}
-	return &FinalizeResponse{}, nil
-}
-
-func (ws *wrapServer) KeyBytes(ctx context.Context, req *KeyBytesRequest) (*KeyBytesResponse, error) {
-	keyExporter, ok := ws.impl.(wrapping.KeyExporter)
-	if !ok {
-		return nil, status.Error(codes.Unimplemented, "this wrapper does not implement HmacComputer")
-	}
-	keyBytes, err := keyExporter.KeyBytes(ctx)
+func (s *gRPCWrapperServer) Init(ctx context.Context, req *pb.InitRequest) (*pb.InitResponse, error) {
+	wrapper, err := s.get(req.WrapperId)
 	if err != nil {
 		return nil, err
 	}
-	return &KeyBytesResponse{KeyBytes: keyBytes}, nil
+	initFinalizer, ok := wrapper.(wrapping.InitFinalizer)
+	if !ok {
+		return &pb.InitResponse{}, nil
+	}
+	if err := initFinalizer.Init(ctx); err != nil {
+		return nil, err
+	}
+	return &pb.InitResponse{}, nil
+}
+
+func (s *gRPCWrapperServer) Finalize(ctx context.Context, req *pb.FinalizeRequest) (*pb.FinalizeResponse, error) {
+	wrapper, err := s.get(req.WrapperId)
+	if err != nil {
+		return nil, err
+	}
+
+	// Call Finalize if the underlying implementation has it.
+	if initFinalizer, ok := wrapper.(wrapping.InitFinalizer); ok {
+		if err := initFinalizer.Finalize(ctx); err != nil {
+			return nil, err
+		}
+	}
+
+	// Then remove the instance:
+	s.instancesLock.Lock()
+	delete(s.instances, req.WrapperId)
+	s.instancesLock.Unlock()
+
+	return &pb.FinalizeResponse{}, nil
 }
