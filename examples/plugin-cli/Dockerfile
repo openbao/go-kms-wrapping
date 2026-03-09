@@ -1,8 +1,13 @@
 # Copyright (c) HashiCorp, Inc.
 # SPDX-License-Identifier: MPL-2.0
 
-# This docker container will invoke a vault client which will initialize the
-# require vault transit backend for the example
-FROM vault:1.10.0
-COPY scripts/run.sh ./
-ENTRYPOINT ["sh","./run.sh"]
+FROM openbao/openbao:latest
+
+COPY <<-EOF /key-setup.sh
+  set -e
+  bao login token=root
+  bao secrets enable transit
+  bao write -f transit/keys/example
+EOF
+
+ENTRYPOINT ["sh", "/key-setup.sh"]

@@ -1,0 +1,24 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+
+services:
+  openbao-server:
+    image: openbao/openbao:latest
+    ports:
+      - 8200:8200
+    environment:
+      BAO_ADDR: http://0.0.0.0:8200
+      BAO_DEV_ROOT_TOKEN_ID: root
+    healthcheck:
+      test: ["CMD", "bao", "status"]
+      interval: 1m
+      start_period: 30s
+      start_interval: 1s
+
+  openbao-client:
+    build: .
+    environment:
+      BAO_ADDR: http://openbao-server:8200
+    depends_on:
+      openbao-server:
+        condition: service_healthy
