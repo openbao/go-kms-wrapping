@@ -149,10 +149,16 @@ func (s *gRPCWrapperServer) Init(ctx context.Context, req *pb.InitRequest) (*pb.
 }
 
 func (s *gRPCWrapperServer) Finalize(ctx context.Context, req *pb.FinalizeRequest) (*pb.FinalizeResponse, error) {
-	wrapper, err := s.get(req.WrapperId)
-	if err != nil {
-		return nil, err
+	s.instancesLock.Lock()
+	wrapper, ok := s.instances[req.WrapperId]
+	if !ok {
+		s.instancesLock.Unlock()
+		return nil, ErrNoInstance
 	}
+
+	// Remove the instance:
+	delete(s.instances, req.WrapperId)
+	s.instancesLock.Unlock()
 
 	// Call Finalize if the underlying implementation has it.
 	if initFinalizer, ok := wrapper.(wrapping.InitFinalizer); ok {
@@ -160,11 +166,6 @@ func (s *gRPCWrapperServer) Finalize(ctx context.Context, req *pb.FinalizeReques
 			return nil, err
 		}
 	}
-
-	// Then remove the instance:
-	s.instancesLock.Lock()
-	delete(s.instances, req.WrapperId)
-	s.instancesLock.Unlock()
 
 	return &pb.FinalizeResponse{}, nil
 }
