@@ -4,12 +4,11 @@
 package awskms
 
 import (
-	"context"
 	"os"
 	"reflect"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go-v2/aws"
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,16 +20,18 @@ func TestAwsKmsWrapper(t *testing.T) {
 		keyId: aws.String(awsTestKeyId),
 	}
 
-	_, err := s.SetConfig(nil)
+	oldKeyId := os.Getenv(EnvAwsKmsWrapperKeyId)
+	defer os.Setenv(EnvAwsKmsWrapperKeyId, oldKeyId)
+
+	os.Unsetenv(EnvAwsKmsWrapperKeyId)
+	_, err := s.SetConfig(t.Context(), WithRegion("dummy"))
 	if err == nil {
 		t.Fatal("expected error when AwsKms wrapping key ID is not provided")
 	}
 
 	// Set the key
-	oldKeyId := os.Getenv(EnvAwsKmsWrapperKeyId)
 	os.Setenv(EnvAwsKmsWrapperKeyId, awsTestKeyId)
-	defer os.Setenv(EnvAwsKmsWrapperKeyId, oldKeyId)
-	_, err = s.SetConfig(nil)
+	_, err = s.SetConfig(t.Context(), WithRegion("dummy"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +55,7 @@ func TestAwsKmsWrapper_IgnoreEnv(t *testing.T) {
 		"endpoint":          "my-endpoint",
 	}
 
-	_, err := wrapper.SetConfig(context.Background(), wrapping.WithConfigMap(config))
+	_, err := wrapper.SetConfig(t.Context(), wrapping.WithConfigMap(config), WithRegion("dummy"))
 	assert.NoError(t, err)
 
 	require.Equal(t, config["access_key"], wrapper.accessKey)
@@ -64,9 +65,6 @@ func TestAwsKmsWrapper_IgnoreEnv(t *testing.T) {
 }
 
 func TestAwsKmsWrapper_Lifecycle(t *testing.T) {
-	if os.Getenv(EnvAwsKmsWrapperKeyId) == "" && os.Getenv(EnvVaultAwsKmsSealKeyId) == "" {
-		t.SkipNow()
-	}
 	s := NewWrapper()
 	s.client = &mockClient{
 		keyId: aws.String(awsTestKeyId),
@@ -74,7 +72,7 @@ func TestAwsKmsWrapper_Lifecycle(t *testing.T) {
 	oldKeyId := os.Getenv(EnvAwsKmsWrapperKeyId)
 	os.Setenv(EnvAwsKmsWrapperKeyId, awsTestKeyId)
 	defer os.Setenv(EnvAwsKmsWrapperKeyId, oldKeyId)
-	testEncryptionRoundTrip(t, s)
+	testEncryptionRoundTrip(t, s, WithRegion("dummy"))
 }
 
 // This test executes real calls. The calls themselves should be free,
@@ -94,15 +92,19 @@ func TestAccAwsKmsWrapper_Lifecycle(t *testing.T) {
 	testEncryptionRoundTrip(t, s)
 }
 
-func testEncryptionRoundTrip(t *testing.T, w *Wrapper) {
-	w.SetConfig(context.Background())
-	input := []byte("foo")
-	swi, err := w.Encrypt(context.Background(), input, nil)
+func testEncryptionRoundTrip(t *testing.T, w *Wrapper, opt ...wrapping.Option) {
+	_, err := w.SetConfig(t.Context(), opt...)
 	if err != nil {
 		t.Fatalf("err: %s", err.Error())
 	}
 
-	pt, err := w.Decrypt(context.Background(), swi, nil)
+	input := []byte("foo")
+	swi, err := w.Encrypt(t.Context(), input, nil)
+	if err != nil {
+		t.Fatalf("err: %s", err.Error())
+	}
+
+	pt, err := w.Decrypt(t.Context(), swi, nil)
 	if err != nil {
 		t.Fatalf("err: %s", err.Error())
 	}
@@ -178,27 +180,27 @@ func TestAwsKmsWrapper_custom_endpoint(t *testing.T) {
 			if tc.Config != nil {
 				cfg = tc.Config
 			}
-			if _, err := s.SetConfig(context.Background(), wrapping.WithConfigMap(cfg)); err != nil {
+			if _, err := s.SetConfig(t.Context(), wrapping.WithConfigMap(cfg), WithRegion("dummy")); err != nil {
 				t.Fatalf("error setting config: %s", err)
 			}
 
 			// call GetAwsKmsClient() to get the configured client and verify it's
 			// endpoint
-			k, err := s.GetAwsKmsClient()
+			k, err := s.GetAwsKmsClient(t.Context())
 			if err != nil {
 				t.Fatal(err)
 			}
 
-			if tc.Expected == nil && k.Config.Endpoint != nil {
-				t.Fatalf("Expected nil endpoint, got: (%s)", *k.Config.Endpoint)
+			if tc.Expected == nil && k.Options().BaseEndpoint != nil {
+				t.Fatalf("Expected nil endpoint, got: (%s)", *k.Options().BaseEndpoint)
 			}
 
 			if tc.Expected != nil {
-				if k.Config.Endpoint == nil {
+				if k.Options().BaseEndpoint == nil {
 					t.Fatal("expected custom endpoint, but config was nil")
 				}
-				if *k.Config.Endpoint != *tc.Expected {
-					t.Fatalf("expected custom endpoint (%s), got: (%s)", *tc.Expected, *k.Config.Endpoint)
+				if *k.Options().BaseEndpoint != *tc.Expected {
+					t.Fatalf("expected custom endpoint (%s), got: (%s)", *tc.Expected, *k.Options().BaseEndpoint)
 				}
 			}
 
