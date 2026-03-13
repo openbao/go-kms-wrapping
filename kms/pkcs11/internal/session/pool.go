@@ -17,7 +17,6 @@ import (
 
 	"github.com/miekg/pkcs11"
 	"github.com/openbao/go-kms-wrapping/kms/pkcs11/v2/internal/module"
-	"github.com/openbao/go-kms-wrapping/kms/pkcs11/v2/internal/softhsm"
 	"github.com/stretchr/testify/require"
 )
 
@@ -325,22 +324,12 @@ func mapErr(err error, op string) error {
 	}
 }
 
-// Module returns the pool's module reference.
-func (p *pool) Module() *module.Ref {
-	return p.mod
-}
-
-// Token returns the pool's token reference.
-func (p *pool) Token() *module.Token {
-	return p.token
-}
-
 // TestLogin is a test helper that logs into a pool and automatically drops it
 // on test completion, handling all errors.
-func TestLogin(t *testing.T, mod *module.Ref, token *module.Token, pin string) *PoolRef {
+func TestLogin(t *testing.T, mod *module.Ref, token *module.Token) *PoolRef {
 	t.Helper()
 
-	pool, err := Login(t.Context(), mod, token, pin)
+	pool, err := Login(t.Context(), mod, token, module.TestPin)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
@@ -350,20 +339,12 @@ func TestLogin(t *testing.T, mod *module.Ref, token *module.Token, pin string) *
 	return pool
 }
 
-// TestPool is a test helper that creates a SoftHSM test & token, loads a module
-// and logs a pool into the token. This is a convenient shortcuts for tests that
-// don't concern themselves with multi-slot testing.
+// TestPool is a test helper that combines module.TestOpen, module.TestTokens and
+// TestLogin to create a pool for the first available token.
 func TestPool(t *testing.T) *PoolRef {
 	t.Helper()
-
-	softhsm := softhsm.New(t)
-	label, pin := softhsm.InitToken()
-
-	mod := module.TestOpen(t, softhsm.Path)
-	token, err := mod.GetToken(module.SelectLabel(label))
-	require.NoError(t, err)
-
-	return TestLogin(t, mod, token, pin)
+	mod, tokens := module.TestTokens(t, 1)
+	return TestLogin(t, mod, tokens[0])
 }
 
 // TestSession calls TestPool and returns a session that is automatically closed

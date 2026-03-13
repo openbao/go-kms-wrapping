@@ -89,13 +89,21 @@ func (b *PairBuilder) Label(label string) *PairBuilder {
 // AES initializes a SecretBuilder for an AES key with the given byte size.
 func AES(bytes int) *SecretBuilder {
 	return Secret(pkcs11.CKM_AES_KEY_GEN).
-		Attribute(pkcs11.CKA_VALUE_LEN, bytes)
+		Attribute(pkcs11.CKA_VALUE_LEN, bytes).
+		Attribute(pkcs11.CKA_ENCRYPT, true).
+		Attribute(pkcs11.CKA_DECRYPT, true).
+		Attribute(pkcs11.CKA_SENSITIVE, true)
 }
 
 // RSA initializes a PairBuilder for an RSA key pair with the given bit size.
 func RSA(bits int) *PairBuilder {
 	return Pair(pkcs11.CKM_RSA_PKCS_KEY_PAIR_GEN).
-		PublicAttribute(pkcs11.CKA_MODULUS_BITS, bits)
+		PublicAttribute(pkcs11.CKA_MODULUS_BITS, bits).
+		PublicAttribute(pkcs11.CKA_VERIFY, true).
+		PublicAttribute(pkcs11.CKA_ENCRYPT, true).
+		PrivateAttribute(pkcs11.CKA_SIGN, true).
+		PrivateAttribute(pkcs11.CKA_DECRYPT, true).
+		PrivateAttribute(pkcs11.CKA_SENSITIVE, true)
 }
 
 // EC initializes a PairBuilder for an EC key pair with the given curve.
@@ -105,7 +113,12 @@ func EC(curve kms.Curve) *PairBuilder {
 		panic(fmt.Errorf("OID should marshal: %w", err))
 	}
 	return Pair(pkcs11.CKM_EC_KEY_PAIR_GEN).
-		PublicAttribute(pkcs11.CKA_EC_PARAMS, b)
+		PublicAttribute(pkcs11.CKA_EC_PARAMS, b).
+		PublicAttribute(pkcs11.CKA_VERIFY, true).
+		PublicAttribute(pkcs11.CKA_ENCRYPT, true).
+		PrivateAttribute(pkcs11.CKA_SIGN, true).
+		PrivateAttribute(pkcs11.CKA_DECRYPT, true).
+		PrivateAttribute(pkcs11.CKA_SENSITIVE, true)
 }
 
 // Generate generates the key and returns its object handle.

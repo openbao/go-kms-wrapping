@@ -3,20 +3,18 @@
 This is the PKCS#11 implementation of the
 [KMS interface](https://github.com/openbao/go-kms-wrapping/tree/main/kms).
 
-## SoftHSM Tests
+## Tests
 
-Tests in this module use SoftHSM to test against a "real enough" PKCS#11
-library. SoftHSM tests generate the required ephemeral key material on the fly
-and store it inside of temp directories that are removed on test completion.
-They run quickly and are easy to set up for local testing on Linux or macOS.
+Tests in this module run against [SoftHSM](https://github.com/softhsm/SoftHSMv2)
+and [Kryoptic](https://github.com/latchset/kryoptic).
 
-1. Ensure SoftHSM v2 is installed. This includes the PKCS#11 dynamic library
-   `libsofthsm2.so` and the `softhsm2-util` tool, which must be in `$PATH`.
+To enable:
 
-2. To enable SoftHSM tests, set the `SOFTHSM_TESTS=1` environment
-   variable. Additionally, set the `SOFTHSM_LIBRARY_PATH`
-   environment variable to point at the dynamic library, e.g., via
-   `SOFTHSM_LIBRARY_PATH=/usr/lib/softhsm/libsofthsm2.so`
+- For SoftHSM, set the `SOFTHSM_PATH` environment variable to point at SoftHSM's
+  dynamic library, e.g., `SOFTHSM_PATH=/usr/lib/libsofthsm2.so`.
 
-3. `go test` away.
+- For Kryoptic, set the `KRYOPTIC_PATH` environment variable to point at
+  Kryoptic's dynamic library, e.g., `KRYOPTIC_PATH=/usr/lib/libkryoptic_pkcs11.so`.
 
+Ephemeral key material and configuration is created for each test run inside of
+temporary directories, so no further setup is necessary.

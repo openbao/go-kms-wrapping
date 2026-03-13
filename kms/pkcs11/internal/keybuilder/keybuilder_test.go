@@ -6,10 +6,15 @@ package keybuilder
 import (
 	"testing"
 
+	"github.com/openbao/go-kms-wrapping/kms/pkcs11/v2/internal/module"
 	"github.com/openbao/go-kms-wrapping/kms/pkcs11/v2/internal/session"
 	"github.com/openbao/go-kms-wrapping/v2/kms"
 	"github.com/stretchr/testify/require"
 )
+
+func TestMain(m *testing.M) {
+	module.TestSetup(m)
+}
 
 func Test(t *testing.T) {
 	s, _ := session.TestSession(t)
