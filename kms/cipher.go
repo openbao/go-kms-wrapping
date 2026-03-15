@@ -37,6 +37,9 @@ type CipherAlgorithm int
 const (
 	CipherAlgo_AES CipherAlgorithm = iota + 1
 	CipherAlgo_RSA
+
+	CipherAlgo_Provider_Specific_Base CipherAlgorithm = 65536
+	CipherAlgo_Provider_Specific_Top  CipherAlgorithm = 165536
 )
 
 func (c CipherAlgorithm) String() string {
@@ -66,6 +69,9 @@ const (
 	CipherMode_RSA_OAEP_SHA256
 	CipherMode_RSA_OAEP_SHA384
 	CipherMode_RSA_OAEP_SHA512
+
+	CipherMode_Provider_Specific_Base CipherAlgorithmMode = 65536
+	CipherMode_Provider_Specific_Top  CipherAlgorithmMode = 165536
 )
 
 func (c CipherAlgorithmMode) String() string {
