@@ -24,31 +24,15 @@ type Wrapper struct {
 	aead     cipher.AEAD
 }
 
-// ShamirWrapper is here for backwards compatibility for Vault; it reports a
-// type of "shamir" instead of "aead"
-type ShamirWrapper struct {
-	*Wrapper
-}
-
 // Ensure that we are implementing Wrapper
 var (
 	_ wrapping.Wrapper     = (*Wrapper)(nil)
-	_ wrapping.Wrapper     = (*ShamirWrapper)(nil)
 	_ wrapping.KeyExporter = (*Wrapper)(nil)
 )
 
 // NewWrapper creates a new Wrapper. No options are supported.
 func NewWrapper() *Wrapper {
 	return new(Wrapper)
-}
-
-// Deprecated: NewShamirWrapper returns a type of "shamir" instead of "aead" and
-// is for backwards compatibility with old versions of Vault. Do not use in new
-// code.
-func NewShamirWrapper() *ShamirWrapper {
-	return &ShamirWrapper{
-		Wrapper: NewWrapper(),
-	}
 }
 
 // NewDerivedWrapper returns an aead.Wrapper whose key is set to an hkdf-based
@@ -196,10 +180,6 @@ func (s *Wrapper) SetAesGcmKeyBytes(key []byte) error {
 // Type returns the seal type for this particular Wrapper implementation
 func (s *Wrapper) Type(_ context.Context) (wrapping.WrapperType, error) {
 	return wrapping.WrapperTypeAead, nil
-}
-
-func (s *ShamirWrapper) Type(_ context.Context) (wrapping.WrapperType, error) {
-	return wrapping.WrapperTypeShamir, nil
 }
 
 // KeyId returns the last known key id

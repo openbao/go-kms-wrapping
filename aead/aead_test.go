@@ -13,19 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestShamirVsAEAD(t *testing.T) {
-	ctx := context.Background()
-	a := NewWrapper()
-	typ, err := a.Type(ctx)
-	require.NoError(t, err)
-	require.Equal(t, typ, wrapping.WrapperTypeAead)
-
-	s := NewShamirWrapper()
-	typ, err = s.Type(ctx)
-	require.NoError(t, err)
-	require.Equal(t, typ, wrapping.WrapperTypeShamir)
-}
-
 func Test_Wrapper(t *testing.T) {
 	root := NewWrapper()
 	encBlob := testWrapperBasic(t, root)
