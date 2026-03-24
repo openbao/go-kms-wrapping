@@ -10,7 +10,11 @@ import (
 // Wrapper is an interface for encrypting and decrypting data using a set of one
 // or more opaque encryption keys.
 type Wrapper interface {
-	// Type returns the constant named type of the Wrapper, e.g., "pkcs11".
+	// Type returns the type of the Wrapper, e.g., "pkcs11". Well-known types
+	// are available as constants in this package, e.g., WrapperTypePkcs11.
+	//
+	// This is expected to always return the same value such that callers can
+	// safely cache the type after initially retrieving it once.
 	Type(ctx context.Context) (WrapperType, error)
 
 	// SetConfig applies the given configuration options to the Wrapper
