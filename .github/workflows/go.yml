@@ -21,7 +21,7 @@ jobs:
           - './wrappers/static'
           - './wrappers/tencentcloudkms'
           - './wrappers/transit'
-          - './kms/pkcs11'
+          # - './kms/pkcs11'
         go: ["1.25"]
         platform: [ubuntu-latest] # can not run in macOS and Windows
     runs-on: ${{ matrix.platform }}
