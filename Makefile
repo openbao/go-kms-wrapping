@@ -16,6 +16,7 @@ test:
 	cd wrappers/securosyshsm && go test ./... $(TESTARGS)
 	cd kms/pkcs11 && go test ./... $(TESTARGS)
 	cd kms/securosyshsm && go test ./... $(TESTARGS)
+	cd kms/transit && go test ./... $(TESTARGS)
 
 .PHONY: tidy-all
 tidy-all:
@@ -36,6 +37,7 @@ tidy-all:
 	cd wrappers/securosyshsm && go mod tidy
 	cd kms/pkcs11 && go mod tidy
 	cd kms/securosyshsm && go mod tidy
+	cd kms/transit && go mod tidy
 	go mod tidy
 
 .PHONY: generate-all
@@ -56,6 +58,7 @@ generate-all:
 	cd wrappers/securosyshsm && GOARCH= GOOS= go generate ./...
 	cd kms/pkcs11 && GOARCH= GOOS= go generate ./...
 	cd kms/securosyshsm && GOARCH= GOOS= go generate ./...
+	cd kms/transit && GOARCH= GOOS= go generate ./...
 	GOARCH= GOOS= go generate ./...
 
 .PHONY: fmt
