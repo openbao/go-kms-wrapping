@@ -33,7 +33,7 @@ func (k Pkcs11Key) String() string {
 
 func newPkcs11Key(v string) (*Pkcs11Key, error) {
 	pos := strings.LastIndex(v, ":")
-	if pos <= 0 {
+	if pos < 0 {
 		return nil, fmt.Errorf("Invalid key format")
 	}
 	k := &Pkcs11Key{
@@ -45,7 +45,7 @@ func newPkcs11Key(v string) (*Pkcs11Key, error) {
 
 func (k Pkcs11Key) Set(v string) error {
 	pos := strings.LastIndex(v, ":")
-	if pos <= 0 {
+	if pos < 0 {
 		return fmt.Errorf("Invalid key format")
 	}
 	k.label = v[:pos]
@@ -162,7 +162,7 @@ func newPkcs11Client(opts *options) (*Pkcs11Client, *wrapping.WrapperConfig, err
 	}
 
 	// Remove the 0x prefix.
-	strings.TrimPrefix(keyId, "0x")
+	keyId = strings.TrimPrefix(keyId, "0x")
 
 	switch {
 	case api.ReadBaoVariable(EnvHsmWrapperKeyLabel) != "" && !opts.Options.WithDisallowEnvVars:
@@ -644,13 +644,23 @@ func (c *Pkcs11Client) FindKey(session pkcs11.SessionHandle, key Pkcs11Key) (*Ke
 		keys = append(keys, key)
 	}
 
-	// A single secret key:
 	if len(keys) == 1 {
-		if keys[0].class != pkcs11.CKO_SECRET_KEY {
-			return nil, fmt.Errorf("found a single object, expected a secret key (class %d) but got class %d",
-				pkcs11.CKO_SECRET_KEY, keys[0].keytype)
+		switch keys[0].class {
+		// A single secret key:
+		case pkcs11.CKO_SECRET_KEY:
+			return keys[0], nil
+		// A single private key: the matching public key may have a different
+		// label so search for the public key.
+		case pkcs11.CKO_PRIVATE_KEY:
+			pubKey, err := c.FindMatchingPublicKey(session, keys[0].handle)
+			if err != nil {
+				return nil, fmt.Errorf("found private key but failed to find matching public key: %w", err)
+			}
+			keys[0].public = pubKey
+			return keys[0], nil
+		default:
+			return nil, fmt.Errorf("found a single object of class %d, expected a secret key or private key", keys[0].class)
 		}
-		return keys[0], nil
 	}
 
 	var privateKey *KeyInfo
@@ -663,7 +673,7 @@ func (c *Pkcs11Client) FindKey(session pkcs11.SessionHandle, key Pkcs11Key) (*Ke
 		privateKey.public = keys[0]
 	default:
 		return nil, fmt.Errorf("found two objects, expected public/private key pair (class %d and %d) but got class %d and %d",
-			pkcs11.CKO_PUBLIC_KEY, pkcs11.CKO_PRIVATE_KEY, keys[0].keytype, keys[1].keytype)
+			pkcs11.CKO_PUBLIC_KEY, pkcs11.CKO_PRIVATE_KEY, keys[0].class, keys[1].class)
 	}
 
 	if privateKey.keytype != privateKey.public.keytype {
@@ -672,6 +682,44 @@ func (c *Pkcs11Client) FindKey(session pkcs11.SessionHandle, key Pkcs11Key) (*Ke
 	}
 
 	return privateKey, nil
+}
+
+// FindMatchingPublicKey searches for a public key that shares the same CKA_ID
+// as the given private key object.
+func (c *Pkcs11Client) FindMatchingPublicKey(session pkcs11.SessionHandle, privObj pkcs11.ObjectHandle) (*KeyInfo, error) {
+	// Get CKA_ID from the private key.
+	idTemplate := []*pkcs11.Attribute{
+		pkcs11.NewAttribute(pkcs11.CKA_ID, 0),
+	}
+	attrs, err := c.client.GetAttributeValue(session, privObj, idTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get CKA_ID from private key: %w", err)
+	}
+	ckaID := attrs[0].Value
+	if len(ckaID) == 0 {
+		return nil, fmt.Errorf("private key has no CKA_ID, cannot find matching public key")
+	}
+
+	// Search for a public key with the same CKA_ID.
+	searchTemplate := []*pkcs11.Attribute{
+		pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PUBLIC_KEY),
+		pkcs11.NewAttribute(pkcs11.CKA_ID, ckaID),
+	}
+	if err := c.client.FindObjectsInit(session, searchTemplate); err != nil {
+		return nil, fmt.Errorf("failed to pkcs#11 FindObjectsInit for public key: %w", err)
+	}
+	objs, _, err := c.client.FindObjects(session, 1)
+	if err != nil {
+		return nil, fmt.Errorf("failed to pkcs#11 FindObjects for public key: %w", err)
+	}
+	if err := c.client.FindObjectsFinal(session); err != nil {
+		return nil, fmt.Errorf("failed to pkcs#11 FindObjectsFinal for public key: %w", err)
+	}
+	if len(objs) == 0 {
+		return nil, fmt.Errorf("no public key found with matching CKA_ID")
+	}
+
+	return c.ResolveKeyAttrs(session, objs[0])
 }
 
 func (c *Pkcs11Client) ResolveKeyAttrs(session pkcs11.SessionHandle, obj pkcs11.ObjectHandle) (*KeyInfo, error) {
