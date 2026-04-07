@@ -21,7 +21,7 @@ test:
 .PHONY: tidy-all
 tidy-all:
 	cd examples/plugin-cli && go mod tidy
-	cd examples/plugin-cli/plugins/mains/transit && go mod tidy
+	cd examples/plugin-cli/transit && go mod tidy
 	cd plugin && go mod tidy
 	cd wrappers/aead && go mod tidy
 	cd wrappers/alicloudkms && go mod tidy
