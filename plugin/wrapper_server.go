@@ -5,17 +5,14 @@ package plugin
 
 import (
 	"context"
-	"errors"
 	"sync"
 
+	"github.com/hashicorp/go-plugin"
 	"github.com/hashicorp/go-uuid"
 	"github.com/openbao/go-kms-wrapping/plugin/v2/pb"
 	"github.com/openbao/go-kms-wrapping/v2"
+	"google.golang.org/grpc"
 )
-
-// ErrNoInstance is returned when an RPC is called on a remote object that
-// doesn't exist.
-var ErrNoInstance = errors.New("instance not found")
 
 type gRPCWrapperServer struct {
 	pb.UnimplementedWrapperServer
@@ -24,6 +21,14 @@ type gRPCWrapperServer struct {
 	instancesLock sync.Mutex
 
 	factory func() wrapping.Wrapper
+}
+
+func (wp *gRPCWrapperPlugin) GRPCServer(broker *plugin.GRPCBroker, s *grpc.Server) error {
+	pb.RegisterWrapperServer(s, &gRPCWrapperServer{
+		factory:   wp.factory,
+		instances: make(map[string]wrapping.Wrapper),
+	})
+	return nil
 }
 
 func (s *gRPCWrapperServer) get(id string) (wrapping.Wrapper, error) {
