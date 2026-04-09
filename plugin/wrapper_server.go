@@ -45,11 +45,6 @@ func (s *gRPCWrapperServer) get(id string) (wrapping.Wrapper, error) {
 }
 
 func (s *gRPCWrapperServer) SetConfig(ctx context.Context, req *pb.SetConfigRequest) (*pb.SetConfigResponse, error) {
-	id, err := uuid.GenerateUUID()
-	if err != nil {
-		return nil, err
-	}
-
 	opts := req.Options
 	if opts == nil {
 		opts = new(wrapping.Options)
@@ -63,6 +58,11 @@ func (s *gRPCWrapperServer) SetConfig(ctx context.Context, req *pb.SetConfigRequ
 		wrapping.WithKeyId(opts.WithKeyId),
 		wrapping.WithConfigMap(opts.WithConfigMap),
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	id, err := uuid.GenerateUUID()
 	if err != nil {
 		return nil, err
 	}
