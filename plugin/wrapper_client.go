@@ -7,24 +7,23 @@ import (
 	"context"
 	"errors"
 
+	"github.com/hashicorp/go-plugin"
 	"github.com/openbao/go-kms-wrapping/plugin/v2/pb"
 	"github.com/openbao/go-kms-wrapping/v2"
-)
-
-// ErrPluginShutdown is returned when a plugin client fails because the backing
-// plugin server/process has shut down. Catching this error can be used to
-// respawn plugin processes and retry the call if desired.
-var ErrPluginShutdown = errors.New("plugin is shut down")
-
-var (
-	_ wrapping.Wrapper       = (*gRPCWrapperClient)(nil)
-	_ wrapping.InitFinalizer = (*gRPCWrapperClient)(nil)
+	"google.golang.org/grpc"
 )
 
 type gRPCWrapperClient struct {
 	id     string
 	ctx    context.Context
 	client pb.WrapperClient
+}
+
+func (wp *gRPCWrapperPlugin) GRPCClient(ctx context.Context, broker *plugin.GRPCBroker, c *grpc.ClientConn) (any, error) {
+	return &gRPCWrapperClient{
+		ctx:    ctx,
+		client: pb.NewWrapperClient(c),
+	}, nil
 }
 
 func (c *gRPCWrapperClient) handleError(err error) error {
