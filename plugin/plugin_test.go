@@ -131,7 +131,7 @@ func TestWrapper(t *testing.T) {
 
 			t.Run("Finalize", func(t *testing.T) {
 				require.NoError(t, wrapper.Finalize(ctx))
-				require.ErrorContains(t, wrapper.Finalize(ctx), ErrNoInstance.Error())
+				require.ErrorIs(t, wrapper.Finalize(ctx), ErrNoInstance)
 			})
 		})
 	}
