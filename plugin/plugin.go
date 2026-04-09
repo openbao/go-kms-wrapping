@@ -59,6 +59,7 @@ func Serve(opts *ServeOpts) {
 	if opts.KMSFactoryFunc != nil {
 		v1["kms"] = &gRPCKMSPlugin{
 			factory: opts.KMSFactoryFunc,
+			logger:  logger,
 		}
 	}
 	if opts.WrapperFactoryFunc != nil {
@@ -99,6 +100,7 @@ type gRPCWrapperPlugin struct {
 
 type gRPCKMSPlugin struct {
 	factory func() kms.KMS
+	logger  log.Logger
 
 	// Embedding this will disable the netRPC protocol.
 	plugin.NetRPCUnsupportedPlugin
