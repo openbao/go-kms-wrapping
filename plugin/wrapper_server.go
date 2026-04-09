@@ -12,6 +12,8 @@ import (
 	"github.com/openbao/go-kms-wrapping/plugin/v2/pb"
 	"github.com/openbao/go-kms-wrapping/v2"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type gRPCWrapperServer struct {
@@ -39,7 +41,7 @@ func (s *gRPCWrapperServer) get(id string) (wrapping.Wrapper, error) {
 		return wrapper, nil
 	}
 
-	return nil, ErrNoInstance
+	return nil, status.Error(codes.NotFound, ErrNoInstance.Error())
 }
 
 func (s *gRPCWrapperServer) SetConfig(ctx context.Context, req *pb.SetConfigRequest) (*pb.SetConfigResponse, error) {
@@ -159,7 +161,7 @@ func (s *gRPCWrapperServer) Finalize(ctx context.Context, req *pb.FinalizeReques
 	wrapper, ok := s.instances[req.WrapperId]
 	if !ok {
 		s.instancesLock.Unlock()
-		return nil, ErrNoInstance
+		return nil, status.Error(codes.NotFound, ErrNoInstance.Error())
 	}
 
 	// Remove the instance:
