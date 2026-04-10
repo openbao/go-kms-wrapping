@@ -15,12 +15,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/openbao/go-kms-wrapping/plugin/v2"
+	"github.com/openbao/go-kms-wrapping/plugin/v2/plugintest"
 	"github.com/openbao/go-kms-wrapping/v2/kms"
 	"github.com/openbao/openbao/api/v2"
 	"github.com/openbao/openbao/sdk/v2/helper/testcluster"
 	"github.com/openbao/openbao/sdk/v2/helper/testcluster/docker"
 	"github.com/stretchr/testify/require"
 )
+
+func TestPlugin(t *testing.T) {
+	plugintest.Server(t, &plugin.ServeOpts{
+		KMSFactoryFunc: New,
+	})
+}
 
 func Test(t *testing.T) {
 	ctx := t.Context()
@@ -42,19 +50,35 @@ func Test(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	k := New()
-	t.Cleanup(func() {
-		require.NoError(t, k.Close(ctx))
-	})
-
-	require.NoError(t, k.Open(ctx, &kms.OpenOptions{
+	opts := &kms.OpenOptions{
 		ConfigMap: kms.ConfigMap{
 			"token":       client.Token(),
 			"address":     client.Address(),
 			"mount_path":  "transit",
 			"tls_ca_cert": string(cluster.CACertPEM),
 		},
-	}))
+	}
+
+	t.Run("Builtin", func(t *testing.T) {
+		t.Parallel()
+		test(t, New(), opts)
+	})
+
+	t.Run("Plugin", func(t *testing.T) {
+		t.Parallel()
+		raw, err := plugintest.Client(t, "TestPlugin").Dispense("kms")
+		require.NoError(t, err)
+		test(t, raw.(kms.KMS), opts)
+	})
+}
+
+func test(t *testing.T, k kms.KMS, opts *kms.OpenOptions) {
+	ctx := t.Context()
+
+	require.NoError(t, k.Open(ctx, opts))
+	defer func() {
+		require.NoError(t, k.Close(ctx))
+	}()
 
 	t.Run("Encrypt+Decrypt", func(t *testing.T) {
 		input, aad := []byte("foobar"), []byte("baz")
@@ -184,6 +208,7 @@ func Test(t *testing.T) {
 					"name":               "ecdsa-p256",
 					"disable_prehashing": true,
 				}})
+			require.NoError(t, err)
 			h := crypto.SHA256.New()
 			_, _ = h.Write([]byte("foo"))
 			digest := h.Sum(nil)
@@ -192,7 +217,7 @@ func Test(t *testing.T) {
 				Prehashed:  true,
 				SignerOpts: crypto.SHA256,
 			})
-			require.ErrorIs(t, err, ErrPrehashingDisabled)
+			require.ErrorContains(t, err, ErrPrehashingDisabled.Error())
 		})
 	})
 
