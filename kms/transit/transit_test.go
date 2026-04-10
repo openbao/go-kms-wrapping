@@ -13,7 +13,6 @@ import (
 	"crypto/x509"
 	"path"
 	"testing"
-	"time"
 
 	"github.com/openbao/go-kms-wrapping/plugin/v2"
 	"github.com/openbao/go-kms-wrapping/plugin/v2/plugintest"
@@ -285,21 +284,30 @@ func test(t *testing.T, k kms.KMS, opts *kms.OpenOptions) {
 	})
 }
 
+// inmemStorage speeds up tests by overriding the default raft storage used by
+// NewTestDockerCluster with the inmem backend. This avoids needing to wait for
+// a leader at startup (even with a single node), significantly reducing test
+// time.
+type inmemStorage struct{}
+
+// This implements the testcluster.ClusterStorage interface.
+func (inmemStorage) Start(context.Context, *testcluster.ClusterOptions) error { return nil }
+func (inmemStorage) Cleanup() error                                           { return nil }
+func (inmemStorage) Opts() map[string]any                                     { return make(map[string]any) }
+func (inmemStorage) Type() string                                             { return "inmem" }
+
 // setupTransitEngine sets up an OpenBao instance in Docker with a Transit
 // engine mounted in the root namespace.
 func setupTransitEngine(t *testing.T) (*docker.DockerCluster, *api.Client) {
 	t.Helper()
 
 	opts := docker.DefaultOptions(t)
-	opts.ClusterOptions.NumCores = 1
+	opts.NumCores = 1
+	opts.Storage = inmemStorage{}
+	opts.HADisabled = true
 	cluster := docker.NewTestDockerCluster(t, opts)
 
-	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
-	defer cancel()
-	active, err := testcluster.WaitForActiveNode(ctx, cluster)
-	require.NoError(t, err)
-
-	client := cluster.ClusterNodes[active].APIClient()
+	client := cluster.ClusterNodes[0].APIClient()
 	require.NoError(t, client.Sys().Mount("transit", &api.MountInput{
 		Type: "transit",
 	}))
