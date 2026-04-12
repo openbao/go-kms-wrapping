@@ -16,11 +16,12 @@ test:
 	cd wrappers/securosyshsm && go test ./... $(TESTARGS)
 	cd kms/pkcs11 && go test ./... $(TESTARGS)
 	cd kms/securosyshsm && go test ./... $(TESTARGS)
+	cd kms/transit && go test ./... $(TESTARGS)
 
 .PHONY: tidy-all
 tidy-all:
 	cd examples/plugin-cli && go mod tidy
-	cd examples/plugin-cli/plugins/mains/transit && go mod tidy
+	cd examples/plugin-cli/transit && go mod tidy
 	cd plugin && go mod tidy
 	cd wrappers/aead && go mod tidy
 	cd wrappers/alicloudkms && go mod tidy
@@ -36,6 +37,7 @@ tidy-all:
 	cd wrappers/securosyshsm && go mod tidy
 	cd kms/pkcs11 && go mod tidy
 	cd kms/securosyshsm && go mod tidy
+	cd kms/transit && go mod tidy
 	go mod tidy
 
 .PHONY: generate-all
@@ -56,6 +58,7 @@ generate-all:
 	cd wrappers/securosyshsm && GOARCH= GOOS= go generate ./...
 	cd kms/pkcs11 && GOARCH= GOOS= go generate ./...
 	cd kms/securosyshsm && GOARCH= GOOS= go generate ./...
+	cd kms/transit && GOARCH= GOOS= go generate ./...
 	GOARCH= GOOS= go generate ./...
 
 .PHONY: fmt
@@ -66,3 +69,4 @@ fmt:
 proto:
 	protoc --go_out=. --go_opt=paths=source_relative ./types.proto
 	protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative ./plugin/pb/plugin.proto
+	protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative ./plugin/pb/kms/plugin.proto

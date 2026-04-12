@@ -7,18 +7,12 @@ import (
 	"context"
 	"errors"
 
+	"github.com/hashicorp/go-plugin"
 	"github.com/openbao/go-kms-wrapping/plugin/v2/pb"
 	"github.com/openbao/go-kms-wrapping/v2"
-)
-
-// ErrPluginShutdown is returned when a plugin client fails because the backing
-// plugin server/process has shut down. Catching this error can be used to
-// respawn plugin processes and retry the call if desired.
-var ErrPluginShutdown = errors.New("plugin is shut down")
-
-var (
-	_ wrapping.Wrapper       = (*gRPCWrapperClient)(nil)
-	_ wrapping.InitFinalizer = (*gRPCWrapperClient)(nil)
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type gRPCWrapperClient struct {
@@ -27,8 +21,21 @@ type gRPCWrapperClient struct {
 	client pb.WrapperClient
 }
 
-func (c *gRPCWrapperClient) handleError(err error) error {
-	if c.ctx.Err() != nil {
+func (wp *gRPCWrapperPlugin) GRPCClient(ctx context.Context, broker *plugin.GRPCBroker, c *grpc.ClientConn) (any, error) {
+	return &gRPCWrapperClient{
+		ctx:    ctx,
+		client: pb.NewWrapperClient(c),
+	}, nil
+}
+
+func (c *gRPCWrapperClient) handleRPCError(err error) error {
+	code := status.Code(err)
+	switch {
+	case code == codes.Unimplemented:
+		return wrapping.ErrFunctionNotImplemented
+	case code == codes.NotFound:
+		return ErrNoInstance
+	case c.ctx.Err() != nil:
 		return ErrPluginShutdown
 	}
 	return err
@@ -53,7 +60,7 @@ func (c *gRPCWrapperClient) SetConfig(ctx context.Context, options ...wrapping.O
 
 	resp, err := c.client.SetConfig(ctx, &pb.SetConfigRequest{Options: opts})
 	if err != nil {
-		return nil, c.handleError(err)
+		return nil, c.handleRPCError(err)
 	}
 
 	c.id = resp.WrapperId
@@ -63,7 +70,7 @@ func (c *gRPCWrapperClient) SetConfig(ctx context.Context, options ...wrapping.O
 func (c *gRPCWrapperClient) Type(ctx context.Context) (wrapping.WrapperType, error) {
 	resp, err := c.client.Type(ctx, &pb.TypeRequest{WrapperId: c.id})
 	if err != nil {
-		return wrapping.WrapperTypeUnknown, c.handleError(err)
+		return wrapping.WrapperTypeUnknown, c.handleRPCError(err)
 	}
 	return wrapping.WrapperType(resp.Type), nil
 }
@@ -71,7 +78,7 @@ func (c *gRPCWrapperClient) Type(ctx context.Context) (wrapping.WrapperType, err
 func (c *gRPCWrapperClient) KeyId(ctx context.Context) (string, error) {
 	resp, err := c.client.KeyId(ctx, &pb.KeyIdRequest{WrapperId: c.id})
 	if err != nil {
-		return "", c.handleError(err)
+		return "", c.handleRPCError(err)
 	}
 	return resp.KeyId, nil
 }
@@ -87,7 +94,7 @@ func (c *gRPCWrapperClient) Encrypt(ctx context.Context, pt []byte, options ...w
 		WrapperId: c.id,
 	})
 	if err != nil {
-		return nil, c.handleError(err)
+		return nil, c.handleRPCError(err)
 	}
 	return resp.Ciphertext, nil
 }
@@ -103,7 +110,7 @@ func (c *gRPCWrapperClient) Decrypt(ctx context.Context, ct *wrapping.BlobInfo, 
 		WrapperId:  c.id,
 	})
 	if err != nil {
-		return nil, c.handleError(err)
+		return nil, c.handleRPCError(err)
 	}
 	return resp.Plaintext, nil
 }
@@ -117,7 +124,7 @@ func (c *gRPCWrapperClient) Init(ctx context.Context, options ...wrapping.Option
 		Options:   opts,
 		WrapperId: c.id,
 	})
-	return c.handleError(err)
+	return c.handleRPCError(err)
 }
 
 func (c *gRPCWrapperClient) Finalize(ctx context.Context, options ...wrapping.Option) error {
@@ -129,5 +136,5 @@ func (c *gRPCWrapperClient) Finalize(ctx context.Context, options ...wrapping.Op
 		Options:   opts,
 		WrapperId: c.id,
 	})
-	return c.handleError(err)
+	return c.handleRPCError(err)
 }
