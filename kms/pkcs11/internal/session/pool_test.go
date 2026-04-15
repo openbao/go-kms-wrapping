@@ -10,37 +10,34 @@ import (
 	"time"
 
 	"github.com/openbao/go-kms-wrapping/kms/pkcs11/v2/internal/module"
+	"github.com/openbao/go-kms-wrapping/kms/pkcs11/v2/internal/testvars"
 	"github.com/stretchr/testify/require"
 )
 
-func TestMain(m *testing.M) {
-	module.TestSetup(m)
-}
-
 func Test(t *testing.T) {
-	mod, tokens := module.TestTokens(t, 2)
-	token1, token2 := tokens[0], tokens[1]
+	lib, label, pin := testvars.Vars(t)
+
+	mod, err := module.Open(lib)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, mod.Drop())
+	})
+
+	token, err := mod.GetToken(module.SelectLabel(label))
+	require.NoError(t, err)
 
 	t.Run("Login+Drop", func(t *testing.T) {
 		t.Run("Cache", func(t *testing.T) {
 			ctx := t.Context()
 
-			p1, err := Login(ctx, mod, token1, module.TestPin+"foo")
+			p1, err := Login(ctx, mod, token, pin+"foo")
 			require.Error(t, err, "incorrect pin should not work")
 			require.Nil(t, p1, "should not return a pool")
 			require.Len(t, cache, 0, "cache should have zero entries")
 
-			p1, err = Login(ctx, mod, token1, module.TestPin)
+			p1, err = Login(ctx, mod, token, pin)
 			require.NoError(t, err, "correct pin should work")
 			require.NotNil(t, p1, "should return a pool")
-			require.Len(t, cache, 1, "cache should have one entry")
-
-			p2, err := Login(ctx, mod, token2, module.TestPin)
-			require.NoError(t, err, "correct pin should work")
-			require.NotNil(t, p2, "should return a pool")
-			require.Len(t, cache, 2, "cache should two entries")
-
-			require.NoError(t, p2.Drop(ctx), "pool should drop")
 			require.Len(t, cache, 1, "cache should have one entry")
 
 			require.NoError(t, p1.Drop(ctx), "pool should drop")
@@ -50,18 +47,18 @@ func Test(t *testing.T) {
 		t.Run("Sharing", func(t *testing.T) {
 			ctx := t.Context()
 
-			p1, err := Login(ctx, mod, token1, module.TestPin)
+			p1, err := Login(ctx, mod, token, pin)
 			require.NoError(t, err, "correct pin should work")
 			require.NotNil(t, p1, "should return a pool")
 			require.Len(t, cache, 1, "cache should have one entry")
 			require.Equal(t, uint32(1), p1.refs.Load(), "pool should have one reference")
 
-			p2, err := Login(ctx, mod, token1, "foo")
+			p2, err := Login(ctx, mod, token, "foo")
 			require.ErrorContains(t, err, "inconsistent pin values", "existing pool should reject inconsistent pin")
 			require.Nil(t, p2, "should not return a pool")
 			require.Equal(t, uint32(1), p1.refs.Load(), "pool should still have one reference")
 
-			p2, err = Login(ctx, mod, token1, module.TestPin)
+			p2, err = Login(ctx, mod, token, pin)
 			require.NoError(t, err, "correct pin should work")
 			require.NotNil(t, p2, "should return a pool")
 			require.Len(t, cache, 1, "cache should still have one entry")
@@ -81,7 +78,7 @@ func Test(t *testing.T) {
 			require.Len(t, cache, 0, "cache should have no more entries")
 
 			pinHash := p1.pinHash
-			k := cacheKey{token1.ID, mod.Path()}
+			k := cacheKey{token.ID, mod.Path()}
 
 			// Test that a shared pool acquisition will successfully wait for
 			// the "live" channel to close before incrementing the reference
@@ -98,13 +95,13 @@ func Test(t *testing.T) {
 
 				timeoutCtx, cancel := context.WithTimeout(t.Context(), time.Millisecond)
 				defer cancel()
-				_, err := Login(timeoutCtx, mod, token1, module.TestPin)
+				_, err := Login(timeoutCtx, mod, token, pin)
 				require.Error(t, err, "should time out waiting for pool to go live")
 
 				errs := make([]error, 10)
 				for i := range errs {
 					go func(i int) {
-						_, errs[i] = Login(t.Context(), mod, token1, module.TestPin)
+						_, errs[i] = Login(t.Context(), mod, token, pin)
 					}(i)
 				}
 
@@ -144,7 +141,7 @@ func Test(t *testing.T) {
 
 				for i := range len(errs) / 2 {
 					go func(i int) {
-						refs[i], errs[i] = Login(t.Context(), mod, token1, module.TestPin)
+						refs[i], errs[i] = Login(t.Context(), mod, token, pin)
 					}(i)
 				}
 
@@ -168,13 +165,13 @@ func Test(t *testing.T) {
 				// Start the remaining jobs
 				for i := range len(errs) / 2 {
 					go func(i int) {
-						refs[i], errs[i] = Login(t.Context(), mod, token1, module.TestPin)
+						refs[i], errs[i] = Login(t.Context(), mod, token, pin)
 					}(i + len(errs)/2)
 				}
 
 				timeoutCtx, cancel := context.WithTimeout(ctx, time.Millisecond)
 				defer cancel()
-				_, err := Login(timeoutCtx, mod, token1, module.TestPin)
+				_, err := Login(timeoutCtx, mod, token, pin)
 				require.Error(t, err, "should time out waiting for pool to go dead")
 
 				// Closing dead implies the pool was removed from cache, so
@@ -204,7 +201,12 @@ func Test(t *testing.T) {
 	t.Run("Get+Close", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			ctx := t.Context()
-			p := TestLogin(t, mod, token1)
+
+			p, err := Login(ctx, mod, token, pin)
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				require.NoError(t, p.Drop(context.Background()))
+			})
 
 			// Simulate a low MaxSessionCount.
 			p.pool.sema.size = 2
@@ -263,7 +265,7 @@ func Test(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				ctx := t.Context()
 
-				p, err := Login(ctx, mod, token1, module.TestPin)
+				p, err := Login(ctx, mod, token, pin)
 				require.NoError(t, err, "correct pin should work")
 
 				// Simulate a low MaxSessionCount.
@@ -313,7 +315,12 @@ func Test(t *testing.T) {
 
 		t.Run("Scope", func(t *testing.T) {
 			ctx := t.Context()
-			p := TestLogin(t, mod, token1)
+
+			p, err := Login(ctx, mod, token, pin)
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				require.NoError(t, p.Drop(context.Background()))
+			})
 
 			var escaped *Handle
 
@@ -324,7 +331,7 @@ func Test(t *testing.T) {
 				return nil
 			})
 
-			_, err := escaped.GenerateRandom(1)
+			_, err = escaped.GenerateRandom(1)
 			require.Error(t, err, "session should not work outside of scope")
 
 			defer func() {

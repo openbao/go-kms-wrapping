@@ -22,7 +22,7 @@ jobs:
           - './wrappers/tcloudpublickms'
           - './wrappers/tencentcloudkms'
           - './wrappers/transit'
-          # - './kms/pkcs11'
+          - './kms/pkcs11'
           - './kms/transit'
         go: ["1.25"]
         platform: [ubuntu-latest] # can not run in macOS and Windows
