@@ -105,7 +105,7 @@ func WithIdentityEndpoint(with string) wrapping.Option {
 	}
 }
 
-// WithRegion provides a way to chose the region
+// WithRegion provides a way to choose the region
 func WithRegion(with string) wrapping.Option {
 	return func() any {
 		return OptionFunc(func(o *options) error {
@@ -115,7 +115,7 @@ func WithRegion(with string) wrapping.Option {
 	}
 }
 
-// WithProject provides a way to chose the project
+// WithProject provides a way to choose the project
 func WithProject(with string) wrapping.Option {
 	return func() any {
 		return OptionFunc(func(o *options) error {
