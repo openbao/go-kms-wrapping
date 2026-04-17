@@ -18,7 +18,12 @@ import (
 )
 
 const (
-	EnvOpenTelekomCloudKmsWrapperKeyId = "OPENTELEKOMCLOUDKMS_WRAPPER_KEY_ID"
+	EnvOpenTelekomCloudKmsKeyId         = "OPENTELEKOMCLOUD_KMS_KEY_ID"
+	EnvOpenTelekomCloudRegion           = "OPENTELEKOMCLOUD_REGION"
+	EnvOpenTelekomCloudProject          = "OPENTELEKOMCLOUD_PROJECT"
+	EnvOpenTelekomCloudAccessKey        = "OPENTELEKOMCLOUD_ACCESS_KEY"
+	EnvOpenTelekomCloudSecretKey        = "OPENTELEKOMCLOUD_SECRET_KEY"
+	EnvOpenTelekomCloudIdentityEndpoint = "OPENTELEKOMCLOUD_IDENTITY_ENDPOINT"
 )
 
 // Ensure that we are implementing Wrapper
@@ -37,7 +42,9 @@ type Wrapper struct {
 	currentKeyId *atomic.Value
 
 	// Metadata fields stored for reporting
-	region  string
+	region string
+	// project is the OTC project/tenant scope.
+	// Optional; when empty, the global KMS endpoint is used.
 	project string
 }
 
@@ -56,6 +63,8 @@ func NewWrapper() *Wrapper {
 // Order of precedence Open Telekom Cloud values:
 // * Environment variable
 // * Value from Vault configuration file
+// Required: key_id, region, access_key, secret_key
+// Optional: project (defaults to global scope), identity_endpoint
 func (k *Wrapper) SetConfig(
 	_ context.Context,
 	opt ...wrapping.Option,
@@ -67,8 +76,8 @@ func (k *Wrapper) SetConfig(
 
 	// Check and set KeyId
 	keyId, err := getConfig(
-		"kms_key_id",
-		os.Getenv(EnvOpenTelekomCloudKmsWrapperKeyId),
+		"key_id",
+		os.Getenv(EnvOpenTelekomCloudKmsKeyId),
 		opts.WithKeyId,
 	)
 	if err != nil {
@@ -82,22 +91,12 @@ func (k *Wrapper) SetConfig(
 		}
 	}
 
-	// Test the client connection using provided key ID
-	keyInfo, err := kms.Get(k.client, k.keyId)
-	if err != nil {
-		return nil, fmt.Errorf("error fetching Open Telekom Cloud KMS key information: %w", err)
-	}
-
-	// Store the current key id. If using a key alias, this will point to the
-	// actual unique key that that was used for this encrypt operation.
-	k.currentKeyId.Store(keyInfo.KeyID)
-
 	// Store non-sensitive configuration info
 	wrapConfig := new(wrapping.WrapperConfig)
 	wrapConfig.Metadata = make(map[string]string)
 	wrapConfig.Metadata["region"] = k.region
 	wrapConfig.Metadata["project"] = k.project
-	wrapConfig.Metadata["kms_key_id"] = k.keyId
+	wrapConfig.Metadata["key_id"] = k.keyId
 
 	return wrapConfig, nil
 }
@@ -196,7 +195,7 @@ func (k *Wrapper) Decrypt(
 func (k *Wrapper) setupClient(opts *options) error {
 	region, err := getConfig(
 		"region",
-		os.Getenv("OPENTELEKOMCLOUD_REGION"),
+		os.Getenv(EnvOpenTelekomCloudRegion),
 		opts.withRegion,
 	)
 	if err != nil {
@@ -204,19 +203,18 @@ func (k *Wrapper) setupClient(opts *options) error {
 	}
 	k.region = region
 
-	project, err := getConfig(
+	// Project is optional: KMS can operate at the global or project scope.
+	// When empty, the global KMS endpoint is used.
+	project, _ := getConfig(
 		"project",
-		os.Getenv("OPENTELEKOMCLOUD_PROJECT"),
+		os.Getenv(EnvOpenTelekomCloudProject),
 		opts.withProject,
 	)
-	if err != nil {
-		return err
-	}
 	k.project = project
 
 	accessKey, err := getConfig(
 		"access_key",
-		os.Getenv("OPENTELEKOMCLOUD_ACCESS_KEY"),
+		os.Getenv(EnvOpenTelekomCloudAccessKey),
 		opts.withAccessKey,
 	)
 	if err != nil {
@@ -225,7 +223,7 @@ func (k *Wrapper) setupClient(opts *options) error {
 
 	secretKey, err := getConfig(
 		"secret_key",
-		os.Getenv("OPENTELEKOMCLOUD_SECRET_KEY"),
+		os.Getenv(EnvOpenTelekomCloudSecretKey),
 		opts.withSecretKey,
 	)
 	if err != nil {
@@ -234,7 +232,7 @@ func (k *Wrapper) setupClient(opts *options) error {
 
 	endpoint, _ := getConfig(
 		"identity_endpoint",
-		os.Getenv("OPENTELEKOMCLOUD_IDENTITY_ENDPOINT"),
+		os.Getenv(EnvOpenTelekomCloudIdentityEndpoint),
 		opts.withIdentityEndpoint,
 	)
 

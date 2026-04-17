@@ -44,7 +44,7 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 	if opts.WithConfigMap != nil {
 		for k, v := range opts.WithConfigMap {
 			switch k {
-			case "kms_key_id": // Handle deprecated parameter
+			case "kms_id":
 				opts.WithKeyId = v
 			case "region":
 				opts.withRegion = v
@@ -91,7 +91,6 @@ func getDefaultOptions() options {
 	return options{
 		withIdentityEndpoint: "https://iam.eu-de.otc.t-systems.com:443/v3",
 		withRegion:           "eu-de",
-		withProject:          "eu-de",
 	}
 }
 

@@ -4,88 +4,50 @@
 package opentelekomcloudkms
 
 import (
-	"bytes"
-	"context"
 	"os"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestOpenTelekomCloudKMS_Lifecycle(t *testing.T) {
 	mustHaveOTCEnv(t)
 
-	ctx := context.Background()
+	ctx := t.Context()
 	w := NewWrapper()
 
 	// Setting configuration from environment variables.
-	if _, err := w.SetConfig(ctx); err != nil {
-		t.Fatalf("SetConfig failed: %v", err)
-	}
+	_, err := w.SetConfig(ctx)
+	require.NoError(t, err, "SetConfig")
 
 	plaintext := []byte("foo")
 	blob, err := w.Encrypt(ctx, plaintext)
-	if err != nil {
-		t.Fatalf("Encrypt failed: %v", err)
-	}
-	if blob == nil || blob.KeyInfo == nil {
-		t.Fatalf("Encrypt returned nil blob and/or nil KeyInfo")
-	}
-	if len(blob.KeyInfo.WrappedKey) == 0 {
-		t.Fatalf("Encrypt returned empty wrapped key")
-	}
-	if len(blob.Ciphertext) == 0 {
-		t.Fatalf("Encrypt returned empty ciphertext")
-	}
+	require.NoError(t, err, "Encrypt")
+	require.NotNil(t, blob)
+	require.NotNil(t, blob.KeyInfo)
+	require.NotEmpty(t, blob.KeyInfo.WrappedKey)
+	require.NotEmpty(t, blob.Ciphertext)
 
 	pt, err := w.Decrypt(ctx, blob)
-	if err != nil {
-		t.Fatalf("Decrypt failed: %v", err)
-	}
-	if !bytes.Equal(pt, plaintext) {
-		t.Fatalf("roundtrip mismatch:\n  got:  %q\n  want: %q", string(pt), string(plaintext))
-	}
+	require.NoError(t, err, "Decrypt")
+	require.Equal(t, plaintext, pt, "roundtrip mismatch")
 
 	// Verify KeyId is available after successful operations.
 	keyID, err := w.KeyId(ctx)
-	if err != nil {
-		t.Fatalf("KeyId failed: %v", err)
-	}
-	if keyID == "" {
-		t.Fatalf("KeyId returned empty string")
-	}
-}
-
-func TestOpenTelekomCloudKMS_SetConfig_ResolvesKeyId(t *testing.T) {
-	mustHaveOTCEnv(t)
-
-	ctx := context.Background()
-	w := NewWrapper()
-
-	if _, err := w.SetConfig(ctx); err != nil {
-		t.Fatalf("SetConfig failed: %v", err)
-	}
-
-	// After SetConfig, wrapper tries kms.Get() and stores the resolved key ID.
-	keyID, err := w.KeyId(ctx)
-	if err != nil {
-		t.Fatalf("KeyId failed: %v", err)
-	}
-	if keyID == "" {
-		t.Fatalf("expected resolved key ID after SetConfig, got empty")
-	}
+	require.NoError(t, err, "KeyId")
+	require.NotEmpty(t, keyID)
 }
 
 func TestOpenTelekomCloudKMS_Encrypt_NilPlaintext(t *testing.T) {
 	w := NewWrapper()
-	if _, err := w.Encrypt(context.Background(), nil); err == nil {
-		t.Fatalf("expected error for nil plaintext")
-	}
+	_, err := w.Encrypt(t.Context(), nil)
+	require.Error(t, err)
 }
 
 func TestOpenTelekomCloudKMS_Decrypt_NilInput(t *testing.T) {
 	w := NewWrapper()
-	if _, err := w.Decrypt(context.Background(), nil); err == nil {
-		t.Fatalf("expected error for nil input")
-	}
+	_, err := w.Decrypt(t.Context(), nil)
+	require.Error(t, err)
 }
 
 func mustHaveOTCEnv(t *testing.T) {
@@ -96,11 +58,9 @@ func mustHaveOTCEnv(t *testing.T) {
 		t.SkipNow()
 	}
 
-	requireEnv(t, EnvOpenTelekomCloudKmsWrapperKeyId)
-	requireEnv(t, "OPENTELEKOMCLOUD_REGION")
-	requireEnv(t, "OPENTELEKOMCLOUD_PROJECT")
-	requireEnv(t, "OPENTELEKOMCLOUD_ACCESS_KEY")
-	requireEnv(t, "OPENTELEKOMCLOUD_SECRET_KEY")
+	requireEnv(t, EnvOpenTelekomCloudKmsKeyId)
+	requireEnv(t, EnvOpenTelekomCloudAccessKey)
+	requireEnv(t, EnvOpenTelekomCloudSecretKey)
 }
 
 func requireEnv(t *testing.T, key string) {
