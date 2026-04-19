@@ -60,8 +60,8 @@ func NewWrapper() *Wrapper {
 // SetConfig sets the fields on the OpenTelekomCloud Wrapper object based on
 // values from the config parameter.
 //
-// Order of precedence Open Telekom Cloud values:
-// * Environment variable
+// Order of precedence for Open Telekom Cloud values (highest to lowest):
+// * Environment variable (if not disabled via WithDisallowEnvVars)
 // * Value from Vault configuration file
 // Required: key_id, region, access_key, secret_key
 // Optional: project (defaults to global scope), identity_endpoint
@@ -75,20 +75,17 @@ func (k *Wrapper) SetConfig(
 	}
 
 	// Check and set KeyId
-	keyId, err := getConfig(
-		"key_id",
-		os.Getenv(EnvOpenTelekomCloudKmsKeyId),
-		opts.WithKeyId,
-	)
-	if err != nil {
-		return nil, err
+	switch {
+	case os.Getenv(EnvOpenTelekomCloudKmsKeyId) != "" && !opts.withDisallowEnvVars:
+		k.keyId = os.Getenv(EnvOpenTelekomCloudKmsKeyId)
+	case opts.WithKeyId != "":
+		k.keyId = opts.WithKeyId
+	default:
+		return nil, fmt.Errorf("'key_id' not found for Open Telekom Cloud KMS wrapper configuration")
 	}
-	k.keyId = keyId
 
-	if k.client == nil {
-		if err := k.setupClient(opts); err != nil {
-			return nil, err
-		}
+	if err := k.setupClient(opts); err != nil {
+		return nil, err
 	}
 
 	// Store non-sensitive configuration info
@@ -160,10 +157,6 @@ func (k *Wrapper) Decrypt(
 	in *wrapping.BlobInfo,
 	opt ...wrapping.Option,
 ) ([]byte, error) {
-	if in == nil {
-		return nil, fmt.Errorf("given input for decryption is nil")
-	}
-
 	// KeyId is not passed to this call because Open Telekom Cloud handles this
 	// internally based on the metadata stored with the encrypted data
 	resp, err := kms.DecryptData(
@@ -193,48 +186,51 @@ func (k *Wrapper) Decrypt(
 }
 
 func (k *Wrapper) setupClient(opts *options) error {
-	region, err := getConfig(
-		"region",
-		os.Getenv(EnvOpenTelekomCloudRegion),
-		opts.withRegion,
-	)
-	if err != nil {
-		return err
+	switch {
+	case os.Getenv(EnvOpenTelekomCloudRegion) != "" && !opts.withDisallowEnvVars:
+		k.region = os.Getenv(EnvOpenTelekomCloudRegion)
+	case opts.withRegion != "":
+		k.region = opts.withRegion
+	default:
+		return fmt.Errorf("'region' not found for Open Telekom Cloud KMS wrapper configuration")
 	}
-	k.region = region
 
 	// Project is optional: KMS can operate at the global or project scope.
 	// When empty, the global KMS endpoint is used.
-	project, _ := getConfig(
-		"project",
-		os.Getenv(EnvOpenTelekomCloudProject),
-		opts.withProject,
-	)
-	k.project = project
-
-	accessKey, err := getConfig(
-		"access_key",
-		os.Getenv(EnvOpenTelekomCloudAccessKey),
-		opts.withAccessKey,
-	)
-	if err != nil {
-		return err
+	switch {
+	case os.Getenv(EnvOpenTelekomCloudProject) != "" && !opts.withDisallowEnvVars:
+		k.project = os.Getenv(EnvOpenTelekomCloudProject)
+	case opts.withProject != "":
+		k.project = opts.withProject
 	}
 
-	secretKey, err := getConfig(
-		"secret_key",
-		os.Getenv(EnvOpenTelekomCloudSecretKey),
-		opts.withSecretKey,
-	)
-	if err != nil {
-		return err
+	var accessKey string
+	switch {
+	case os.Getenv(EnvOpenTelekomCloudAccessKey) != "" && !opts.withDisallowEnvVars:
+		accessKey = os.Getenv(EnvOpenTelekomCloudAccessKey)
+	case opts.withAccessKey != "":
+		accessKey = opts.withAccessKey
+	default:
+		return fmt.Errorf("'access_key' not found for Open Telekom Cloud KMS wrapper configuration")
 	}
 
-	endpoint, _ := getConfig(
-		"identity_endpoint",
-		os.Getenv(EnvOpenTelekomCloudIdentityEndpoint),
-		opts.withIdentityEndpoint,
-	)
+	var secretKey string
+	switch {
+	case os.Getenv(EnvOpenTelekomCloudSecretKey) != "" && !opts.withDisallowEnvVars:
+		secretKey = os.Getenv(EnvOpenTelekomCloudSecretKey)
+	case opts.withSecretKey != "":
+		secretKey = opts.withSecretKey
+	default:
+		return fmt.Errorf("'secret_key' not found for Open Telekom Cloud KMS wrapper configuration")
+	}
+
+	var endpoint string
+	switch {
+	case os.Getenv(EnvOpenTelekomCloudIdentityEndpoint) != "" && !opts.withDisallowEnvVars:
+		endpoint = os.Getenv(EnvOpenTelekomCloudIdentityEndpoint)
+	case opts.withIdentityEndpoint != "":
+		endpoint = opts.withIdentityEndpoint
+	}
 
 	authOpts := golangsdk.AKSKAuthOptions{
 		Region:           k.region,
@@ -278,14 +274,4 @@ func (k *Wrapper) setupClient(opts *options) error {
 
 	k.client = sc
 	return nil
-}
-
-func getConfig(name string, values ...string) (string, error) {
-	for _, v := range values {
-		if v != "" {
-			return v, nil
-		}
-	}
-
-	return "", fmt.Errorf("'%s' not found for Open Telekom Cloud KMS wrapper configuration", name)
 }
