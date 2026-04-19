@@ -76,7 +76,7 @@ func (k *Wrapper) SetConfig(
 
 	// Check and set KeyId
 	switch {
-	case os.Getenv(EnvOpenTelekomCloudKmsKeyId) != "" && !opts.withDisallowEnvVars:
+	case os.Getenv(EnvOpenTelekomCloudKmsKeyId) != "" && !opts.Options.WithDisallowEnvVars:
 		k.keyId = os.Getenv(EnvOpenTelekomCloudKmsKeyId)
 	case opts.WithKeyId != "":
 		k.keyId = opts.WithKeyId
@@ -187,7 +187,7 @@ func (k *Wrapper) Decrypt(
 
 func (k *Wrapper) setupClient(opts *options) error {
 	switch {
-	case os.Getenv(EnvOpenTelekomCloudRegion) != "" && !opts.withDisallowEnvVars:
+	case os.Getenv(EnvOpenTelekomCloudRegion) != "" && !opts.Options.WithDisallowEnvVars:
 		k.region = os.Getenv(EnvOpenTelekomCloudRegion)
 	case opts.withRegion != "":
 		k.region = opts.withRegion
@@ -198,7 +198,7 @@ func (k *Wrapper) setupClient(opts *options) error {
 	// Project is optional: KMS can operate at the global or project scope.
 	// When empty, the global KMS endpoint is used.
 	switch {
-	case os.Getenv(EnvOpenTelekomCloudProject) != "" && !opts.withDisallowEnvVars:
+	case os.Getenv(EnvOpenTelekomCloudProject) != "" && !opts.Options.WithDisallowEnvVars:
 		k.project = os.Getenv(EnvOpenTelekomCloudProject)
 	case opts.withProject != "":
 		k.project = opts.withProject
@@ -206,7 +206,7 @@ func (k *Wrapper) setupClient(opts *options) error {
 
 	var accessKey string
 	switch {
-	case os.Getenv(EnvOpenTelekomCloudAccessKey) != "" && !opts.withDisallowEnvVars:
+	case os.Getenv(EnvOpenTelekomCloudAccessKey) != "" && !opts.Options.WithDisallowEnvVars:
 		accessKey = os.Getenv(EnvOpenTelekomCloudAccessKey)
 	case opts.withAccessKey != "":
 		accessKey = opts.withAccessKey
@@ -216,7 +216,7 @@ func (k *Wrapper) setupClient(opts *options) error {
 
 	var secretKey string
 	switch {
-	case os.Getenv(EnvOpenTelekomCloudSecretKey) != "" && !opts.withDisallowEnvVars:
+	case os.Getenv(EnvOpenTelekomCloudSecretKey) != "" && !opts.Options.WithDisallowEnvVars:
 		secretKey = os.Getenv(EnvOpenTelekomCloudSecretKey)
 	case opts.withSecretKey != "":
 		secretKey = opts.withSecretKey
@@ -226,7 +226,7 @@ func (k *Wrapper) setupClient(opts *options) error {
 
 	var endpoint string
 	switch {
-	case os.Getenv(EnvOpenTelekomCloudIdentityEndpoint) != "" && !opts.withDisallowEnvVars:
+	case os.Getenv(EnvOpenTelekomCloudIdentityEndpoint) != "" && !opts.Options.WithDisallowEnvVars:
 		endpoint = os.Getenv(EnvOpenTelekomCloudIdentityEndpoint)
 	case opts.withIdentityEndpoint != "":
 		endpoint = opts.withIdentityEndpoint

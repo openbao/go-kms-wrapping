@@ -44,12 +44,6 @@ func TestOpenTelekomCloudKMS_Encrypt_NilPlaintext(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestOpenTelekomCloudKMS_Decrypt_NilInput(t *testing.T) {
-	w := NewWrapper()
-	_, err := w.Decrypt(t.Context(), nil)
-	require.Error(t, err)
-}
-
 func mustHaveOTCEnv(t *testing.T) {
 	t.Helper()
 

@@ -4,8 +4,6 @@
 package opentelekomcloudkms
 
 import (
-	"strconv"
-
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
 
@@ -46,12 +44,6 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 	if opts.WithConfigMap != nil {
 		for k, v := range opts.WithConfigMap {
 			switch k {
-			case "disallow_env_vars":
-				disallowEnvVars, err := strconv.ParseBool(v)
-				if err != nil {
-					return nil, err
-				}
-				opts.withDisallowEnvVars = disallowEnvVars
 			case "key_id":
 				opts.WithKeyId = v
 			case "region":
@@ -88,7 +80,6 @@ type OptionFunc func(*options) error
 type options struct {
 	*wrapping.Options
 
-	withDisallowEnvVars  bool
 	withIdentityEndpoint string
 	withRegion           string
 	withProject          string
