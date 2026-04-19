@@ -23,6 +23,7 @@ type Wrapper interface {
 	// This method takes the following generic options:
 	// 	- WithKeyId
 	// 	- WithConfigMap
+	//  - WithDisallowEnvVars
 	//
 	// Not all wrappers will support all available options. Additionally,
 	// provider-specific options defined by specific wrapper packages may be

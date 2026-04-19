@@ -47,14 +47,15 @@ func TestAwsKmsWrapper_IgnoreEnv(t *testing.T) {
 	}
 
 	config := map[string]string{
-		"disallow_env_vars": "true",
-		"kms_key_id":        "a-key-key",
-		"access_key":        "a-access-key",
-		"secret_key":        "a-secret-key",
-		"endpoint":          "my-endpoint",
+		"kms_key_id": "a-key-key",
+		"access_key": "a-access-key",
+		"secret_key": "a-secret-key",
+		"endpoint":   "my-endpoint",
 	}
 
-	_, err := wrapper.SetConfig(context.Background(), wrapping.WithConfigMap(config))
+	_, err := wrapper.SetConfig(t.Context(),
+		wrapping.WithConfigMap(config),
+		wrapping.WithDisallowEnvVars(true))
 	assert.NoError(t, err)
 
 	require.Equal(t, config["access_key"], wrapper.accessKey)

@@ -88,9 +88,9 @@ func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 
 	// Check and set KeyId
 	switch {
-	case os.Getenv(EnvAwsKmsWrapperKeyId) != "" && !opts.withDisallowEnvVars:
+	case os.Getenv(EnvAwsKmsWrapperKeyId) != "" && !opts.WithDisallowEnvVars:
 		k.keyId = os.Getenv(EnvAwsKmsWrapperKeyId)
-	case os.Getenv(EnvVaultAwsKmsSealKeyId) != "" && !opts.withDisallowEnvVars:
+	case os.Getenv(EnvVaultAwsKmsSealKeyId) != "" && !opts.WithDisallowEnvVars:
 		k.keyId = os.Getenv(EnvVaultAwsKmsSealKeyId)
 	case opts.WithKeyId != "":
 		k.keyId = opts.WithKeyId
@@ -118,7 +118,7 @@ func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 	k.roleSessionName = opts.withRoleSessionName
 	k.roleArn = opts.withRoleArn
 
-	if !opts.withDisallowEnvVars {
+	if !opts.WithDisallowEnvVars {
 		k.endpoint = os.Getenv("AWS_KMS_ENDPOINT")
 	}
 	if k.endpoint == "" {
