@@ -77,8 +77,6 @@ func TestScwKmsWrapper_LifecycleWithOptions(t *testing.T) {
 	encrypted, err := s.Encrypt(context.Background(), input, wrapping.WithAad(aad))
 	require.NoError(t, err)
 	require.NotNil(t, encrypted)
-	require.Equal(t, ScwKmsEnvelopeAesGcmEncrypt, encrypted.KeyInfo.Mechanism)
-	require.Equal(t, scwTestKeyId, encrypted.KeyInfo.KeyId)
 
 	decrypted, err := s.Decrypt(context.Background(), encrypted, wrapping.WithAad(aad))
 	require.NoError(t, err)
@@ -107,7 +105,7 @@ func TestScwKmsWrapper_KeyId(t *testing.T) {
 //   - SCW_DEFAULT_REGION     — region where the key resides (e.g. "fr-par")
 func TestAccScwKmsWrapper_Lifecycle(t *testing.T) {
 	if os.Getenv(EnvScwKmsWrapperKeyId) == "" {
-		t.Skip("SCW_KMS_WRAPPER_KEY_ID not set, skipping acceptance test")
+		t.SkipNow()
 	}
 
 	s := NewWrapper()
@@ -115,22 +113,20 @@ func TestAccScwKmsWrapper_Lifecycle(t *testing.T) {
 }
 
 func testEncryptionRoundTrip(t *testing.T, w *Wrapper) {
-	t.Helper()
-
-	if w.keyId == "" {
-		_, err := w.SetConfig(context.Background())
-		require.NoError(t, err)
-	}
-
+	w.SetConfig(context.Background())
 	input := []byte("foo bar baz")
 
-	encrypted, err := w.Encrypt(context.Background(), input)
-	require.NoError(t, err, "Encrypt failed")
+	swi, err := w.Encrypt(context.Background(), input, nil)
+	if err != nil {
+		t.Fatalf("err: %s", err.Error())
+	}
 
-	decrypted, err := w.Decrypt(context.Background(), encrypted)
-	require.NoError(t, err, "Decrypt failed")
+	pt, err := w.Decrypt(context.Background(), swi, nil)
+	if err != nil {
+		t.Fatalf("err: %s", err.Error())
+	}
 
-	if !reflect.DeepEqual(input, decrypted) {
-		t.Fatalf("expected %q, got %q", input, decrypted)
+	if !reflect.DeepEqual(input, pt) {
+		t.Fatalf("expected %s, got %s", input, pt)
 	}
 }

@@ -82,7 +82,7 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 // OptionFunc holds a function with local options.
 type OptionFunc func(*options) error
 
-// options represents how options are stored.
+// options = how options are represented
 type options struct {
 	*wrapping.Options
 
@@ -98,7 +98,7 @@ func getDefaultOptions() options {
 	return options{}
 }
 
-// WithDisallowEnvVars disables reading configuration from environment variables.
+// WithDisallowEnvVars provides a way to disable using env vars
 func WithDisallowEnvVars(with bool) wrapping.Option {
 	return func() interface{} {
 		return OptionFunc(func(o *options) error {
@@ -108,7 +108,7 @@ func WithDisallowEnvVars(with bool) wrapping.Option {
 	}
 }
 
-// WithKeyNotRequired allows the wrapper to be configured without a key ID.
+// WithKeyNotRequired provides a way to not require a key at config time
 func WithKeyNotRequired(with bool) wrapping.Option {
 	return func() interface{} {
 		return OptionFunc(func(o *options) error {
@@ -118,7 +118,7 @@ func WithKeyNotRequired(with bool) wrapping.Option {
 	}
 }
 
-// WithRegion sets the Scaleway region (e.g. "fr-par", "nl-ams", "pl-waw").
+// WithRegion provides a way to chose the region
 func WithRegion(with string) wrapping.Option {
 	return func() interface{} {
 		return OptionFunc(func(o *options) error {
@@ -128,7 +128,7 @@ func WithRegion(with string) wrapping.Option {
 	}
 }
 
-// WithProjectID sets the Scaleway project ID.
+// WithProjectID provides a way to chose the project ID
 func WithProjectID(with string) wrapping.Option {
 	return func() interface{} {
 		return OptionFunc(func(o *options) error {
@@ -138,7 +138,7 @@ func WithProjectID(with string) wrapping.Option {
 	}
 }
 
-// WithAccessKey sets the Scaleway access key.
+// WithAccessKey provides a way to chose the access key
 func WithAccessKey(with string) wrapping.Option {
 	return func() interface{} {
 		return OptionFunc(func(o *options) error {
@@ -148,7 +148,7 @@ func WithAccessKey(with string) wrapping.Option {
 	}
 }
 
-// WithSecretKey sets the Scaleway secret key.
+// WithSecretKey provides a way to chose the secret key
 func WithSecretKey(with string) wrapping.Option {
 	return func() interface{} {
 		return OptionFunc(func(o *options) error {

@@ -29,6 +29,7 @@ type mockClient struct {
 	keyId string
 }
 
+// Encrypt is a mocked call that returns a base64 encoded string.
 func (m *mockClient) Encrypt(req *key_manager.EncryptRequest, _ ...scw.RequestOption) (*key_manager.EncryptResponse, error) {
 	encoded := make([]byte, base64.StdEncoding.EncodedLen(len(req.Plaintext)))
 	base64.StdEncoding.Encode(encoded, req.Plaintext)
@@ -38,6 +39,7 @@ func (m *mockClient) Encrypt(req *key_manager.EncryptRequest, _ ...scw.RequestOp
 	}, nil
 }
 
+// Decrypt is a mocked call that returns a decoded base64 string.
 func (m *mockClient) Decrypt(req *key_manager.DecryptRequest, _ ...scw.RequestOption) (*key_manager.DecryptResponse, error) {
 	decLen := base64.StdEncoding.DecodedLen(len(req.Ciphertext))
 	decoded := make([]byte, decLen)
@@ -51,6 +53,7 @@ func (m *mockClient) Decrypt(req *key_manager.DecryptRequest, _ ...scw.RequestOp
 	}, nil
 }
 
+// GetKey is a mocked call that returns the key ID.
 func (m *mockClient) GetKey(req *key_manager.GetKeyRequest, _ ...scw.RequestOption) (*key_manager.Key, error) {
 	if req.KeyID == "" {
 		return nil, fmt.Errorf("key not found")
