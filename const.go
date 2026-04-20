@@ -17,6 +17,7 @@ const (
 	WrapperTypeKmip            WrapperType = "kmip"
 	WrapperTypeOciKms          WrapperType = "ocikms"
 	WrapperTypePkcs11          WrapperType = "pkcs11"
+	WrapperTypeScwKms          WrapperType = "scwkms"
 	WrapperTypeSecurosysHsm    WrapperType = "securosys-hsm"
 	WrapperTypeTencentCloudKms WrapperType = "tencentcloudkms"
 	WrapperTypeTransit         WrapperType = "transit"
