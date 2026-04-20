@@ -13,7 +13,6 @@ import (
 
 const scwTestKeyId = "00000000-0000-0000-0000-000000000001"
 
-// NewScwKmsTestWrapper creates a wrapper pre-configured with a mock client for unit tests.
 func NewScwKmsTestWrapper() *Wrapper {
 	s := NewWrapper()
 	s.client = &mockClient{keyId: scwTestKeyId}

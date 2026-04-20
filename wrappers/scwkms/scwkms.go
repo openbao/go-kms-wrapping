@@ -11,12 +11,13 @@ import (
 
 	key_manager "github.com/scaleway/scaleway-sdk-go/api/key_manager/v1alpha1"
 	"github.com/scaleway/scaleway-sdk-go/scw"
-
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
 
-// EnvScwKmsWrapperKeyId is the environment variable for the Scaleway KMS key ID.
-const EnvScwKmsWrapperKeyId = "SCW_KMS_WRAPPER_KEY_ID"
+// These constants contain the accepted env vars
+const (
+	EnvScwKmsWrapperKeyId = "SCW_KMS_WRAPPER_KEY_ID"
+)
 
 const (
 	// ScwKmsEnvelopeAesGcmEncrypt is when a data encryption key is generated and
@@ -24,15 +25,15 @@ const (
 	ScwKmsEnvelopeAesGcmEncrypt = iota
 )
 
-// scwKmsClient is an interface for Scaleway KMS operations, allowing mocking in tests.
+// scwKmsClient abstracts the Scaleway Key Manager API for mocking in tests
 type scwKmsClient interface {
 	Encrypt(*key_manager.EncryptRequest, ...scw.RequestOption) (*key_manager.EncryptResponse, error)
 	Decrypt(*key_manager.DecryptRequest, ...scw.RequestOption) (*key_manager.DecryptResponse, error)
 	GetKey(*key_manager.GetKeyRequest, ...scw.RequestOption) (*key_manager.Key, error)
 }
 
-// Wrapper represents credentials and key information for the Scaleway Key Manager
-// key used for encryption and decryption.
+// Wrapper represents credentials and Key information for the Scaleway KMS Key used to
+// encryption and decryption
 type Wrapper struct {
 	accessKey       string
 	secretKey       string
@@ -59,9 +60,10 @@ func NewWrapper() *Wrapper {
 	return k
 }
 
-// SetConfig sets the fields on the Wrapper object based on values from the config parameter.
+// SetConfig sets the fields on the Wrapper object based on
+// values from the config parameter.
 //
-// Order of precedence for Scaleway values:
+// Order of precedence Scaleway values:
 // * Environment variable
 // * Passed in config map
 // * Default values
@@ -76,57 +78,33 @@ func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 
 	// Check and set KeyId
 	switch {
-	case !opts.withDisallowEnvVars && os.Getenv(EnvScwKmsWrapperKeyId) != "":
+	case os.Getenv(EnvScwKmsWrapperKeyId) != "" && !opts.withDisallowEnvVars:
 		k.keyId = os.Getenv(EnvScwKmsWrapperKeyId)
 	case opts.WithKeyId != "":
 		k.keyId = opts.WithKeyId
 	case k.keyNotRequired:
 		// key not required to set config
 	default:
-		return nil, fmt.Errorf("key id not found for Scaleway KMS wrapper configuration")
+		return nil, fmt.Errorf("key id not found in env or config for Scaleway KMS wrapper configuration")
 	}
+
 	k.currentKeyId.Store(k.keyId)
 
-	// Access key: env var first (lower priority), explicit option overrides
-	if !opts.withDisallowEnvVars && os.Getenv("SCW_ACCESS_KEY") != "" {
-		k.accessKey = os.Getenv("SCW_ACCESS_KEY")
-	}
-	if opts.withAccessKey != "" {
-		k.accessKey = opts.withAccessKey
-	}
+	// Check and set Scaleway access key, secret key, region, and project ID
+	k.accessKey = opts.withAccessKey
+	k.secretKey = opts.withSecretKey
+	k.region = opts.withRegion
+	k.projectID = opts.withProjectID
 
-	// Secret key
-	if !opts.withDisallowEnvVars && os.Getenv("SCW_SECRET_KEY") != "" {
-		k.secretKey = os.Getenv("SCW_SECRET_KEY")
-	}
-	if opts.withSecretKey != "" {
-		k.secretKey = opts.withSecretKey
-	}
-
-	// Region
-	if !opts.withDisallowEnvVars && os.Getenv("SCW_DEFAULT_REGION") != "" {
-		k.region = os.Getenv("SCW_DEFAULT_REGION")
-	}
-	if opts.withRegion != "" {
-		k.region = opts.withRegion
-	}
-
-	// Project ID
-	if !opts.withDisallowEnvVars && os.Getenv("SCW_DEFAULT_PROJECT_ID") != "" {
-		k.projectID = os.Getenv("SCW_DEFAULT_PROJECT_ID")
-	}
-	if opts.withProjectID != "" {
-		k.projectID = opts.withProjectID
-	}
-
-	// Initialize client
+	// Check and set k.client
 	if k.client == nil {
-		client, err := k.getScwKmsClient()
+		client, err := k.GetScwKmsClient()
 		if err != nil {
 			return nil, fmt.Errorf("error initializing Scaleway KMS wrapping client: %w", err)
 		}
 
 		if !k.keyNotRequired {
+			// Test the client connection using provided key ID
 			keyInfo, err := client.GetKey(&key_manager.GetKeyRequest{
 				Region: scw.Region(k.region),
 				KeyID:  k.keyId,
@@ -140,6 +118,7 @@ func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 		k.client = client
 	}
 
+	// Map that holds non-sensitive configuration info
 	wrapConfig := new(wrapping.WrapperConfig)
 	wrapConfig.Metadata = make(map[string]string)
 	wrapConfig.Metadata["region"] = k.region
@@ -161,7 +140,7 @@ func (k *Wrapper) KeyId(_ context.Context) (string, error) {
 	return k.currentKeyId.Load().(string), nil
 }
 
-// Encrypt is used to encrypt the plaintext using the Scaleway KMS key.
+// Encrypt is used to encrypt the master key using the Scaleway KMS CMK.
 // This returns the ciphertext, and/or any errors from this
 // call. This should be called after the KMS client has been instantiated.
 func (k *Wrapper) Encrypt(_ context.Context, plaintext []byte, opt ...wrapping.Option) (*wrapping.BlobInfo, error) {
@@ -187,17 +166,21 @@ func (k *Wrapper) Encrypt(_ context.Context, plaintext []byte, opt ...wrapping.O
 		return nil, fmt.Errorf("error encrypting data encryption key: %w", err)
 	}
 
-	k.currentKeyId.Store(output.KeyID)
+	// Store the current key id
+	keyId := output.KeyID
+	k.currentKeyId.Store(keyId)
 
-	return &wrapping.BlobInfo{
+	ret := &wrapping.BlobInfo{
 		Ciphertext: env.Ciphertext,
 		Iv:         env.Iv,
 		KeyInfo: &wrapping.KeyInfo{
 			Mechanism:  ScwKmsEnvelopeAesGcmEncrypt,
-			KeyId:      output.KeyID,
+			KeyId:      keyId,
 			WrappedKey: output.Ciphertext,
 		},
-	}, nil
+	}
+
+	return ret, nil
 }
 
 // Decrypt is used to decrypt the ciphertext. This should be called after Init.
@@ -206,12 +189,14 @@ func (k *Wrapper) Decrypt(_ context.Context, in *wrapping.BlobInfo, opt ...wrapp
 		return nil, fmt.Errorf("given input for decryption is nil")
 	}
 
+	// Default to mechanism used before key info was stored
 	if in.KeyInfo == nil {
 		in.KeyInfo = &wrapping.KeyInfo{
 			Mechanism: ScwKmsEnvelopeAesGcmEncrypt,
 		}
 	}
 
+	var plaintext []byte
 	switch in.KeyInfo.Mechanism {
 	case ScwKmsEnvelopeAesGcmEncrypt:
 		output, err := k.client.Decrypt(&key_manager.DecryptRequest{
@@ -228,15 +213,16 @@ func (k *Wrapper) Decrypt(_ context.Context, in *wrapping.BlobInfo, opt ...wrapp
 			Iv:         in.Iv,
 			Ciphertext: in.Ciphertext,
 		}
-		plaintext, err := wrapping.EnvelopeDecrypt(envInfo, opt...)
+		plaintext, err = wrapping.EnvelopeDecrypt(envInfo, opt...)
 		if err != nil {
 			return nil, fmt.Errorf("error decrypting data: %w", err)
 		}
-		return plaintext, nil
 
 	default:
 		return nil, fmt.Errorf("invalid mechanism: %d", in.KeyInfo.Mechanism)
 	}
+
+	return plaintext, nil
 }
 
 // Client returns the Scaleway KMS client used by the wrapper
@@ -244,22 +230,19 @@ func (k *Wrapper) Client() scwKmsClient {
 	return k.client
 }
 
-// getScwKmsClient returns an instance of the Scaleway KMS client.
-func (k *Wrapper) getScwKmsClient() (*key_manager.API, error) {
+// GetScwKmsClient returns an instance of the Scaleway KMS client.
+func (k *Wrapper) GetScwKmsClient() (*key_manager.API, error) {
 	var clientOpts []scw.ClientOption
 
 	if !k.disallowEnvVars {
-		// Load credentials from the Scaleway config file, if present
 		if config, err := scw.LoadConfig(); err == nil {
 			if profile, err := config.GetActiveProfile(); err == nil {
 				clientOpts = append(clientOpts, scw.WithProfile(profile))
 			}
 		}
-		// Environment variables override the config file
 		clientOpts = append(clientOpts, scw.WithEnv())
 	}
 
-	// Explicit credentials always take the highest precedence
 	if k.accessKey != "" && k.secretKey != "" {
 		clientOpts = append(clientOpts, scw.WithAuth(k.accessKey, k.secretKey))
 	}

@@ -97,12 +97,14 @@ func TestScwKmsWrapper_KeyId(t *testing.T) {
 	require.Equal(t, scwTestKeyId, keyId)
 }
 
-// TestAccScwKmsWrapper_Lifecycle runs a live integration test against the real
-// Scaleway Key Manager API. Requires:
-//   - SCW_KMS_WRAPPER_KEY_ID — a pre-existing symmetric AES-256-GCM key ID
-//   - SCW_ACCESS_KEY         — Scaleway access key
-//   - SCW_SECRET_KEY         — Scaleway secret key
-//   - SCW_DEFAULT_REGION     — region where the key resides (e.g. "fr-par")
+// This test executes real calls. The calls themselves should be free,
+// but the KMS key used may not be free depending on Scaleway pricing.
+//
+// To run this test, the following env variables need to be set:
+//   - SCW_KMS_WRAPPER_KEY_ID
+//   - SCW_ACCESS_KEY
+//   - SCW_SECRET_KEY
+//   - SCW_DEFAULT_REGION
 func TestAccScwKmsWrapper_Lifecycle(t *testing.T) {
 	if os.Getenv(EnvScwKmsWrapperKeyId) == "" {
 		t.SkipNow()

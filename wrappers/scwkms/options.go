@@ -9,8 +9,9 @@ import (
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
 
-// getOpts iterates the inbound Options and returns a struct.
+// getOpts iterates the inbound Options and returns a struct
 func getOpts(opt ...wrapping.Option) (*options, error) {
+	// First, separate out options into local and global
 	opts := getDefaultOptions()
 	var wrappingOptions []wrapping.Option
 	var localOptions []OptionFunc
@@ -27,18 +28,21 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 		}
 	}
 
+	// Parse the global options
 	var err error
 	opts.Options, err = wrapping.GetOpts(wrappingOptions...)
 	if err != nil {
 		return nil, err
 	}
 
+	// Don't ever return blank options
 	if opts.Options == nil {
 		opts.Options = new(wrapping.Options)
 	}
 
 	// Local options can be provided either via the WithConfigMap field
-	// (for over the plugin barrier or embedding) or via local option functions.
+	// (for over the plugin barrier or embedding) or via local option functions
+	// (for embedding). First pull from the option.
 	if opts.WithConfigMap != nil {
 		for k, v := range opts.WithConfigMap {
 			switch k {
@@ -68,6 +72,8 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 		}
 	}
 
+	// Now run the local options functions. This may overwrite options set by
+	// the options above.
 	for _, o := range localOptions {
 		if o != nil {
 			if err := o(&opts); err != nil {
@@ -79,7 +85,7 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 	return &opts, nil
 }
 
-// OptionFunc holds a function with local options.
+// OptionFunc holds a function with local options
 type OptionFunc func(*options) error
 
 // options = how options are represented
