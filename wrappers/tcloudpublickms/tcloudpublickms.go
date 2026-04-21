@@ -1,7 +1,7 @@
 // Copyright (c) 2026 OpenBao a Series of LF Projects, LLC
 // SPDX-License-Identifier: MPL-2.0
 
-package opentelekomcloudkms
+package tcloudpublickms
 
 import (
 	"context"
@@ -18,18 +18,18 @@ import (
 )
 
 const (
-	EnvOpenTelekomCloudKmsKeyId         = "OPENTELEKOMCLOUD_KMS_KEY_ID"
-	EnvOpenTelekomCloudRegion           = "OPENTELEKOMCLOUD_REGION"
-	EnvOpenTelekomCloudProject          = "OPENTELEKOMCLOUD_PROJECT"
-	EnvOpenTelekomCloudAccessKey        = "OPENTELEKOMCLOUD_ACCESS_KEY"
-	EnvOpenTelekomCloudSecretKey        = "OPENTELEKOMCLOUD_SECRET_KEY"
-	EnvOpenTelekomCloudIdentityEndpoint = "OPENTELEKOMCLOUD_IDENTITY_ENDPOINT"
+	EnvTCloudPublicKmsKeyId         = "TCLOUDPUBLIC_KMS_KEY_ID"
+	EnvTCloudPublicRegion           = "TCLOUDPUBLIC_REGION"
+	EnvTCloudPublicProject          = "TCLOUDPUBLIC_PROJECT"
+	EnvTCloudPublicAccessKey        = "TCLOUDPUBLIC_ACCESS_KEY"
+	EnvTCloudPublicSecretKey        = "TCLOUDPUBLIC_SECRET_KEY"
+	EnvTCloudPublicIdentityEndpoint = "TCLOUDPUBLIC_IDENTITY_ENDPOINT"
 )
 
 // Ensure that we are implementing Wrapper
 var _ wrapping.Wrapper = (*Wrapper)(nil)
 
-// Wrapper is a Wrapper that uses Open Telekom Cloud's KMS
+// Wrapper is a Wrapper that uses T Cloud Public's KMS
 type Wrapper struct {
 	client *golangsdk.ServiceClient
 
@@ -43,12 +43,12 @@ type Wrapper struct {
 
 	// Metadata fields stored for reporting
 	region string
-	// project is the OTC project/tenant scope.
+	// project is the T Cloud Public project/tenant scope.
 	// Optional; when empty, the global KMS endpoint is used.
 	project string
 }
 
-// NewWrapper creates a new OpenTelekomCloud Wrapper
+// NewWrapper creates a new TCloudPublic Wrapper
 func NewWrapper() *Wrapper {
 	k := &Wrapper{
 		currentKeyId: new(atomic.Value),
@@ -57,10 +57,10 @@ func NewWrapper() *Wrapper {
 	return k
 }
 
-// SetConfig sets the fields on the OpenTelekomCloud Wrapper object based on
+// SetConfig sets the fields on the TCloudPublic Wrapper object based on
 // values from the config parameter.
 //
-// Order of precedence for Open Telekom Cloud values (highest to lowest):
+// Order of precedence for T Cloud Public values (highest to lowest):
 // * Environment variable (if not disabled via WithDisallowEnvVars)
 // * Value from Vault configuration file
 // Required: key_id, region, access_key, secret_key
@@ -76,12 +76,12 @@ func (k *Wrapper) SetConfig(
 
 	// Check and set KeyId
 	switch {
-	case os.Getenv(EnvOpenTelekomCloudKmsKeyId) != "" && !opts.Options.WithDisallowEnvVars:
-		k.keyId = os.Getenv(EnvOpenTelekomCloudKmsKeyId)
+	case os.Getenv(EnvTCloudPublicKmsKeyId) != "" && !opts.Options.WithDisallowEnvVars:
+		k.keyId = os.Getenv(EnvTCloudPublicKmsKeyId)
 	case opts.WithKeyId != "":
 		k.keyId = opts.WithKeyId
 	default:
-		return nil, fmt.Errorf("'key_id' not found for Open Telekom Cloud KMS wrapper configuration")
+		return nil, fmt.Errorf("'key_id' not found for T Cloud Public KMS wrapper configuration")
 	}
 
 	if err := k.setupClient(opts); err != nil {
@@ -100,7 +100,7 @@ func (k *Wrapper) SetConfig(
 
 // Type returns the type for this particular wrapper implementation
 func (k *Wrapper) Type(_ context.Context) (wrapping.WrapperType, error) {
-	return wrapping.WrapperTypeOpenTelekomCloudKms, nil
+	return wrapping.WrapperTypeTCloudPublicKms, nil
 }
 
 // KeyId returns the last known key id
@@ -108,7 +108,7 @@ func (k *Wrapper) KeyId(_ context.Context) (string, error) {
 	return k.currentKeyId.Load().(string), nil
 }
 
-// Encrypt is used to encrypt the master key using the the Open Telekom Cloud
+// Encrypt is used to encrypt the master key using the the T Cloud Public
 // CMK. This returns the ciphertext, and/or any errors from this call. This
 // should be called after the KMS client has been instantiated.
 func (k *Wrapper) Encrypt(
@@ -157,7 +157,7 @@ func (k *Wrapper) Decrypt(
 	in *wrapping.BlobInfo,
 	opt ...wrapping.Option,
 ) ([]byte, error) {
-	// KeyId is not passed to this call because Open Telekom Cloud handles this
+	// KeyId is not passed to this call because T Cloud Public handles this
 	// internally based on the metadata stored with the encrypted data
 	resp, err := kms.DecryptData(
 		k.client,
@@ -187,47 +187,47 @@ func (k *Wrapper) Decrypt(
 
 func (k *Wrapper) setupClient(opts *options) error {
 	switch {
-	case os.Getenv(EnvOpenTelekomCloudRegion) != "" && !opts.Options.WithDisallowEnvVars:
-		k.region = os.Getenv(EnvOpenTelekomCloudRegion)
+	case os.Getenv(EnvTCloudPublicRegion) != "" && !opts.Options.WithDisallowEnvVars:
+		k.region = os.Getenv(EnvTCloudPublicRegion)
 	case opts.withRegion != "":
 		k.region = opts.withRegion
 	default:
-		return fmt.Errorf("'region' not found for Open Telekom Cloud KMS wrapper configuration")
+		return fmt.Errorf("'region' not found for T Cloud Public KMS wrapper configuration")
 	}
 
 	// Project is optional: KMS can operate at the global or project scope.
 	// When empty, the global KMS endpoint is used.
 	switch {
-	case os.Getenv(EnvOpenTelekomCloudProject) != "" && !opts.Options.WithDisallowEnvVars:
-		k.project = os.Getenv(EnvOpenTelekomCloudProject)
+	case os.Getenv(EnvTCloudPublicProject) != "" && !opts.Options.WithDisallowEnvVars:
+		k.project = os.Getenv(EnvTCloudPublicProject)
 	case opts.withProject != "":
 		k.project = opts.withProject
 	}
 
 	var accessKey string
 	switch {
-	case os.Getenv(EnvOpenTelekomCloudAccessKey) != "" && !opts.Options.WithDisallowEnvVars:
-		accessKey = os.Getenv(EnvOpenTelekomCloudAccessKey)
+	case os.Getenv(EnvTCloudPublicAccessKey) != "" && !opts.Options.WithDisallowEnvVars:
+		accessKey = os.Getenv(EnvTCloudPublicAccessKey)
 	case opts.withAccessKey != "":
 		accessKey = opts.withAccessKey
 	default:
-		return fmt.Errorf("'access_key' not found for Open Telekom Cloud KMS wrapper configuration")
+		return fmt.Errorf("'access_key' not found for T Cloud Public KMS wrapper configuration")
 	}
 
 	var secretKey string
 	switch {
-	case os.Getenv(EnvOpenTelekomCloudSecretKey) != "" && !opts.Options.WithDisallowEnvVars:
-		secretKey = os.Getenv(EnvOpenTelekomCloudSecretKey)
+	case os.Getenv(EnvTCloudPublicSecretKey) != "" && !opts.Options.WithDisallowEnvVars:
+		secretKey = os.Getenv(EnvTCloudPublicSecretKey)
 	case opts.withSecretKey != "":
 		secretKey = opts.withSecretKey
 	default:
-		return fmt.Errorf("'secret_key' not found for Open Telekom Cloud KMS wrapper configuration")
+		return fmt.Errorf("'secret_key' not found for T Cloud Public KMS wrapper configuration")
 	}
 
 	var endpoint string
 	switch {
-	case os.Getenv(EnvOpenTelekomCloudIdentityEndpoint) != "" && !opts.Options.WithDisallowEnvVars:
-		endpoint = os.Getenv(EnvOpenTelekomCloudIdentityEndpoint)
+	case os.Getenv(EnvTCloudPublicIdentityEndpoint) != "" && !opts.Options.WithDisallowEnvVars:
+		endpoint = os.Getenv(EnvTCloudPublicIdentityEndpoint)
 	case opts.withIdentityEndpoint != "":
 		endpoint = opts.withIdentityEndpoint
 	}

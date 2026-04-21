@@ -1,7 +1,7 @@
 // Copyright (c) 2026 OpenBao a Series of LF Projects, LLC
 // SPDX-License-Identifier: MPL-2.0
 
-package opentelekomcloudkms
+package tcloudpublickms
 
 import (
 	"os"
@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestOpenTelekomCloudKMS_Lifecycle(t *testing.T) {
-	mustHaveOTCEnv(t)
+func TestTCloudPublicKMS_Lifecycle(t *testing.T) {
+	mustHaveEnv(t)
 
 	ctx := t.Context()
 	w := NewWrapper()
@@ -38,13 +38,13 @@ func TestOpenTelekomCloudKMS_Lifecycle(t *testing.T) {
 	require.NotEmpty(t, keyID)
 }
 
-func TestOpenTelekomCloudKMS_Encrypt_NilPlaintext(t *testing.T) {
+func TestTCloudPublicKMS_Encrypt_NilPlaintext(t *testing.T) {
 	w := NewWrapper()
 	_, err := w.Encrypt(t.Context(), nil)
 	require.Error(t, err)
 }
 
-func mustHaveOTCEnv(t *testing.T) {
+func mustHaveEnv(t *testing.T) {
 	t.Helper()
 
 	// Skip tests if we are not running acceptance tests
@@ -52,9 +52,9 @@ func mustHaveOTCEnv(t *testing.T) {
 		t.SkipNow()
 	}
 
-	requireEnv(t, EnvOpenTelekomCloudKmsKeyId)
-	requireEnv(t, EnvOpenTelekomCloudAccessKey)
-	requireEnv(t, EnvOpenTelekomCloudSecretKey)
+	requireEnv(t, EnvTCloudPublicKmsKeyId)
+	requireEnv(t, EnvTCloudPublicAccessKey)
+	requireEnv(t, EnvTCloudPublicSecretKey)
 }
 
 func requireEnv(t *testing.T, key string) {

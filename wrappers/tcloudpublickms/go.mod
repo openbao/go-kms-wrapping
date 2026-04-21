@@ -1,4 +1,4 @@
-module github.com/openbao/go-kms-wrapping/wrappers/opentelekomcloudkms/v2
+module github.com/openbao/go-kms-wrapping/wrappers/tcloudpublickms/v2
 
 go 1.24.0
 
