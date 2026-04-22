@@ -142,7 +142,7 @@ func (v *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 
 	authMethod := ""
 	switch {
-	case os.Getenv(EnvVaultAzureKeyVaultAuthMethod) != "" && !opts.withDisallowEnvVars:
+	case os.Getenv(EnvVaultAzureKeyVaultAuthMethod) != "" && !opts.WithDisallowEnvVars:
 		authMethod = os.Getenv(EnvVaultAzureKeyVaultAuthMethod)
 	case opts.withAuthMethod != "":
 		authMethod = opts.withAuthMethod
@@ -151,35 +151,35 @@ func (v *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 	v.authMethod = mapAuthMethod(authMethod)
 
 	switch {
-	case os.Getenv(EnvVaultAzureKeyVaultCertificatePath) != "" && !opts.withDisallowEnvVars:
+	case os.Getenv(EnvVaultAzureKeyVaultCertificatePath) != "" && !opts.WithDisallowEnvVars:
 		v.certPath = os.Getenv(EnvVaultAzureKeyVaultCertificatePath)
 	case opts.withCertPath != "":
 		v.certPath = opts.withCertPath
 	}
 
 	switch {
-	case os.Getenv(EnvVaultAzureKeyVaultCertificatePassword) != "" && !opts.withDisallowEnvVars:
+	case os.Getenv(EnvVaultAzureKeyVaultCertificatePassword) != "" && !opts.WithDisallowEnvVars:
 		v.certPass = os.Getenv(EnvVaultAzureKeyVaultCertificatePassword)
 	case opts.withCertPass != "":
 		v.certPass = opts.withCertPass
 	}
 
 	switch {
-	case os.Getenv("AZURE_TENANT_ID") != "" && !opts.withDisallowEnvVars:
+	case os.Getenv("AZURE_TENANT_ID") != "" && !opts.WithDisallowEnvVars:
 		v.tenantID = os.Getenv("AZURE_TENANT_ID")
 	case opts.withTenantId != "":
 		v.tenantID = opts.withTenantId
 	}
 
 	switch {
-	case os.Getenv("AZURE_CLIENT_ID") != "" && !opts.withDisallowEnvVars:
+	case os.Getenv("AZURE_CLIENT_ID") != "" && !opts.WithDisallowEnvVars:
 		v.clientID = os.Getenv("AZURE_CLIENT_ID")
 	case opts.withClientId != "":
 		v.clientID = opts.withClientId
 	}
 
 	switch {
-	case os.Getenv(EnvVaultAzureKeyVaultResourceId) != "" && !opts.withDisallowEnvVars:
+	case os.Getenv(EnvVaultAzureKeyVaultResourceId) != "" && !opts.WithDisallowEnvVars:
 		v.resourceID = os.Getenv(EnvVaultAzureKeyVaultResourceId)
 	case opts.withResourceId != "":
 		v.resourceID = opts.withResourceId
@@ -187,7 +187,7 @@ func (v *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 
 	managedIdKind := ""
 	switch {
-	case os.Getenv(EnvVaultAzureKeyVaultManagedIdentityKind) != "" && !opts.withDisallowEnvVars:
+	case os.Getenv(EnvVaultAzureKeyVaultManagedIdentityKind) != "" && !opts.WithDisallowEnvVars:
 		managedIdKind = os.Getenv(EnvVaultAzureKeyVaultManagedIdentityKind)
 	case opts.withManagedIdKind != "":
 		managedIdKind = opts.withManagedIdKind
@@ -203,19 +203,19 @@ func (v *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 	}
 
 	switch {
-	case os.Getenv(EnvVaultAzureKeyVaultManagedIdentityKind) != "" && !opts.withDisallowEnvVars:
+	case os.Getenv(EnvVaultAzureKeyVaultManagedIdentityKind) != "" && !opts.WithDisallowEnvVars:
 
 	}
 
 	switch {
-	case os.Getenv("AZURE_CLIENT_SECRET") != "" && !opts.withDisallowEnvVars:
+	case os.Getenv("AZURE_CLIENT_SECRET") != "" && !opts.WithDisallowEnvVars:
 		v.clientSecret = os.Getenv("AZURE_CLIENT_SECRET")
 	case opts.withClientSecret != "":
 		v.clientSecret = opts.withClientSecret
 	}
 
 	var envName string
-	if !opts.withDisallowEnvVars {
+	if !opts.WithDisallowEnvVars {
 		envName = os.Getenv("AZURE_ENVIRONMENT")
 	}
 	if envName == "" {
@@ -232,7 +232,7 @@ func (v *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 	}
 
 	var azResource string
-	if !opts.withDisallowEnvVars {
+	if !opts.WithDisallowEnvVars {
 		azResource = os.Getenv("AZURE_AD_RESOURCE")
 	}
 	if azResource == "" {
@@ -246,9 +246,9 @@ func (v *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 	v.environment.KeyVaultEndpoint = v.resource
 
 	switch {
-	case os.Getenv(EnvAzureKeyVaultWrapperVaultName) != "" && !opts.withDisallowEnvVars:
+	case os.Getenv(EnvAzureKeyVaultWrapperVaultName) != "" && !opts.WithDisallowEnvVars:
 		v.vaultName = os.Getenv(EnvAzureKeyVaultWrapperVaultName)
-	case os.Getenv(EnvVaultAzureKeyVaultVaultName) != "" && !opts.withDisallowEnvVars:
+	case os.Getenv(EnvVaultAzureKeyVaultVaultName) != "" && !opts.WithDisallowEnvVars:
 		v.vaultName = os.Getenv(EnvVaultAzureKeyVaultVaultName)
 	case opts.withVaultName != "":
 		v.vaultName = opts.withVaultName
@@ -257,9 +257,9 @@ func (v *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 	}
 
 	switch {
-	case os.Getenv(EnvAzureKeyVaultWrapperKeyName) != "" && !opts.withDisallowEnvVars:
+	case os.Getenv(EnvAzureKeyVaultWrapperKeyName) != "" && !opts.WithDisallowEnvVars:
 		v.keyName = os.Getenv(EnvAzureKeyVaultWrapperKeyName)
-	case os.Getenv(EnvVaultAzureKeyVaultKeyName) != "" && !opts.withDisallowEnvVars:
+	case os.Getenv(EnvVaultAzureKeyVaultKeyName) != "" && !opts.WithDisallowEnvVars:
 		v.keyName = os.Getenv(EnvVaultAzureKeyVaultKeyName)
 	case opts.withKeyName != "":
 		v.keyName = opts.withKeyName

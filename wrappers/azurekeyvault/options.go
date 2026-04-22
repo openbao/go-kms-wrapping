@@ -47,12 +47,6 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 	if opts.WithConfigMap != nil {
 		for k, v := range opts.WithConfigMap {
 			switch k {
-			case "disallow_env_vars":
-				disallowEnvVars, err := strconv.ParseBool(v)
-				if err != nil {
-					return nil, err
-				}
-				opts.withDisallowEnvVars = disallowEnvVars
 			case "key_not_required":
 				keyNotRequired, err := strconv.ParseBool(v)
 				if err != nil {
@@ -111,36 +105,25 @@ type OptionFunc func(*options) error
 type options struct {
 	*wrapping.Options
 
-	withDisallowEnvVars bool
-	withKeyNotRequired  bool
-	withTenantId        string
-	withClientId        string
-	withResourceId      string
-	withManagedIdKind   string
-	withClientSecret    string
-	withEnvironment     string
-	withResource        string
-	withVaultName       string
-	withKeyName         string
-	withAuthMethod      string
-	withCertPath        string
-	withCertPass        string
+	withKeyNotRequired bool
+	withTenantId       string
+	withClientId       string
+	withResourceId     string
+	withManagedIdKind  string
+	withClientSecret   string
+	withEnvironment    string
+	withResource       string
+	withVaultName      string
+	withKeyName        string
+	withAuthMethod     string
+	withCertPath       string
+	withCertPass       string
 
 	withLogger hclog.Logger
 }
 
 func getDefaultOptions() options {
 	return options{}
-}
-
-// WithDisallowEnvVars provides a way to disable using env vars
-func WithDisallowEnvVars(with bool) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withDisallowEnvVars = with
-			return nil
-		})
-	}
 }
 
 // WithKeyNotRequired provides a way to not require a key at config time

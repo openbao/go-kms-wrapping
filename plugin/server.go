@@ -55,6 +55,7 @@ func (s *gRPCWrapperServer) SetConfig(ctx context.Context, req *pb.SetConfigRequ
 		ctx,
 		wrapping.WithKeyId(opts.WithKeyId),
 		wrapping.WithConfigMap(opts.WithConfigMap),
+		wrapping.WithDisallowEnvVars(opts.WithDisallowEnvVars),
 	)
 	if err != nil {
 		return nil, err

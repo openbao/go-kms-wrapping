@@ -94,19 +94,20 @@ func TestAzureKeyVault_IgnoreEnv(t *testing.T) {
 		defer os.Setenv(envVar, oldVal)
 	}
 	config := map[string]string{
-		"disallow_env_vars": "true",
-		"tenant_id":         "a-tenant-id",
-		"client_id":         "a-client-id",
-		"client_secret":     "a-client-secret",
-		"environment":       azure.PublicCloud.Name,
-		"resource":          "a-resource",
-		"vault_name":        "a-vault-name",
-		"key_name":          "a-key-name",
-		"auth_method":       "managed_identity",
-		"cert_path":         "/cert/someCert.pem",
-		"cert_password":     "somePassword",
+		"tenant_id":     "a-tenant-id",
+		"client_id":     "a-client-id",
+		"client_secret": "a-client-secret",
+		"environment":   azure.PublicCloud.Name,
+		"resource":      "a-resource",
+		"vault_name":    "a-vault-name",
+		"key_name":      "a-key-name",
+		"auth_method":   "managed_identity",
+		"cert_path":     "/cert/someCert.pem",
+		"cert_password": "somePassword",
 	}
-	_, err := s.SetConfig(context.Background(), wrapping.WithConfigMap(config))
+	_, err := s.SetConfig(t.Context(),
+		wrapping.WithConfigMap(config),
+		wrapping.WithDisallowEnvVars(true))
 	require.Equal(t, expectedErr, err.Error())
 	require.Equal(t, config["tenant_id"], s.tenantID)
 	require.Equal(t, config["client_id"], s.clientID)
@@ -208,7 +209,7 @@ func TestCreds_getCertificate(t *testing.T) {
 	if os.Getenv("VAULT_ACC") == "" {
 		t.SkipNow()
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	clientID := os.Getenv("TEST_AZURE_CLIENT_ID")
 	tenantID := os.Getenv("TEST_AZURE_TENANT_ID")
@@ -218,15 +219,14 @@ func TestCreds_getCertificate(t *testing.T) {
 	expectedOutput := "foo"
 
 	config := map[string]string{
-		"disallow_env_vars": "true",
-		"environment":       azure.PublicCloud.Name,
-		"resource":          "vault.azure.net",
-		"vault_name":        vaultName,
-		"key_name":          keyName,
-		"auth_method":       "certificate",
-		"cert_path":         "test-data/azure-app.crt",
-		"client_id":         clientID,
-		"tenant_id":         tenantID,
+		"environment": azure.PublicCloud.Name,
+		"resource":    "vault.azure.net",
+		"vault_name":  vaultName,
+		"key_name":    keyName,
+		"auth_method": "certificate",
+		"cert_path":   "test-data/azure-app.crt",
+		"client_id":   clientID,
+		"tenant_id":   tenantID,
 	}
 
 	wrapper := NewWrapper()
@@ -234,7 +234,9 @@ func TestCreds_getCertificate(t *testing.T) {
 	setConfig := func() {
 		t.Helper()
 		t.Log("--- SetConfig ---")
-		_, err := wrapper.SetConfig(ctx, wrapping.WithConfigMap(config))
+		_, err := wrapper.SetConfig(ctx,
+			wrapping.WithConfigMap(config),
+			wrapping.WithDisallowEnvVars(true))
 		require.NoError(t, err)
 	}
 
