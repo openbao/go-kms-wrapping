@@ -1,1 +1,5 @@
 * @openbao/openbao-org-maintainers
+
+# Securosys
+/kms/securosyshsm/ @openbao/openbao-org-maintainers @openbao/go-kms-wrappings-securosys
+/wrappers/securosyshsm/ @openbao/openbao-org-maintainers @openbao/go-kms-wrappings-securosys
