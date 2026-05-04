@@ -59,6 +59,7 @@ func (c *TSBClient) AsyncDecrypt(label string, password string, cipertext string
 		"decryptRequest": ` + helpers.MinifyJson(requestJson) + `,
 		"requestSignature":` + string(c.GenerateRequestSignature(requestJson)) + `
 	  }`))
+
 	req, err := http.NewRequest("POST", c.HostURL+"/v1/decrypt", bytes.NewBuffer(jsonStr))
 	if err != nil {
 		return "", 500, err
