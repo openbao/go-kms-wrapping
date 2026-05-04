@@ -20,9 +20,9 @@ func (c *TSBClient) Sign(label string, password string, payload string, payloadT
 
 	}
 	signatureType := ``
-	if signatureAlgorithm == "EDDSA" {
-		signatureType = `,"signatureType":"RAW"`
-	}
+	// if signatureAlgorithm == "EDDSA" || strings.Contains(signatureAlgorithm, "ECDSA") {
+	signatureType = `,"signatureType":"RAW"`
+	// }
 
 	var jsonStr = []byte(`{
 		"signRequest": {

@@ -1,23 +1,19 @@
 // Copyright (c) 2025 Securosys SA.
 // SPDX-License-Identifier: MPL-2.0
+
 package securosyshsm
 
 import (
 	"context"
-	"crypto/rsa"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
-	"encoding/pem"
 	"fmt"
 	"os"
-	"os/signal"
 	"strconv"
 	"strings"
-	"syscall"
-	"time"
 
 	"github.com/hashicorp/go-hclog"
+	securosyskms "github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2"
 	helpers "github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/helpers"
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 	"github.com/openbao/go-kms-wrapping/v2/kms"
@@ -34,393 +30,275 @@ type securosysHSMClientEncryptor interface {
 	Encrypt(plaintext string) (data []byte, err error)
 	Decrypt(ciphertext string, keyVersion string) (plaintext []byte, err error)
 }
+
+// SecurosysHSMClient adapts the Securosys KMS implementation to the
+// go-kms-wrapping Wrapper interface.
+//
+// The wrapper uses the new kms.KMS/kms.Key API directly. The configured key is
+// loaded once during SetConfig and then reused for seal Encrypt/Decrypt calls.
 type SecurosysHSMClient struct {
-	keystore kms.KeyStore
+	kms      kms.KMS
 	key      kms.Key
+	keyLabel string
 	config   *Configurations
 }
 
+// Close releases the Securosys key reference and closes the underlying KMS
+// client.
+func (c *SecurosysHSMClient) Close() {
+	if c == nil {
+		return
+	}
+	if c.key != nil {
+		if err := c.key.Close(context.Background()); err != nil {
+			logger.Error(err.Error())
+		}
+	}
+	if c.kms != nil {
+		if err := c.kms.Close(context.Background()); err != nil {
+			logger.Error(err.Error())
+		}
+	}
+}
+
+// newSecurosysHSMClient validates wrapper options, opens the Securosys KMS,
+// and resolves the configured key label.
+//
+// Required options are key_label, auth, and tsb_api_endpoint. TOKEN auth also
+// requires bearer_token through configuration validation. The returned
+// WrapperConfig intentionally omits secret values such as bearer_token and
+// key_password from metadata.
 func newSecurosysHSMClient(logger hclog.Logger, opts *options) (*SecurosysHSMClient, *wrapping.WrapperConfig, error) {
 	ctx := context.Background()
-	var keyLabel, keyPassword, certPath, keyPath, approvalTimeout, auth, bearerToken, checkEvery, tsbApiEndpoint string
-	var wrapperConfig *Configurations = new(Configurations)
 
-	switch {
-	case opts.withKeyLabel != "":
-		keyLabel = opts.withKeyLabel
-	default:
+	keyLabel := opts.withKeyLabel
+	if keyLabel == "" {
 		return nil, nil, fmt.Errorf("key_label is required")
 	}
 
-	// switch {
-	// case opts.withKeyPassword != "":
-	// 	keyPassword = opts.withKeyPassword
-	// }
-	switch {
-	case opts.withApprovalTimeout != "":
-		approvalTimeout = opts.withApprovalTimeout
-	default:
-		approvalTimeout = "60"
-
-	}
-	var policyPart map[string]map[string]string = make(map[string]map[string]string)
-	policyStr := ""
-	policyType := 0
-
-	if opts.withPolicy != "" {
-		simplyPolicy := strings.Replace(opts.withPolicy, "\n", "", -1)
-		policyType = 1
-		policyStr = simplyPolicy
-	} else if opts.withPolicyRuleUse != "" || opts.withPolicyRuleBlock != "" || opts.withPolicyRuleUnBlock != "" || opts.withPolicyRuleModify != "" {
-		if opts.withPolicyRuleUse != "" {
-			simplyPolicy := strings.Replace(opts.withPolicyRuleUse, "\n", "", -1)
-			policyType = 2
-			policyPart["use"] = make(map[string]string)
-			var temp map[string]string
-			err := json.Unmarshal([]byte(simplyPolicy), &temp)
-			if err != nil {
-				logger.Error(fmt.Sprintf("Rule 'use' is not valid. Error: %s\n", err))
-				os.Exit(1)
-			}
-			policyPart["use"] = temp
-
-		}
-		if opts.withPolicyRuleBlock != "" {
-			simplyPolicy := strings.Replace(opts.withPolicyRuleBlock, "\n", "", -1)
-			policyType = 2
-			policyPart["block"] = make(map[string]string)
-			var temp map[string]string
-			err := json.Unmarshal([]byte(simplyPolicy), &temp)
-			if err != nil {
-				logger.Error(fmt.Sprintf("Rule 'block' is not valid. Error: %s\n", err))
-				os.Exit(1)
-			}
-			policyPart["block"] = temp
-		}
-		if opts.withPolicyRuleUnBlock != "" {
-			simplyPolicy := strings.Replace(opts.withPolicyRuleUnBlock, "\n", "", -1)
-			policyType = 2
-			policyPart["unblock"] = make(map[string]string)
-			var temp map[string]string
-			err := json.Unmarshal([]byte(simplyPolicy), &temp)
-			if err != nil {
-				logger.Error(fmt.Sprintf("Rule 'unblock' is not valid. Error: %s\n", err))
-				os.Exit(1)
-			}
-			policyPart["unblock"] = temp
-		}
-		if opts.withPolicyRuleModify != "" {
-			simplyPolicy := strings.Replace(opts.withPolicyRuleModify, "\n", "", -1)
-			policyType = 2
-			policyPart["modify"] = make(map[string]string)
-			var temp map[string]string
-			err := json.Unmarshal([]byte(simplyPolicy), &temp)
-			if err != nil {
-				logger.Error(fmt.Sprintf("Rule 'modify' is not valid. Error: %s\n", err))
-				os.Exit(1)
-			}
-			policyPart["modify"] = temp
-		}
-	} else if opts.withFullPolicy != "" {
-		policyStr = opts.withFullPolicy
-		policyType = 0
-	} else if opts.withFullPolicyFile != "" {
-		policyFilePath := opts.withFullPolicyFile
-		data, err := os.ReadFile(policyFilePath)
-		if err != nil {
-			logger.Error(fmt.Sprintf("Error on reading policy file. Error: %s\n", err))
-			os.Exit(1)
-		}
-		policyStr = string(data[:])
-		policyType = 0
-	} else {
-		policyType = 1
-		policyStr = "{}"
-	}
-	if policyType == 0 {
-		var err error
-		wrapperConfig.Policy, err = helpers.PreparePolicy(policyStr, false)
-		if err != nil {
-			logger.Error(fmt.Sprintf("Something wrong on full policy json. Error: %s\n", err))
-			os.Exit(1)
-		}
-	} else {
-		var err error
-		wrapperConfig.Policy, err = helpers.PreparePolicy(policyStr, true)
-		if err != nil {
-			logger.Error(fmt.Sprintf("Something wrong on policy. Error: %s\n", err))
-			os.Exit(1)
-		}
-	}
-
-	switch {
-	case opts.withAuth != "":
-		auth = opts.withAuth
-	default:
+	auth := opts.withAuth
+	if auth == "" {
 		return nil, nil, fmt.Errorf("auth is required")
 	}
-	switch {
-	case opts.withBearerToken != "":
-		bearerToken = opts.withBearerToken
-	}
-	switch {
-	case opts.withCertPath != "":
-		certPath = opts.withCertPath
-	}
-	switch {
-	case opts.withKeyPath != "":
-		keyPath = opts.withKeyPath
-	}
-	switch {
-	case opts.withCheckEvery != "":
-		checkEvery = opts.withCheckEvery
-	}
-	switch {
-	case opts.withTSBApiEndpoint != "":
-		tsbApiEndpoint = opts.withTSBApiEndpoint
-	default:
+
+	tsbAPIEndpoint := opts.withTSBApiEndpoint
+	if tsbAPIEndpoint == "" {
 		return nil, nil, fmt.Errorf("tsb_api_endpoint is required")
 	}
-	var keyPair KeyPair
-	json.Unmarshal([]byte(opts.withApplicationKeyPair), &keyPair)
-	var apiKeys ApiKeyTypes
-	json.Unmarshal([]byte(opts.withApiKeys), &apiKeys)
 
-	wrapperConfig.Settings.RestApi = tsbApiEndpoint
-	wrapperConfig.Settings.Auth = auth
-	wrapperConfig.Settings.BearerToken = bearerToken
-	wrapperConfig.Settings.CertPath = certPath
-	wrapperConfig.Settings.KeyPath = keyPath
-	wrapperConfig.Key.RSALabel = keyLabel
-	wrapperConfig.Key.RSAPassword = keyPassword
-	wrapperConfig.Settings.ApplicationKeyPair = keyPair
-	wrapperConfig.Settings.ApiKeys = apiKeys
-	configuration = wrapperConfig
-
-	data, err := strconv.Atoi(checkEvery)
-	if err == nil {
-		wrapperConfig.Settings.CheckEvery = data
-	}
-	data, err = strconv.Atoi(approvalTimeout)
-	if err == nil {
-		wrapperConfig.Settings.ApprovalTimeout = data
-	}
-	valid := wrapperConfig.checkConfigFile()
-	if !valid {
-		os.Exit(1)
-	}
-	provider := map[string]interface{}{
-		"restapi":     wrapperConfig.Settings.RestApi,
-		"auth":        wrapperConfig.Settings.Auth,
-		"bearertoken": wrapperConfig.Settings.BearerToken,
-		"certpath":    wrapperConfig.Settings.CertPath,
-		"keypath":     wrapperConfig.Settings.KeyPath,
-		"apikeys":     wrapperConfig.Settings.ApiKeys,
-	}
-
-	keystore, err := securosyshsm.NewKeyStore(provider)
+	wrapperConfig, err := buildWrapperConfigurations(logger, opts)
 	if err != nil {
 		return nil, nil, err
 	}
+	configuration = wrapperConfig
+
+	if !wrapperConfig.checkConfigFile() {
+		return nil, nil, fmt.Errorf("securosys hsm wrapper configuration is invalid")
+	}
+
+	provider := securosysKMSConfigMap(wrapperConfig)
+	providerKMS := securosyskms.New()
+	if err := providerKMS.Open(ctx, &kms.OpenOptions{ConfigMap: provider}); err != nil {
+		return nil, nil, err
+	}
+
+	key, err := providerKMS.GetKey(ctx, &kms.KeyOptions{
+		ConfigMap: kms.ConfigMap{
+			"name":     keyLabel,
+			"password": opts.withKeyPassword,
+		},
+	})
+	if err != nil {
+		_ = providerKMS.Close(ctx)
+		return nil, nil, err
+	}
+
 	client := &SecurosysHSMClient{
-		keystore: keystore,
+		kms:      providerKMS,
+		key:      key,
+		keyLabel: keyLabel,
+		config:   wrapperConfig,
 	}
 
-	wrapConfig := new(wrapping.WrapperConfig)
-	wrapConfig.Metadata = make(map[string]string)
-	wrapConfig.Metadata["tsb_api_endpoint"] = tsbApiEndpoint
-	wrapConfig.Metadata["check_every"] = checkEvery
-	wrapConfig.Metadata["key_label"] = keyLabel
-	wrapConfig.Metadata["auth"] = auth
-	// wrapConfig.Metadata["bearer_token"] = bearerToken
-	// wrapConfig.Metadata["cert_path"] = certPath
-	// wrapConfig.Metadata["key_path"] = keyPath
-	wrapConfig.Metadata["approval_timeout"] = approvalTimeout
-	// wrapConfig.Metadata["key_password"] = keyPassword
-
-	key, err := client.keystore.GetKeyByName(ctx, keyLabel)
-
-	if key == nil {
-		toMap, err := securosyshsm.PolicyToMap(wrapperConfig.Policy)
-		if err != nil {
-			return nil, nil, err
-		}
-		newKey, _, err := keystore.GenerateKeyPair(ctx, &kms.KeyAttributes{
-			ProviderSpecific: toMap,
-			KeyType:          kms.KeyType_RSA_Private,
-			Name:             keyLabel,
-			BitKeyLen:        2048,
-			IsRemovable:      true,
-			IsSensitive:      true,
-			CanEncrypt:       true,
-			CanDecrypt:       true,
-			CanSign:          true,
-			CanVerify:        true,
-			CanWrap:          true,
-			CanUnwrap:        true,
-			IsTrusted:        true,
-		})
-		if newKey == nil {
-			return client, wrapConfig, fmt.Errorf("Error on creating RSA Key: %s", err)
-		}
-		client.key = newKey
-	} else {
-		client.key = key
+	wrapConfig := &wrapping.WrapperConfig{
+		Metadata: map[string]string{
+			"tsb_api_endpoint": tsbAPIEndpoint,
+			"check_every":      strconv.Itoa(wrapperConfig.Settings.CheckEvery),
+			"key_label":        keyLabel,
+			"auth":             auth,
+			"approval_timeout": strconv.Itoa(wrapperConfig.Settings.ApprovalTimeout),
+		},
 	}
-	client.config = wrapperConfig
 
 	return client, wrapConfig, nil
 }
 
+// buildWrapperConfigurations converts wrapper options into the legacy
+// Configurations structure still used for validation and metadata.
+func buildWrapperConfigurations(logger hclog.Logger, opts *options) (*Configurations, error) {
+	wrapperConfig := new(Configurations)
+
+	policy, err := parsePolicy(logger, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	checkEvery := parsePositiveInt(opts.withCheckEvery, 5)
+	approvalTimeout := parsePositiveInt(opts.withApprovalTimeout, 60)
+
+	var keyPair KeyPair
+	if opts.withApplicationKeyPair != "" {
+		if err := json.Unmarshal([]byte(opts.withApplicationKeyPair), &keyPair); err != nil {
+			return nil, fmt.Errorf("application_key_pair is invalid: %w", err)
+		}
+	}
+
+	var apiKeys ApiKeyTypes
+	if opts.withApiKeys != "" {
+		if err := json.Unmarshal([]byte(opts.withApiKeys), &apiKeys); err != nil {
+			return nil, fmt.Errorf("api_keys is invalid: %w", err)
+		}
+	}
+
+	wrapperConfig.Policy = policy
+	wrapperConfig.Settings.RestApi = opts.withTSBApiEndpoint
+	wrapperConfig.Settings.Auth = opts.withAuth
+	wrapperConfig.Settings.BearerToken = opts.withBearerToken
+	wrapperConfig.Settings.CertPath = opts.withCertPath
+	wrapperConfig.Settings.KeyPath = opts.withKeyPath
+	wrapperConfig.Settings.CheckEvery = checkEvery
+	wrapperConfig.Settings.ApprovalTimeout = approvalTimeout
+	wrapperConfig.Settings.ApplicationKeyPair = keyPair
+	wrapperConfig.Settings.ApiKeys = apiKeys
+	wrapperConfig.Key.RSALabel = opts.withKeyLabel
+	wrapperConfig.Key.RSAPassword = opts.withKeyPassword
+
+	return wrapperConfig, nil
+}
+
+// parsePolicy accepts all supported policy input forms: simplified policy,
+// per-rule simplified policy, full policy JSON, or a full policy JSON file.
+func parsePolicy(logger hclog.Logger, opts *options) (*helpers.Policy, error) {
+	switch {
+	case opts.withPolicy != "":
+		return helpers.PreparePolicy(strings.ReplaceAll(opts.withPolicy, "\n", ""), true)
+	case opts.withPolicyRuleUse != "" || opts.withPolicyRuleBlock != "" || opts.withPolicyRuleUnBlock != "" || opts.withPolicyRuleModify != "":
+		policyPart := make(map[string]map[string]string)
+		for name, value := range map[string]string{
+			"use":     opts.withPolicyRuleUse,
+			"block":   opts.withPolicyRuleBlock,
+			"unblock": opts.withPolicyRuleUnBlock,
+			"modify":  opts.withPolicyRuleModify,
+		} {
+			if value == "" {
+				continue
+			}
+			var part map[string]string
+			if err := json.Unmarshal([]byte(strings.ReplaceAll(value, "\n", "")), &part); err != nil {
+				if logger != nil {
+					logger.Error(fmt.Sprintf("Rule %q is not valid: %s", name, err))
+				}
+				return nil, fmt.Errorf("policy rule %q is invalid: %w", name, err)
+			}
+			policyPart[name] = part
+		}
+		policyBytes, err := json.Marshal(policyPart)
+		if err != nil {
+			return nil, err
+		}
+		return helpers.PreparePolicy(string(policyBytes), true)
+	case opts.withFullPolicy != "":
+		return helpers.PreparePolicy(opts.withFullPolicy, false)
+	case opts.withFullPolicyFile != "":
+		data, err := os.ReadFile(opts.withFullPolicyFile)
+		if err != nil {
+			return nil, err
+		}
+		return helpers.PreparePolicy(string(data), false)
+	default:
+		return helpers.PreparePolicy("{}", true)
+	}
+}
+
+// parsePositiveInt returns defaultValue when value is empty, invalid, or not
+// positive.
+func parsePositiveInt(value string, defaultValue int) int {
+	if value == "" {
+		return defaultValue
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return defaultValue
+	}
+	return parsed
+}
+
+// securosysKMSConfigMap converts wrapper configuration into kms.OpenOptions
+// data accepted by kms/securosyshsm.
+func securosysKMSConfigMap(config *Configurations) kms.ConfigMap {
+	applicationKeyPair, _ := json.Marshal(config.Settings.ApplicationKeyPair)
+	apiKeys, _ := json.Marshal(config.Settings.ApiKeys)
+
+	return kms.ConfigMap{
+		"restapi":            config.Settings.RestApi,
+		"auth":               config.Settings.Auth,
+		"bearertoken":        config.Settings.BearerToken,
+		"certpath":           config.Settings.CertPath,
+		"keypath":            config.Settings.KeyPath,
+		"applicationKeyPair": string(applicationKeyPair),
+		"apiKeys":            string(apiKeys),
+	}
+}
+
+// Encrypt encrypts a base64-encoded wrapper plaintext with the configured KMS
+// key.
+//
+// The returned payload format is:
+//
+//	securosys:<key-label>:<base64 nonce>:<base64 ciphertext>
+//
+// The nonce is stored beside the ciphertext because kms.CipherOptions returns
+// it out-of-band for AES-GCM.
 func (c *SecurosysHSMClient) Encrypt(plaintext string) ([]byte, error) {
-	ctx := context.Background()
-	ctx = securosyshsm.WithPrivateKey(ctx, c.key.(*securosyshsm.PrivateKey))
+	if c == nil || c.key == nil {
+		return nil, fmt.Errorf("securosys hsm key is not configured")
+	}
 
-	cipher, err := securosyshsm.CipherFactory{}.NewCipher(ctx, kms.CipherOp_Encrypt, &kms.CipherParameters{
-		Algorithm: kms.CipherMode_RSA_OAEP_SHA256,
-	})
+	opts := &kms.CipherOptions{Data: []byte(plaintext)}
+	encrypted, err := c.key.Encrypt(context.Background(), opts)
 	if err != nil {
 		return nil, err
 	}
-	encrypted, err := cipher.Close(ctx, []byte(plaintext))
-	if err != nil {
-		return nil, err
-	}
+
 	encryptedBase64 := base64.StdEncoding.EncodeToString(encrypted)
-	return []byte(fmt.Sprintf("securosys:%s:%s", "v1", encryptedBase64)), nil
+	nonceBase64 := base64.StdEncoding.EncodeToString(opts.Nonce)
+	return []byte(fmt.Sprintf("securosys:%s:%s:%s", c.keyLabel, nonceBase64, encryptedBase64)), nil
 }
 
+// Decrypt decrypts the base64 ciphertext component produced by Encrypt.
+//
+// keyVersion carries the base64 nonce from the wrapper payload for historical
+// compatibility with the client interface name.
 func (c *SecurosysHSMClient) Decrypt(encryptedPayload string, keyVersion string) ([]byte, error) {
-	ctx := context.Background()
-	ctx = securosyshsm.WithPrivateKey(ctx, c.key.(*securosyshsm.PrivateKey))
-	cipher, err := securosyshsm.CipherFactory{}.NewCipher(ctx, kms.CipherOp_Decrypt, &kms.CipherParameters{
-		Algorithm: kms.CipherMode_RSA_OAEP_SHA256,
-	})
+	if c == nil || c.key == nil {
+		return nil, fmt.Errorf("securosys hsm key is not configured")
+	}
+
 	encryptedBytes, err := base64.StdEncoding.DecodeString(encryptedPayload)
-	if cc, ok := cipher.(*securosyshsm.Cipher); ok {
-		_, err2 := cc.Update(ctx, encryptedBytes)
-		if err2 != nil {
-			return nil, err2
-		}
-		requestId, err := cc.DecryptAsyncRequest(map[string]string{
-			"app": "OpenBao - Unseal Operation",
-		})
+	if err != nil {
+		return nil, err
+	}
+
+	var nonce []byte
+	if keyVersion != "" {
+		nonce, err = base64.StdEncoding.DecodeString(keyVersion)
 		if err != nil {
 			return nil, err
 		}
-		resp, err := cc.GetRequest(requestId)
-
-		if err != nil {
-			return nil, err
-		}
-		// Create a context to handle Ctrl+C
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		sigs := make(chan os.Signal, 1)
-		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-		go func() {
-			<-sigs
-			logger.Warn("Interrupt received, stopping approval wait loop...")
-			cancel()
-		}()
-		start := time.Now()
-		for resp.Status == "PENDING" {
-			select {
-			case <-ctx.Done():
-				logger.Error(fmt.Sprintf("Unseal operation interrupted by user"))
-				return nil, ctx.Err()
-			default:
-				now := time.Now()
-				if now.Unix()-start.Unix() >= int64(c.config.Settings.ApprovalTimeout) {
-					logger.Error(fmt.Sprintf("Timeout for all approvals exceeded a %ss. Application will be closed. Vault remains sealed.", strconv.Itoa(c.config.Settings.ApprovalTimeout)))
-					os.Exit(1)
-				}
-				time.Sleep(time.Duration(c.config.Settings.CheckEvery) * time.Second)
-				if len(resp.NotYetApprovedBy) > 0 {
-					logger.Info(fmt.Sprintf("Waiting for %d approval:", len(resp.NotYetApprovedBy)))
-				} else {
-					logger.Info("All approval collected!")
-				}
-
-				for _, approver := range resp.NotYetApprovedBy {
-					logger.Info(fmt.Sprintf("- %s", c.getApproverName(approver)))
-				}
-				resp, err = cc.GetRequest(requestId)
-			}
-		}
-		if resp.Status == "REJECTED" {
-			logger.Error(fmt.Sprintf("\nUnseal operation is %s", resp.Status))
-			logger.Error(fmt.Sprintf("Rejected by:"))
-			for _, approver := range resp.RejectedBy {
-				logger.Error(fmt.Sprintf("- %s\n", c.getApproverName(approver)))
-			}
-			logger.Error(fmt.Sprintf("Application will be closed. Vault remains sealed."))
-			os.Exit(1)
-		}
-		if len(resp.NotYetApprovedBy) > 0 {
-			logger.Info(fmt.Sprintf("Waiting for %d approval:", len(resp.NotYetApprovedBy)))
-		} else {
-			logger.Info("All approval collected!")
-		}
-
-		for _, approver := range resp.NotYetApprovedBy {
-			logger.Info(fmt.Sprintf("- %s", c.getApproverName(approver)))
-		}
-
-		return []byte(resp.Result), nil
 	}
-	return nil, err
-}
-func (c *SecurosysHSMClient) getApproverName(publicKey string) string {
-	policy, err := securosyshsm.MapToPolicy(c.key.GetKeyAttributes().ProviderSpecific)
-	if err != nil {
-		return ""
-	}
-	if len(policy.RuleUse.Tokens) > 0 {
-		for _, token := range policy.RuleUse.Tokens {
-			if len(token.Groups) > 0 {
-				for _, group := range token.Groups {
-					if len(group.Approvals) > 0 {
-						for _, approval := range group.Approvals {
-							if publicKey == *approval.Value {
-								return *approval.Name
-							}
-							cert, err := ReadCertificate(*approval.Value)
-							if err == nil {
 
-								key := BytesToPublicKey([]byte("-----BEGIN RSA PUBLIC KEY-----\n" + publicKey + "\n-----END RSA PUBLIC KEY-----"))
-								if cert.PublicKey.(*rsa.PublicKey).N.Cmp(key.N) == 0 && key.E == cert.PublicKey.(*rsa.PublicKey).E {
-									return *approval.Name
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-	return ""
-}
-
-func BytesToPublicKey(pub []byte) *rsa.PublicKey {
-	block, _ := pem.Decode(pub)
-	enc := x509.IsEncryptedPEMBlock(block)
-	b := block.Bytes
-	var err error
-	if enc {
-		b, err = x509.DecryptPEMBlock(block, nil)
-		if err != nil {
-			logger.Error(err.Error())
-		}
-	}
-	ifc, err := x509.ParsePKIXPublicKey(b)
-	if err != nil {
-		logger.Error(err.Error())
-	}
-	key, ok := ifc.(*rsa.PublicKey)
-	if !ok {
-		logger.Error("not ok")
-	}
-	return key
+	return c.key.Decrypt(context.Background(), &kms.CipherOptions{
+		Data:  encryptedBytes,
+		Nonce: nonce,
+	})
 }

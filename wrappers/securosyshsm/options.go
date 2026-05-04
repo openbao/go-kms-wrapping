@@ -46,8 +46,8 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 			switch k {
 			case "key_label":
 				opts.withKeyLabel = v
-			// case "key_password":
-			// 	opts.withKeyPassword = v
+			case "key_password":
+				opts.withKeyPassword = v
 			case "approval_timeout":
 				opts.withApprovalTimeout = v
 			case "auth":
@@ -104,8 +104,8 @@ type OptionFunc func(*options) error
 type options struct {
 	*wrapping.Options
 
-	withKeyLabel string
-	// withKeyPassword     string
+	withKeyLabel        string
+	withKeyPassword     string
 	withApprovalTimeout string
 	withAuth            string
 	withBearerToken     string
@@ -150,15 +150,15 @@ func WithKeyLabel(with string) wrapping.Option {
 	}
 }
 
-// // WithKeyName provides a way to choose the key name
-// func WithPassword(with string) wrapping.Option {
-// 	return func() interface{} {
-// 		return OptionFunc(func(o *options) error {
-// 			o.withKeyPassword = with
-// 			return nil
-// 		})
-// 	}
-// }
+// WithPassword provides a way to choose the key password
+func WithPassword(with string) wrapping.Option {
+	return func() interface{} {
+		return OptionFunc(func(o *options) error {
+			o.withKeyPassword = with
+			return nil
+		})
+	}
+}
 
 func WithPolicy(with string) wrapping.Option {
 	return func() interface{} {
