@@ -3,16 +3,13 @@
 package securosyshsm
 
 import (
-	"context"
-	"crypto/rand"
-	"crypto/x509"
-	"crypto/x509/pkix"
-	"math/big"
-	mathrand "math/rand"
+	"crypto"
+	"crypto/rsa"
 	"os"
 	"testing"
-	"time"
 
+	client "github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/client"
+	"github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/helpers"
 	"github.com/openbao/go-kms-wrapping/v2/kms"
 )
 
@@ -26,659 +23,595 @@ var RSA_KEY_NAME = "openbao_test_rsa_key"
 var EC_KEY_NAME = "openbao_test_ec_key"
 var ED_KEY_NAME = "openbao_test_ed_key"
 
-func TestKeystore(t *testing.T) {
+// getTestClient returns a low-level TSB client used only by acceptance tests to
+// create and clean up keys. Tests are skipped unless HSM endpoint credentials
+// are provided through environment variables.
+func getTestClient(t *testing.T) *client.TSBClient {
+	restAPI := os.Getenv(SECUROSYS_HSM_RESTAPI_ENV_VAR)
+	bearerToken := os.Getenv(SECUROSYS_BEARER_TOKEN_ENV_VAR)
 
-	ctx := t.Context()
-
-	kmsConfig := getKmsConfigFromEnvVars(t)
-	keystore, err := NewKeyStore(kmsConfig)
-	if err != nil || keystore == nil {
-		t.Fatal("Failed to initialize Securosys HSM keystore")
-	}
-	defer keystore.Close(ctx)
-
-	key, err := generateTestKeyAES(ctx, keystore, AES_KEY_NAME, true)
-	if err != nil || key == nil {
-		t.Fatal("Failed to generate AES key")
+	if restAPI == "" || bearerToken == "" {
+		t.Skip("SECUROSYS_HSM_RESTAPI or SECUROSYS_BEARER_TOKEN not set, skipping test")
+		return nil
 	}
 
-	if key.GetName() != AES_KEY_NAME {
-		t.Fatalf("Key label is not correct. Want %s got %s", AES_KEY_NAME, key.GetName())
-	}
-
-	if key.GetType() != kms.KeyType_AES {
-		t.Fatalf("Key type is not correct. Want %d got %d", kms.KeyType_AES, key.GetType())
-	}
-	if key.GetLength() != 256 {
-		t.Fatalf("Key size is not correct. Want %d got %d", 256, key.GetLength())
-	}
-
-	var rsaKey *PrivateKey = nil
-	rsaKey, _, err = generateTestKeyRSA(ctx, keystore, RSA_KEY_NAME)
-	if err != nil || rsaKey == nil {
-		t.Fatal("Failed to generate RSA key")
-	}
-
-	if rsaKey.GetName() != RSA_KEY_NAME {
-		t.Fatalf("Key label is not correct. Want %s got %s", RSA_KEY_NAME, key.GetName())
-	}
-
-	if rsaKey.GetType() != kms.KeyType_RSA_Private {
-		t.Fatalf("Key type is not correct. Want %d got %d", kms.KeyType_RSA_Private, key.GetType())
-	}
-
-	if rsaKey.GetLength() != 2048 {
-		t.Fatalf("Key size is not correct. Want %d got %d", 2048, key.GetLength())
-	}
-
-	keys, err := keystore.ListKeys(ctx)
-	if err != nil || keys == nil {
-		t.Fatal("ListKeys failed")
-	}
-	if len(keys) <= 2 {
-		t.Fatalf("Incorrect ListKeys result. Expected at least 2 keys,  got %d", len(keys))
-	}
-
-	err = keystore.RemoveKey(ctx, key)
+	tsbClient, err := client.NewTSBClient(restAPI, client.AuthStruct{
+		AuthType:    "TOKEN",
+		BearerToken: bearerToken,
+		AppName:     "OpenBao - Securosys HSM KMS Test",
+	})
 	if err != nil {
-		t.Fatal("RemoveKey failed")
+		t.Fatalf("Failed to create TSB client: %v", err)
 	}
 
-	err = keystore.RemoveKey(ctx, rsaKey)
-	if err != nil {
-		t.Fatal("RemoveKey failed")
-	}
-
+	return tsbClient
 }
 
-func TestCipher(t *testing.T) {
-
-	plaintext := "the quick brown fox jumps over the lazy dog"
-	ctx := t.Context()
-
-	kmsConfig := getKmsConfigFromEnvVars(t)
-	keystore, err := NewKeyStore(kmsConfig)
-	if err != nil || keystore == nil {
-		t.Fatal("Failed to initialize Securosys HSM keystore")
-	}
-	defer keystore.Close(ctx)
-
-	key, err := generateTestKeyAES(ctx, keystore, AES_KEY_NAME, true)
-	if err != nil || key == nil {
-		t.Fatal("Failed to generate AES key")
-	}
-
-	aesGcmCipher(t, key, plaintext, "")
-	aesGcmCipher(t, key, plaintext, "test_aad")
-
-	err = removeKey(ctx, key, keystore)
-	if err != nil {
-		t.Fatal("Failed to remove key")
-	}
-
-	// RSA cipher tests
-	privateKey, publicKey, err := generateTestKeyRSA(ctx, keystore, RSA_KEY_NAME)
-	if err != nil || privateKey == nil || publicKey == nil {
-		t.Fatal("Failed to generate RSA key pair")
-	}
-
-	asymCipher(t, kms.CipherMode_RSA_OAEP_SHA256, privateKey, publicKey, plaintext)
-	asymCipher(t, kms.CipherMode_RSA_OAEP_SHA384, privateKey, publicKey, plaintext)
-	asymCipher(t, kms.CipherMode_RSA_OAEP_SHA512, privateKey, publicKey, plaintext)
-
-	err = removeKey(ctx, privateKey, keystore)
-	if err != nil {
-		t.Fatal("Failed to remove key")
-	}
-}
-
-func TestSignVerify(t *testing.T) {
-
-	message := "the quick brown fox jumps over the lazy dog"
-	ctx := t.Context()
-
-	kmsConfig := getKmsConfigFromEnvVars(t)
-	keystore, err := NewKeyStore(kmsConfig)
-	if err != nil || keystore == nil {
-		t.Fatal("Failed to initialize Securosys HSM keystore")
-	}
-	defer keystore.Close(ctx)
-
-	// RSA sign/verify tests
-	privateKey, publicKey, err := generateTestKeyRSA(ctx, keystore, RSA_KEY_NAME)
-	if err != nil || privateKey == nil || publicKey == nil {
-		t.Fatal("Failed to generate RSA key pair")
-	}
-
-	signVerify(t, kms.SignAlgo_RSA_PKCS1_PSS_SHA_256, privateKey, publicKey, message)
-	signVerify(t, kms.SignAlgo_RSA_PKCS1_PSS_SHA_384, privateKey, publicKey, message)
-	signVerify(t, kms.SignAlgo_RSA_PKCS1_PSS_SHA_512, privateKey, publicKey, message)
-
-	err = removeKey(ctx, privateKey, keystore)
-	if err != nil {
-		t.Fatal("Failed to remove key")
-	}
-
-	// EC sign/verify tests
-	privateKey, publicKey, err = generateTestKeyEC(ctx, kms.Curve_P256, keystore, EC_KEY_NAME)
-	if err != nil || privateKey == nil || publicKey == nil {
-		t.Fatal("Failed to generate EC key pair")
-	}
-
-	signVerify(t, kms.SignAlgo_EC_P256, privateKey, publicKey, message)
-
-	err = removeKey(ctx, privateKey, keystore)
-	if err != nil {
-		t.Fatal("Failed to remove key")
-	}
-
-	privateKey, publicKey, err = generateTestKeyEC(ctx, kms.Curve_P384, keystore, EC_KEY_NAME)
-	if err != nil || privateKey == nil || publicKey == nil {
-		t.Fatal("Failed to generate EC key pair")
-	}
-
-	signVerify(t, kms.SignAlgo_EC_P384, privateKey, publicKey, message)
-
-	err = removeKey(ctx, privateKey, keystore)
-	if err != nil {
-		t.Fatal("Failed to remove key")
-	}
-
-	privateKey, publicKey, err = generateTestKeyEC(ctx, kms.Curve_P521, keystore, EC_KEY_NAME)
-	if err != nil || privateKey == nil || publicKey == nil {
-		t.Fatal("Failed to generate EC key pair")
-	}
-
-	signVerify(t, kms.SignAlgo_EC_P521, privateKey, publicKey, message)
-
-	err = removeKey(ctx, privateKey, keystore)
-	if err != nil {
-		t.Fatal("Failed to remove key")
-	}
-
-	// ED sign/verify tests
-	privateKey, publicKey, err = generateTestKeyED(ctx, keystore, ED_KEY_NAME)
-	if err != nil || privateKey == nil || publicKey == nil {
-		t.Fatal("Failed to generate ED key pair")
-	}
-
-	signVerify(t, kms.SignAlgo_ED, privateKey, publicKey, message)
-
-	err = removeKey(ctx, privateKey, keystore)
-	if err != nil {
-		t.Fatal("Failed to remove key")
-	}
-
-}
-
-func TestSign_x509Certificate(t *testing.T) {
-
-	sk := kms.Certx509SigningKey{}
-	ctx := t.Context()
-
-	kmsConfig := getKmsConfigFromEnvVars(t)
-	keystore, err := NewKeyStore(kmsConfig)
-	if err != nil || keystore == nil {
-		t.Fatal("Failed to initialize Securosys HSM keystore")
-	}
-	defer keystore.Close(ctx)
-
-	caCertTemplate := &x509.Certificate{
-		Subject: pkix.Name{
-			CommonName: "root.localhost",
-		},
-		SubjectKeyId:          []byte{0x01, 0x02, 0x03, 0x04, 0x05},
-		DNSNames:              []string{"root.localhost"},
-		KeyUsage:              x509.KeyUsage(x509.KeyUsageCertSign | x509.KeyUsageCRLSign),
-		SerialNumber:          big.NewInt(mathrand.Int63()),
-		NotAfter:              time.Now().Add(262980 * time.Hour),
-		BasicConstraintsValid: true,
-		IsCA:                  true,
-	}
-
-	// Issue certificate with signature using ED key
-	privateKey, publicKey, err := generateTestKeyED(ctx, keystore, ED_KEY_NAME)
-	if err != nil || privateKey == nil || publicKey == nil {
-		t.Fatal("Failed to generate ED key pair")
-	}
-
-	sk.SignPrivateKey = privateKey
-
-	cert, err := x509.CreateCertificate(rand.Reader, caCertTemplate, caCertTemplate, sk.Public(), &sk)
-	if err != nil || cert == nil {
-		t.Fatal("Failed to sign X509 certficate using KMS signer")
-	}
-
-	err = removeKey(ctx, privateKey, keystore)
-	if err != nil {
-		t.Fatal("Failed to remove key")
-	}
-
-	// Issue certificate with signature using EC key
-	privateKey, publicKey, err = generateTestKeyEC(ctx, kms.Curve_P256, keystore, EC_KEY_NAME)
-	if err != nil || privateKey == nil || publicKey == nil {
-		t.Fatal("Failed to generate EC key pair")
-	}
-
-	sk.SignPrivateKey = privateKey
-
-	cert, err = x509.CreateCertificate(rand.Reader, caCertTemplate, caCertTemplate, sk.Public(), &sk)
-	if err != nil || cert == nil {
-		t.Fatal("Failed to sign X509 certficate using KMS signer")
-	}
-
-	err = removeKey(ctx, privateKey, keystore)
-	if err != nil {
-		t.Fatal("Failed to remove key")
-	}
-
-	/* Disabled EC P384 and P521 tests for now
-
-	privateKey, publicKey, err = generateTestKeyEC(ctx, kms.Curve_P384, keystore, EC_KEY_NAME)
-	if err != nil || privateKey == nil || publicKey == nil {
-		t.Fatal("Failed to generate EC key pair")
-	}
-
-	sk.SignPrivateKey = privateKey
-
-	cert, err = x509.CreateCertificate(rand.Reader, caCertTemplate, caCertTemplate, sk.Public(), &sk)
-	if err != nil || cert == nil {
-		t.Fatal("Failed to sign X509 certficate using KMS signer")
-	}
-
-	err = removeKey(ctx, privateKey, keystore)
-	if err != nil {
-		t.Fatal("Failed to remove key")
-	}
-
-	privateKey, publicKey, err = generateTestKeyEC(ctx, kms.Curve_P521, keystore, EC_KEY_NAME)
-	if err != nil || privateKey == nil || publicKey == nil {
-		t.Fatal("Failed to generate EC key pair")
-	}
-
-	sk.SignPrivateKey = privateKey
-
-	cert, err = x509.CreateCertificate(rand.Reader, caCertTemplate, caCertTemplate, sk.Public(), &sk)
-	if err != nil || cert == nil {
-		t.Fatal("Failed to sign X509 certficate using KMS signer")
-	}
-
-	err = removeKey(ctx, privateKey, keystore)
-	if err != nil {
-		t.Fatal("Failed to remove key")
-	}
-	*/
-
-	// Issue certificate with signature using RSA key
-	privateKey, publicKey, err = generateTestKeyRSA(ctx, keystore, RSA_KEY_NAME)
-	if err != nil || privateKey == nil || publicKey == nil {
-		t.Fatal("Failed to generate RSA key pair")
-	}
-
-	sk.SignPrivateKey = privateKey
-	caCertTemplate.SignatureAlgorithm = x509.SHA256WithRSAPSS
-	cert, err = x509.CreateCertificate(rand.Reader, caCertTemplate, caCertTemplate, sk.Public(), &sk)
-	if err != nil || cert == nil {
-		t.Fatal("Failed to sign X509 certficate using KMS signer")
-	}
-
-	caCertTemplate.SignatureAlgorithm = x509.SHA384WithRSAPSS
-	cert, err = x509.CreateCertificate(rand.Reader, caCertTemplate, caCertTemplate, sk.Public(), &sk)
-	if err != nil || cert == nil {
-		t.Fatal("Failed to sign X509 certficate using KMS signer")
-	}
-
-	caCertTemplate.SignatureAlgorithm = x509.SHA512WithRSAPSS
-	cert, err = x509.CreateCertificate(rand.Reader, caCertTemplate, caCertTemplate, sk.Public(), &sk)
-	if err != nil || cert == nil {
-		t.Fatal("Failed to sign X509 certficate using KMS signer")
-	}
-
-	err = removeKey(ctx, privateKey, keystore)
-	if err != nil {
-		t.Fatal("Failed to remove key")
-	}
-
-}
-
-func generateTestKeyAES(ctx context.Context, keystore kms.KeyStore, keyName string, forceNewKey bool) (*SecretKey, error) {
-
-	key, err := keystore.GetKeyByName(ctx, keyName)
-	if key != nil {
-		if forceNewKey {
-			err = keystore.RemoveKey(ctx, key)
-		} else {
-			return key.(*SecretKey), nil
-		}
-	}
-	key, err = keystore.GenerateSecretKey(ctx, &kms.KeyAttributes{
-		KeyType:     kms.KeyType_AES,
-		Name:        keyName,
-		BitKeyLen:   256,
-		IsRemovable: true,
-		CanDecrypt:  true,
-		CanEncrypt:  true,
-	})
-	return key.(*SecretKey), err
-}
-func generateTestKeyRSA(ctx context.Context, keystore kms.KeyStore, keyName string) (*PrivateKey, *PublicKey, error) {
-	key, err := keystore.GetKeyByName(ctx, keyName)
-	if key != nil {
-		err = keystore.RemoveKey(ctx, key)
-	}
-
-	privateKey, publicKey, err := keystore.GenerateKeyPair(ctx, &kms.KeyAttributes{
-		KeyType:     kms.KeyType_RSA_Private,
-		Name:        keyName,
-		BitKeyLen:   2048,
-		IsRemovable: true,
-		CanDecrypt:  true,
-		CanEncrypt:  true,
-		CanSign:     true,
-		CanVerify:   true,
-	})
-	return privateKey.(*PrivateKey), publicKey.(*PublicKey), err
-}
-func generateTestKeyEC(ctx context.Context, curve kms.Curve, keystore kms.KeyStore, keyName string) (*PrivateKey, *PublicKey, error) {
-	key, err := keystore.GetKeyByName(ctx, keyName)
-	if key != nil {
-		err = keystore.RemoveKey(ctx, key)
-	}
-
-	privateKey, publicKey, err := keystore.GenerateKeyPair(ctx, &kms.KeyAttributes{
-		KeyType:     kms.KeyType_EC_Private,
-		Name:        keyName,
-		Curve:       curve,
-		IsRemovable: true,
-		CanDecrypt:  true,
-		CanEncrypt:  true,
-		CanSign:     true,
-		CanVerify:   true,
-	})
-	return privateKey.(*PrivateKey), publicKey.(*PublicKey), err
-}
-func generateTestKeyED(ctx context.Context, keystore kms.KeyStore, keyName string) (*PrivateKey, *PublicKey, error) {
-	key, err := keystore.GetKeyByName(ctx, keyName)
-	if key != nil {
-		err = keystore.RemoveKey(ctx, key)
-	}
-
-	privateKey, publicKey, err := keystore.GenerateKeyPair(ctx, &kms.KeyAttributes{
-		KeyType:     kms.KeyType_ED_Private,
-		Name:        keyName,
-		Curve:       kms.Curve_None,
-		IsRemovable: true,
-		CanDecrypt:  true,
-		CanEncrypt:  true,
-		CanSign:     true,
-		CanVerify:   true,
-	})
-	return privateKey.(*PrivateKey), publicKey.(*PublicKey), err
-}
-func removeKey(ctx context.Context, key kms.Key, keystore kms.KeyStore) error {
-	err := keystore.RemoveKey(ctx, key)
-	return err
-}
-
-func aesGcmCipher(t *testing.T, key *SecretKey, plaintext, aad string) {
-
-	algo := kms.CipherMode_AES_GCM96
-	tagLength := 16
-
-	ctx := t.Context()
-
-	// Single-part encrypt
-	algoParams := kms.AESGCMCipherParameters{
-		Nonce: nil,
-		AAD:   []byte(aad),
-	}
-	cipherEncrypt, err := (*key).NewCipher(ctx, kms.CipherOp_Encrypt, &kms.CipherParameters{
-		Algorithm:  algo,
-		Parameters: &algoParams,
-	})
-	if err != nil || cipherEncrypt == nil {
-		t.Fatalf("Failed to initialize Cipher for algorithm %d", algo)
-	}
-
-	ciphertext, err := cipherEncrypt.Close(ctx, []byte(plaintext))
-	if err != nil || ciphertext == nil {
-		t.Fatalf("Failed to encrypt data for algorithm %d", algo)
-	}
-
-	// Single-part decrypt (use IV/Nonce generated by the encryption cipher)
-	algoParams = kms.AESGCMCipherParameters{
-		Nonce: cipherEncrypt.(*Cipher).cipherParams.Parameters.(*kms.AESGCMCipherParameters).Nonce,
-		AAD:   []byte(aad),
-	}
-	decryptCipher, err := (*key).NewCipher(ctx, kms.CipherOp_Decrypt, &kms.CipherParameters{
-		Algorithm:  algo,
-		Parameters: &algoParams,
-	})
-	if err != nil || decryptCipher == nil {
-		t.Fatalf("Failed to initialize Cipher for algorithm %d", algo)
-	}
-
-	decryptedPayload, err := decryptCipher.Close(ctx, ciphertext)
-	if err != nil || decryptedPayload == nil {
-		t.Fatalf("Failed to decrypt data for algorithm %d", algo)
-	}
-
-	if string(decryptedPayload) != plaintext {
-		t.Fatalf("Decrypted payload mismatch. Want %s got %s", plaintext, string(decryptedPayload))
-	}
-
-	// Test MAC verification failure with wrong AAD/ciphertext
-
-	algoParams = kms.AESGCMCipherParameters{
-		Nonce: cipherEncrypt.(*Cipher).cipherParams.Parameters.(*kms.AESGCMCipherParameters).Nonce,
-		AAD:   []byte("dummy_aad"),
-	}
-
-	decryptCipher, err = (*key).NewCipher(ctx, kms.CipherOp_Decrypt, &kms.CipherParameters{
-		Algorithm:  algo,
-		Parameters: &algoParams,
-	})
-	if err != nil || decryptCipher == nil {
-		t.Fatalf("Failed to initialize Cipher for algorithm %d", algo)
-	}
-
-	_, err = decryptCipher.Close(ctx, ciphertext)
-	if err == nil {
-		t.Fatalf("Failed to detect corrupted AAD for algorithm %d", algo)
-	}
-
-	algoParams = kms.AESGCMCipherParameters{
-		Nonce: cipherEncrypt.(*Cipher).cipherParams.Parameters.(*kms.AESGCMCipherParameters).Nonce,
-		AAD:   []byte(aad),
-	}
-	decryptCipher, err = (*key).NewCipher(ctx, kms.CipherOp_Decrypt, &kms.CipherParameters{
-		Algorithm:  algo,
-		Parameters: &algoParams,
-	})
-	if err != nil || decryptCipher == nil {
-		t.Fatalf("Failed to initialize Cipher for algorithm %d", algo)
-	}
-
-	ciphertext[0] = ciphertext[0] + 1 // Corrupt ciphertext
-	_, err = decryptCipher.Close(ctx, ciphertext)
-	if err == nil {
-		t.Fatalf("Failed to detect corrupted ciphertext for algorithm %d", algo)
-	}
-
-	// Multi-part encrypt
-	cipherEncrypt, err = (*key).NewCipher(ctx, kms.CipherOp_Encrypt, &kms.CipherParameters{
-		Algorithm: algo,
-	})
-	if err != nil || cipherEncrypt == nil {
-		t.Fatalf("Failed to initialize Cipher for algorithm %d", algo)
-	}
-
-	ciphertext = []byte{}
-	i := 0
-	for ; i < len(plaintext)-1; i++ {
-		chunk, err := cipherEncrypt.Update(ctx, []byte(plaintext[i:i+1]))
-		if err != nil {
-			t.Fatalf("Cipher encrypt update failed for algorithm %d", algo)
-		}
-		if chunk != nil {
-			ciphertext = append(ciphertext, chunk...)
-		}
-	}
-
-	chunk, err := cipherEncrypt.Close(ctx, []byte(plaintext[i:i+1]))
-	if err != nil {
-		t.Fatalf("Cipher encrypt update failed for algorithm %d", algo)
-	}
-	if chunk != nil {
-		ciphertext = append(ciphertext, chunk...)
-	}
-
-	// Multi-part decrypt (use IV/Nonce generated by the encryption cipher)
-	algoParams = kms.AESGCMCipherParameters{
-		Nonce: cipherEncrypt.(*Cipher).cipherParams.Parameters.(*kms.AESGCMCipherParameters).Nonce,
-		AAD:   nil,
-	}
-	decryptCipher, err = (*key).NewCipher(ctx, kms.CipherOp_Decrypt, &kms.CipherParameters{
-		Algorithm:  algo,
-		Parameters: &algoParams,
-	})
-	if err != nil || decryptCipher == nil {
-		t.Fatalf("Failed to initialize Cipher for algorithm %d", algo)
-	}
-
-	decryptedPayload = []byte{}
-	i = 0
-	for ; i < len(ciphertext)-tagLength-1; i++ {
-		chunk, err := decryptCipher.Update(ctx, ciphertext[i:i+1])
-		if err != nil {
-			t.Fatalf("Cipher encrypt update failed for algorithm %d", algo)
-		}
-		if chunk != nil {
-			decryptedPayload = append(decryptedPayload, chunk...)
-		}
-	}
-
-	// The last chunk includes the tag
-	chunk, err = decryptCipher.Close(ctx, []byte(ciphertext[i:i+tagLength+1]))
-	if err != nil {
-		t.Fatalf("Cipher encrypt update failed for algorithm %d", algo)
-	}
-	if chunk != nil {
-		decryptedPayload = append(decryptedPayload, chunk...)
-	}
-
-	test := string(decryptedPayload)
-	if test != plaintext {
-		t.Fatalf("Decrypted payload mismatch. Want %s got %s", plaintext, string(decryptedPayload))
-	}
-}
-
-func asymCipher(t *testing.T, algo kms.CipherAlgorithmMode, privateKey *PrivateKey, publicKey *PublicKey, plaintext string) {
-
-	ctx := t.Context()
-
-	// Single-part encrypt with public key
-	cipherEncrypt, err := (*publicKey).NewCipher(ctx, kms.CipherOp_Encrypt, &kms.CipherParameters{
-		Algorithm: algo,
-	})
-	if err != nil || cipherEncrypt == nil {
-		t.Fatalf("Failed to initialize Cipher for algorithm %d", algo)
-	}
-
-	ciphertext, err := cipherEncrypt.Close(ctx, []byte(plaintext))
-	if err != nil || ciphertext == nil {
-		t.Fatalf("Failed to encrypt data for algorithm %d", algo)
-	}
-
-	// Single-part decrypt with private key
-	decryptCipher, err := (*privateKey).NewCipher(ctx, kms.CipherOp_Decrypt, &kms.CipherParameters{
-		Algorithm: algo,
-	})
-	if err != nil || decryptCipher == nil {
-		t.Fatalf("Failed to initialize Cipher for algorithm %d", algo)
-	}
-
-	decryptedPayload, err := decryptCipher.Close(ctx, ciphertext)
-	if err != nil || decryptedPayload == nil {
-		t.Fatalf("Failed to decrypt data for algorithm %d", algo)
-	}
-
-	if string(decryptedPayload) != plaintext {
-		t.Fatalf("Decrypted payload mismatch. Want %s got %s", plaintext, string(decryptedPayload))
-	}
-
-}
-
-func signVerify(t *testing.T, algo kms.SignAlgorithm, privateKey *PrivateKey, publicKey *PublicKey, message string) {
-
-	ctx := t.Context()
-
-	// Single-part signing with private key
-	signer, err := (*privateKey).NewRemoteDigestSigner(ctx, &kms.SignerParameters{
-		Algorithm: algo,
-	})
-	if err != nil || signer == nil {
-		t.Fatalf("Failed to initialize Signer for algorithm %d", algo)
-	}
-
-	signature, err := signer.Close(ctx, []byte(message))
-	if err != nil || signature == nil {
-		t.Fatalf("Failed to sign message for algorithm %d", algo)
-	}
-
-	// Single-part signature verification with public key
-	verifier, err := (*publicKey).NewRemoteDigestVerifier(ctx, &kms.VerifierParameters{
-		Algorithm: algo,
-	})
-	if err != nil || verifier == nil {
-		t.Fatalf("Failed to initialize Verifier for algorithm %d", algo)
-	}
-
-	err = verifier.Close(ctx, []byte(message), signature)
-	if err != nil {
-		t.Fatalf("Failed to verify signature for algorithm %d", algo)
-	}
-
-	// Verify with wrong message - must fail
-	verifier, err = (*publicKey).NewRemoteDigestVerifier(ctx, &kms.VerifierParameters{
-		Algorithm: algo,
-	})
-	if err != nil || verifier == nil {
-		t.Fatalf("Failed to initialize Verifier for algorithm %d", algo)
-	}
-
-	wrongMsg := []byte(message)
-	wrongMsg[0] ^= 0xFF
-	err = verifier.Close(ctx, wrongMsg, signature)
-	if err == nil {
-		t.Fatalf("Verify signature for algorithm %d must fail with wrong message", algo)
-	}
-
-}
-
-func getKmsConfigFromEnvVars(t *testing.T) map[string]interface{} {
+// openTestKMS opens the Securosys implementation through the public kms.KMS
+// interface. Acceptance tests use this helper so they exercise the same path
+// plugin clients and wrappers use.
+func openTestKMS(t *testing.T) kms.KMS {
 	t.Helper()
 
-	// Skip tests if we are not running acceptance tests
-	if os.Getenv("VAULT_ACC") == "" {
-		t.SkipNow()
+	restAPI := os.Getenv(SECUROSYS_HSM_RESTAPI_ENV_VAR)
+	bearerToken := os.Getenv(SECUROSYS_BEARER_TOKEN_ENV_VAR)
+	if restAPI == "" || bearerToken == "" {
+		t.Skip("SECUROSYS_HSM_RESTAPI or SECUROSYS_BEARER_TOKEN not set, skipping test")
 	}
 
-	var kmsConfig = map[string]interface{}{
-		"restapi":     "",
-		"auth":        "TOKEN",
-		"bearertoken": "",
+	kmsInstance := New()
+	err := kmsInstance.Open(t.Context(), &kms.OpenOptions{
+		ConfigMap: kms.ConfigMap{
+			"restapi":     restAPI,
+			"auth":        "TOKEN",
+			"bearertoken": bearerToken,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to open KMS: %v", err)
 	}
 
-	kmsConfig["restapi"] = os.Getenv(SECUROSYS_HSM_RESTAPI_ENV_VAR)
-	if kmsConfig["restapi"] == "" {
-		t.Fatalf("unable to get Securosys HSM REST API endpoint via environment variable %s", SECUROSYS_HSM_RESTAPI_ENV_VAR)
+	return kmsInstance
+}
+
+// getTestKMSKey resolves a key through kms.KMS.GetKey. cipherAlgorithm is
+// optional and drives the provider-specific cipher override used by the cipher
+// matrix tests.
+func getTestKMSKey(t *testing.T, kmsInstance kms.KMS, keyName, cipherAlgorithm string) kms.Key {
+	t.Helper()
+
+	key, err := kmsInstance.GetKey(t.Context(), &kms.KeyOptions{
+		ConfigMap: kms.ConfigMap{
+			"name":             keyName,
+			"cipher_algorithm": cipherAlgorithm,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to get key %q for %s: %v", keyName, cipherAlgorithm, err)
 	}
 
-	kmsConfig["bearertoken"] = os.Getenv(SECUROSYS_BEARER_TOKEN_ENV_VAR)
-	if kmsConfig["bearertoken"] == "" {
-		t.Fatalf("unable to get Securosys bearer token via environment variable %s", SECUROSYS_BEARER_TOKEN_ENV_VAR)
+	return key
+}
+
+// assertCipherRoundTrip verifies that a key can encrypt and decrypt the same
+// plaintext, carrying the nonce returned by Encrypt into Decrypt.
+func assertCipherRoundTrip(t *testing.T, key kms.Key, plaintext, aad []byte) {
+	t.Helper()
+
+	encryptOpts := &kms.CipherOptions{
+		Data: plaintext,
+		AAD:  aad,
+	}
+	ciphertext, err := key.Encrypt(t.Context(), encryptOpts)
+	if err != nil {
+		t.Fatalf("Failed to encrypt: %v", err)
 	}
 
-	return kmsConfig
+	decrypted, err := key.Decrypt(t.Context(), &kms.CipherOptions{
+		Data:  ciphertext,
+		AAD:   aad,
+		Nonce: encryptOpts.Nonce,
+	})
+	if err != nil {
+		t.Fatalf("Failed to decrypt: %v", err)
+	}
+	if string(decrypted) != string(plaintext) {
+		t.Fatalf("Decrypted data does not match original. Got %x, want %x", decrypted, plaintext)
+	}
+}
+
+// assertSignVerify verifies that Sign and Verify agree for the same algorithm
+// mapping. signerOpts is the public kms interface input; algorithm is included
+// only to make subtest failures readable.
+func assertSignVerify(t *testing.T, key kms.Key, algorithm string, signerOpts crypto.SignerOpts, prehashed bool) {
+	t.Helper()
+
+	data := []byte("OpenBao Securosys signature test")
+	signature, err := key.Sign(t.Context(), &kms.SignOptions{
+		Data:       data,
+		Prehashed:  prehashed,
+		SignerOpts: signerOpts,
+	})
+	if err != nil {
+		t.Fatalf("Failed to sign with %s: %v", algorithm, err)
+	}
+
+	err = key.Verify(t.Context(), &kms.VerifyOptions{
+		Signature:  signature,
+		Data:       data,
+		Prehashed:  prehashed,
+		SignerOpts: signerOpts,
+	})
+	if err != nil {
+		t.Fatalf("Failed to verify with %s: %v", algorithm, err)
+	}
+}
+
+// cipherPlaintext returns payloads that satisfy algorithm-specific constraints.
+// RSA_NO_PADDING requires a full RSA block, while AES no-padding modes require
+// block-aligned plaintext.
+func cipherPlaintext(algorithm string) []byte {
+	if algorithm == "RSA_NO_PADDING" {
+		plaintext := make([]byte, 256)
+		copy(plaintext[len(plaintext)-32:], []byte("openbao securosys rsa no padding"))
+		return plaintext
+	}
+	return []byte("OpenBao Securosys cipher test!!!")
+}
+
+// createTestKey creates a key for testing and returns cleanup function.
+// It is kept for focused tests that need a single temporary key.
+func createTestKey(t *testing.T, keyName, keyType string, keySize int) func() {
+	tsbClient := getTestClient(t)
+	if tsbClient == nil {
+		return func() {}
+	}
+
+	// Create key attributes
+	attrs := map[string]bool{
+		"extractable": false,
+		"token":       true,
+		"sign":        true,
+		"verify":      true,
+		"encrypt":     true,
+		"decrypt":     true,
+		"wrap":        true,
+		"unwrap":      true,
+		"derive":      false,
+	}
+
+	var size float64
+	if keySize > 0 {
+		size = float64(keySize)
+	}
+
+	// Create the key
+	_, err := tsbClient.CreateOrUpdateKey(keyName, "", attrs, keyType, size, nil, "", false)
+	if err != nil {
+		t.Logf("Key creation warning (may already exist): %v", err)
+	}
+
+	// Return cleanup function
+	return func() {
+		err := tsbClient.RemoveKey(keyName)
+		if err != nil {
+			t.Logf("Key cleanup warning: %v", err)
+		}
+	}
+}
+
+// setupTestKeys creates the AES, RSA, EC, and ED keys used by acceptance tests.
+// Creation warnings are logged because keys may already exist from a previous
+// run or from manual setup.
+func setupTestKeys(t *testing.T) {
+	tsbClient := getTestClient(t)
+	if tsbClient == nil {
+		return
+	}
+
+	keyConfigs := []struct {
+		name     string
+		keyType  string
+		size     int
+		curveOid string
+	}{
+		{AES_KEY_NAME, "AES", 256, ""},
+		{RSA_KEY_NAME, "RSA", 2048, ""},
+		{EC_KEY_NAME, "EC", 0, "1.2.840.10045.3.1.7"}, // P-256 curve OID
+		{ED_KEY_NAME, "ED", 0, "1.3.101.112"},         // EdDSA algorithm
+	}
+
+	for _, cfg := range keyConfigs {
+		attrs := map[string]bool{
+			"extractable": false,
+			"token":       true,
+			"sign":        true,
+			"verify":      true,
+			"encrypt":     true,
+			"decrypt":     true,
+			"wrap":        true,
+			"unwrap":      true,
+			"derive":      false,
+			"destroyable": true,
+		}
+
+		var size float64
+		if cfg.size > 0 {
+			size = float64(cfg.size)
+		}
+
+		_, err := tsbClient.CreateOrUpdateKey(cfg.name, "", attrs, cfg.keyType, size, nil, cfg.curveOid, false)
+		if err != nil {
+			t.Logf("Key creation warning for %s: %v", cfg.name, err)
+		}
+	}
+}
+
+// cleanupTestKeys removes the acceptance-test keys after a run. Cleanup errors
+// are logged instead of failing the test so the primary operation failure is not
+// hidden.
+func cleanupTestKeys(t *testing.T) {
+	tsbClient := getTestClient(t)
+	if tsbClient == nil {
+		return
+	}
+
+	keyNames := []string{AES_KEY_NAME, RSA_KEY_NAME, EC_KEY_NAME, ED_KEY_NAME}
+
+	for _, keyName := range keyNames {
+		err := tsbClient.RemoveKey(keyName)
+		if err != nil {
+			t.Logf("Key cleanup warning for %s: %v", keyName, err)
+		}
+	}
+}
+
+// TestKMS covers the minimum KMS contract: Open, GetKey, Encrypt, Decrypt, and
+// Close using the default AES-GCM behavior.
+func TestKMS(t *testing.T) {
+	ctx := t.Context()
+
+	// Setup: Create test keys
+	setupTestKeys(t)
+	defer cleanupTestKeys(t)
+
+	// Get configuration from environment variables
+	restAPI := os.Getenv(SECUROSYS_HSM_RESTAPI_ENV_VAR)
+	bearerToken := os.Getenv(SECUROSYS_BEARER_TOKEN_ENV_VAR)
+
+	if restAPI == "" || bearerToken == "" {
+		t.Skip("SECUROSYS_HSM_RESTAPI or SECUROSYS_BEARER_TOKEN not set, skipping test")
+	}
+
+	// Create new KMS instance
+	kmsInstance := New()
+
+	// Open KMS with configuration
+	err := kmsInstance.Open(ctx, &kms.OpenOptions{
+		ConfigMap: kms.ConfigMap{
+			"restapi":     restAPI,
+			"auth":        "TOKEN",
+			"bearertoken": bearerToken,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to open KMS: %v", err)
+	}
+	defer kmsInstance.Close(ctx)
+
+	// Test GetKey with AES key
+	key, err := kmsInstance.GetKey(ctx, &kms.KeyOptions{
+		ConfigMap: kms.ConfigMap{
+			"name": AES_KEY_NAME,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to get key: %v", err)
+	}
+
+	// Test Encrypt
+	plaintext := []byte("Hello, Securosys HSM!")
+	encryptOpts := &kms.CipherOptions{
+		Data: plaintext,
+	}
+	ciphertext, err := key.Encrypt(ctx, encryptOpts)
+	if err != nil {
+		t.Fatalf("Failed to encrypt: %v", err)
+	}
+
+	// Test Decrypt
+	decrypted, err := key.Decrypt(ctx, &kms.CipherOptions{
+		Data:  ciphertext,
+		Nonce: encryptOpts.Nonce,
+	})
+	if err != nil {
+		t.Fatalf("Failed to decrypt: %v", err)
+	}
+
+	// Verify decryption
+	if string(decrypted) != string(plaintext) {
+		t.Fatalf("Decrypted data does not match original. Got %s, want %s", string(decrypted), string(plaintext))
+	}
+
+	t.Log("Encrypt/Decrypt test passed")
+}
+
+// TestKMSCipherAlgorithms verifies every AES and RSA cipher advertised by the
+// Securosys helper constants can round-trip through kms.Key Encrypt/Decrypt.
+func TestKMSCipherAlgorithms(t *testing.T) {
+	ctx := t.Context()
+
+	setupTestKeys(t)
+	defer cleanupTestKeys(t)
+
+	kmsInstance := openTestKMS(t)
+	defer kmsInstance.Close(ctx)
+
+	for _, algorithm := range helpers.AES_CIPHER_LIST {
+		t.Run("AES/"+algorithm, func(t *testing.T) {
+			key := getTestKMSKey(t, kmsInstance, AES_KEY_NAME, algorithm)
+			assertCipherRoundTrip(t, key, cipherPlaintext(algorithm), nil)
+		})
+	}
+
+	for _, algorithm := range helpers.RSA_CIPHER_LIST {
+		t.Run("RSA/"+algorithm, func(t *testing.T) {
+			key := getTestKMSKey(t, kmsInstance, RSA_KEY_NAME, algorithm)
+			assertCipherRoundTrip(t, key, cipherPlaintext(algorithm), nil)
+		})
+	}
+}
+
+// TestKMSSignVerify is the basic RSA-PSS sign/verify smoke test.
+func TestKMSSignVerify(t *testing.T) {
+	ctx := t.Context()
+
+	// Setup: Create test keys
+	setupTestKeys(t)
+	defer cleanupTestKeys(t)
+
+	// Get configuration from environment variables
+	restAPI := os.Getenv(SECUROSYS_HSM_RESTAPI_ENV_VAR)
+	bearerToken := os.Getenv(SECUROSYS_BEARER_TOKEN_ENV_VAR)
+
+	if restAPI == "" || bearerToken == "" {
+		t.Skip("SECUROSYS_HSM_RESTAPI or SECUROSYS_BEARER_TOKEN not set, skipping test")
+	}
+
+	// Create new KMS instance
+	kmsInstance := New()
+
+	// Open KMS with configuration
+	err := kmsInstance.Open(ctx, &kms.OpenOptions{
+		ConfigMap: kms.ConfigMap{
+			"restapi":     restAPI,
+			"bearertoken": bearerToken,
+			"auth":        "TOKEN",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to open KMS: %v", err)
+	}
+	defer kmsInstance.Close(ctx)
+
+	// Test with RSA key
+	key, err := kmsInstance.GetKey(ctx, &kms.KeyOptions{
+		ConfigMap: kms.ConfigMap{
+			"name": RSA_KEY_NAME,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to get key: %v", err)
+	}
+
+	// Test Sign
+	data := []byte("Message to sign")
+	signature, err := key.Sign(ctx, &kms.SignOptions{
+		Data:       data,
+		Prehashed:  false,
+		SignerOpts: &rsa.PSSOptions{Hash: crypto.SHA256},
+	})
+	if err != nil {
+		t.Fatalf("Failed to sign: %v", err)
+	}
+
+	// Test Verify
+	err = key.Verify(ctx, &kms.VerifyOptions{
+		Signature:  signature,
+		Data:       data,
+		SignerOpts: &rsa.PSSOptions{Hash: crypto.SHA256},
+	})
+	if err != nil {
+		t.Fatalf("Failed to verify signature: %v", err)
+	}
+
+	t.Log("Sign/Verify test passed")
+}
+
+// TestKMSSignatureAlgorithms verifies the supported signature matrix:
+// selected ECDSA algorithms, EDDSA, RSA PKCS#1, and RSA-PSS.
+func TestKMSSignatureAlgorithms(t *testing.T) {
+	ctx := t.Context()
+
+	setupTestKeys(t)
+	defer cleanupTestKeys(t)
+
+	kmsInstance := openTestKMS(t)
+	defer kmsInstance.Close(ctx)
+
+	ecKey := getTestKMSKey(t, kmsInstance, EC_KEY_NAME, "")
+	for _, tc := range []struct {
+		algorithm  string
+		signerOpts crypto.SignerOpts
+		prehashed  bool
+	}{
+		{algorithm: "NONE_WITH_ECDSA", signerOpts: crypto.Hash(0), prehashed: true},
+		{algorithm: "SHA256_WITH_ECDSA", signerOpts: crypto.SHA256},
+		{algorithm: "SHA384_WITH_ECDSA", signerOpts: crypto.SHA384},
+		{algorithm: "SHA512_WITH_ECDSA", signerOpts: crypto.SHA512},
+	} {
+		t.Run("EC/"+tc.algorithm, func(t *testing.T) {
+			if !containsString(helpers.EC_SIGNATURE_LIST, tc.algorithm) {
+				t.Fatalf("%s is not present in EC_SIGNATURE_LIST", tc.algorithm)
+			}
+			assertSignVerify(t, ecKey, tc.algorithm, tc.signerOpts, tc.prehashed)
+		})
+	}
+
+	edKey := getTestKMSKey(t, kmsInstance, ED_KEY_NAME, "")
+	for _, algorithm := range helpers.ED_SIGNATURE_LIST {
+		t.Run("ED/"+algorithm, func(t *testing.T) {
+			assertSignVerify(t, edKey, algorithm, crypto.Hash(0), false)
+		})
+	}
+
+	rsaKey := getTestKMSKey(t, kmsInstance, RSA_KEY_NAME, "")
+	for _, tc := range []struct {
+		algorithm  string
+		signerOpts crypto.SignerOpts
+	}{
+		{algorithm: "SHA256_WITH_RSA", signerOpts: crypto.SHA256},
+		{algorithm: "SHA384_WITH_RSA", signerOpts: crypto.SHA384},
+		{algorithm: "SHA512_WITH_RSA", signerOpts: crypto.SHA512},
+		{algorithm: "SHA256_WITH_RSA_PSS", signerOpts: &rsa.PSSOptions{Hash: crypto.SHA256}},
+		{algorithm: "SHA384_WITH_RSA_PSS", signerOpts: &rsa.PSSOptions{Hash: crypto.SHA384}},
+		{algorithm: "SHA512_WITH_RSA_PSS", signerOpts: &rsa.PSSOptions{Hash: crypto.SHA512}},
+	} {
+		t.Run("RSA/"+tc.algorithm, func(t *testing.T) {
+			if !containsString(helpers.RSA_SIGNATURE_LIST, tc.algorithm) {
+				t.Fatalf("%s is not present in RSA_SIGNATURE_LIST", tc.algorithm)
+			}
+			assertSignVerify(t, rsaKey, tc.algorithm, tc.signerOpts, false)
+		})
+	}
+}
+
+// TestKMSExportPublic verifies RSA public key export parses into a standard
+// library public key.
+func TestKMSExportPublic(t *testing.T) {
+	ctx := t.Context()
+
+	// Setup: Create test keys
+	setupTestKeys(t)
+	defer cleanupTestKeys(t)
+
+	// Get configuration from environment variables
+	restAPI := os.Getenv(SECUROSYS_HSM_RESTAPI_ENV_VAR)
+	bearerToken := os.Getenv(SECUROSYS_BEARER_TOKEN_ENV_VAR)
+
+	if restAPI == "" || bearerToken == "" {
+		t.Skip("SECUROSYS_HSM_RESTAPI or SECUROSYS_BEARER_TOKEN not set, skipping test")
+	}
+
+	// Create new KMS instance
+	kmsInstance := New()
+
+	// Open KMS with configuration
+	err := kmsInstance.Open(ctx, &kms.OpenOptions{
+		ConfigMap: kms.ConfigMap{
+			"restapi":     restAPI,
+			"bearertoken": bearerToken,
+			"auth":        "TOKEN",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to open KMS: %v", err)
+	}
+	defer kmsInstance.Close(ctx)
+
+	// Test with RSA key
+	key, err := kmsInstance.GetKey(ctx, &kms.KeyOptions{
+		ConfigMap: kms.ConfigMap{
+			"name": RSA_KEY_NAME,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to get key: %v", err)
+	}
+
+	// Test ExportPublic
+	pubKey, err := key.ExportPublic(ctx)
+	if err != nil {
+		t.Fatalf("Failed to export public key: %v", err)
+	}
+
+	if pubKey == nil {
+		t.Fatalf("Public key is nil")
+	}
+
+	t.Logf("Exported public key: %T", pubKey)
+	t.Log("ExportPublic test passed")
+}
+
+// TestKMSWithAAD verifies AES-GCM authenticated data handling, including nonce
+// propagation between Encrypt and Decrypt.
+func TestKMSWithAAD(t *testing.T) {
+	ctx := t.Context()
+
+	// Setup: Create test keys
+	setupTestKeys(t)
+	defer cleanupTestKeys(t)
+
+	// Get configuration from environment variables
+	restAPI := os.Getenv(SECUROSYS_HSM_RESTAPI_ENV_VAR)
+	bearerToken := os.Getenv(SECUROSYS_BEARER_TOKEN_ENV_VAR)
+
+	if restAPI == "" || bearerToken == "" {
+		t.Skip("SECUROSYS_HSM_RESTAPI or SECUROSYS_BEARER_TOKEN not set, skipping test")
+	}
+
+	// Create new KMS instance
+	kmsInstance := New()
+
+	// Open KMS with configuration
+	err := kmsInstance.Open(ctx, &kms.OpenOptions{
+		ConfigMap: kms.ConfigMap{
+			"restapi":     restAPI,
+			"bearertoken": bearerToken,
+			"auth":        "TOKEN",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to open KMS: %v", err)
+	}
+	defer kmsInstance.Close(ctx)
+
+	// Test GetKey with AES key
+	key, err := kmsInstance.GetKey(ctx, &kms.KeyOptions{
+		ConfigMap: kms.ConfigMap{
+			"name": AES_KEY_NAME,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to get key: %v", err)
+	}
+
+	// Test Encrypt with AAD
+	plaintext := []byte("Hello, Securosys HSM with AAD!")
+	aad := []byte("additional authenticated data")
+	encryptOpts := &kms.CipherOptions{
+		Data: plaintext,
+		AAD:  aad,
+	}
+	ciphertext, err := key.Encrypt(ctx, encryptOpts)
+	if err != nil {
+		t.Fatalf("Failed to encrypt with AAD: %v", err)
+	}
+
+	// Test Decrypt with AAD
+	decrypted, err := key.Decrypt(ctx, &kms.CipherOptions{
+		Data:  ciphertext,
+		AAD:   aad,
+		Nonce: encryptOpts.Nonce,
+	})
+	if err != nil {
+		t.Fatalf("Failed to decrypt with AAD: %v", err)
+	}
+
+	// Verify decryption
+	if string(decrypted) != string(plaintext) {
+		t.Fatalf("Decrypted data does not match original. Got %s, want %s", string(decrypted), string(plaintext))
+	}
+
+	t.Log("Encrypt/Decrypt with AAD test passed")
 }

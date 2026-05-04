@@ -3,12 +3,10 @@
 package securosyshsm
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 
 	"github.com/hashicorp/go-hclog"
-	securosyskms "github.com/openbao/go-kms-wrapping/v2/kms"
 )
 
 const (
@@ -77,22 +75,6 @@ func (config *Configurations) checkConfigFile() bool {
 			}
 		}
 	}
-	jsonBytes, _ := json.Marshal(config.Settings.ApiKeys)
-	jsonStr := string(jsonBytes)
-	provider := map[string]interface{}{
-		"restapi":     config.Settings.RestApi,
-		"auth":        config.Settings.Auth,
-		"bearertoken": config.Settings.BearerToken,
-		"certpath":    config.Settings.CertPath,
-		"keypath":     config.Settings.KeyPath,
-		"apikeys":     jsonStr,
-	}
-	_, err := securosyskms.NewKeyStore(provider)
-	if err != nil {
-		logger.Error("Can't initialize securosy kms provider: %s", err.Error())
-		return false
-	}
-
 	if !valid {
 		for _, element := range errors {
 			logger.Error(fmt.Sprintf("ERROR: %s\n", element))
