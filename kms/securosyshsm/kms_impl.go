@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/go-viper/mapstructure/v2"
 	"github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/client"
 	"github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/helpers"
 	kms "github.com/openbao/go-kms-wrapping/v2/kms"
@@ -115,6 +116,5 @@ type keyConfig struct {
 
 // decodeConfig decodes a ConfigMap into the given struct using mapstructure.
 func decodeConfig(cfg kms.ConfigMap, target interface{}) error {
-	// Use mapstructure.WeakDecode for compatibility
-	return helpers.WeakDecode(cfg, target)
+	return mapstructure.WeakDecode(cfg, target)
 }
