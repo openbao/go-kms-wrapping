@@ -13,11 +13,9 @@ import (
 	"math"
 	"sync"
 	"sync/atomic"
-	"testing"
 
 	"github.com/miekg/pkcs11"
 	"github.com/openbao/go-kms-wrapping/kms/pkcs11/v2/internal/module"
-	"github.com/stretchr/testify/require"
 )
 
 // pool manages a token slot's sessions. Assuming that sessions are cheap and
@@ -322,43 +320,4 @@ func mapErr(err error, op string) error {
 	} else {
 		return fmt.Errorf("failed to pkcs#11 %s: %w", op, err)
 	}
-}
-
-// TestLogin is a test helper that logs into a pool and automatically drops it
-// on test completion, handling all errors.
-func TestLogin(t *testing.T, mod *module.Ref, token *module.Token) *PoolRef {
-	t.Helper()
-
-	pool, err := Login(t.Context(), mod, token, module.TestPin)
-	require.NoError(t, err)
-
-	t.Cleanup(func() {
-		require.NoError(t, pool.Drop(context.Background()))
-	})
-
-	return pool
-}
-
-// TestPool is a test helper that combines module.TestOpen, module.TestTokens and
-// TestLogin to create a pool for the first available token.
-func TestPool(t *testing.T) *PoolRef {
-	t.Helper()
-	mod, tokens := module.TestTokens(t, 1)
-	return TestLogin(t, mod, tokens[0])
-}
-
-// TestSession calls TestPool and returns a session that is automatically closed
-// on test completion.
-func TestSession(t *testing.T) (*Handle, *PoolRef) {
-	t.Helper()
-
-	p := TestPool(t)
-	s, err := p.Get(t.Context())
-	require.NoError(t, err)
-
-	t.Cleanup(func() {
-		require.NoError(t, s.Close())
-	})
-
-	return s, p
 }

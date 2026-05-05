@@ -5,6 +5,7 @@ go 1.25.0
 replace github.com/openbao/go-kms-wrapping/v2 => ../../
 
 require (
+	github.com/go-viper/mapstructure/v2 v2.5.0
 	github.com/miekg/pkcs11 v1.1.2
 	github.com/openbao/go-kms-wrapping/v2 v2.7.0
 	github.com/stretchr/testify v1.11.1
