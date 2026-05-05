@@ -1,52 +1,24 @@
 // Copyright (c) HashiCorp, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-package plugin
+package plugin_test
 
 import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
-	"os"
-	"os/exec"
 	"testing"
 
-	"github.com/hashicorp/go-plugin"
+	"github.com/openbao/go-kms-wrapping/plugin/v2"
+	"github.com/openbao/go-kms-wrapping/plugin/v2/plugintest"
 	"github.com/openbao/go-kms-wrapping/v2"
 	"github.com/openbao/go-kms-wrapping/v2/aead"
+	"github.com/openbao/go-kms-wrapping/v2/kms"
 	"github.com/stretchr/testify/require"
 )
 
-// client is a test helper that spawns a plugin server by re-executing the
-// test binary into one of the TestServer_* tests below and returns a client
-// connected to it.
-func client(t *testing.T, test string) plugin.ClientProtocol {
-	cmd := exec.Command(os.Args[0], fmt.Sprintf("--test.run=TestServer_%s", test))
-	cmd.Env = append(cmd.Env, "OPENBAO_TEST_SERVER=1")
-
-	plug := plugin.NewClient(&plugin.ClientConfig{
-		Cmd:              cmd,
-		VersionedPlugins: PluginSets,
-		HandshakeConfig:  HandshakeConfig,
-		AllowedProtocols: []plugin.Protocol{plugin.ProtocolGRPC},
-		AutoMTLS:         true,
-	})
-
-	t.Cleanup(func() {
-		plug.Kill()
-	})
-
-	client, err := plug.Client()
-	require.NoError(t, err)
-
-	return client
-}
-
 func TestServer_TestWrapper(t *testing.T) {
-	if _, ok := os.LookupEnv("OPENBAO_TEST_SERVER"); !ok {
-		t.Skip()
-	}
-	Serve(&ServeOpts{
+	plugintest.Server(t, &plugin.ServeOpts{
 		WrapperFactoryFunc: func() wrapping.Wrapper {
 			return wrapping.NewTestInitFinalizer([]byte("test"))
 		},
@@ -54,10 +26,7 @@ func TestServer_TestWrapper(t *testing.T) {
 }
 
 func TestServer_AeadWrapper(t *testing.T) {
-	if _, ok := os.LookupEnv("OPENBAO_TEST_SERVER"); !ok {
-		t.Skip()
-	}
-	Serve(&ServeOpts{
+	plugintest.Server(t, &plugin.ServeOpts{
 		WrapperFactoryFunc: func() wrapping.Wrapper {
 			return aead.NewWrapper()
 		},
@@ -69,7 +38,7 @@ func TestWrapper(t *testing.T) {
 	_, _ = rand.Read(key)
 
 	tests := []struct {
-		server string // See client().
+		server string
 		opts   *wrapping.Options
 	}{
 		{
@@ -91,16 +60,22 @@ func TestWrapper(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.server, func(t *testing.T) {
-			raw, err := client(t, tt.server).Dispense("wrapper")
+			server := fmt.Sprintf("TestServer_%s", tt.server)
+			raw, err := plugintest.Client(t, server).Dispense("wrapper")
 			require.NoError(t, err)
-
-			ctx := t.Context()
 
 			wrapper, ok := raw.(interface {
 				wrapping.Wrapper
 				wrapping.InitFinalizer
 			})
 			require.True(t, ok)
+
+			ctx := t.Context()
+
+			t.Run("NoConfig", func(t *testing.T) {
+				_, err := wrapper.KeyId(ctx)
+				require.ErrorIs(t, err, plugin.ErrNoInstance)
+			})
 
 			_, err = wrapper.SetConfig(
 				ctx,
@@ -131,8 +106,36 @@ func TestWrapper(t *testing.T) {
 
 			t.Run("Finalize", func(t *testing.T) {
 				require.NoError(t, wrapper.Finalize(ctx))
-				require.ErrorContains(t, wrapper.Finalize(ctx), ErrNoInstance.Error())
+				require.ErrorIs(t, wrapper.Finalize(ctx), plugin.ErrNoInstance)
 			})
 		})
 	}
+}
+
+func TestServer_UnimplementedKMS(t *testing.T) {
+	plugintest.Server(t, &plugin.ServeOpts{
+		KMSFactoryFunc: func() kms.KMS {
+			return kms.UnimplementedKMS{}
+		},
+	})
+}
+
+// This test really just ensures that we dispense the right type, and that some
+// sentinel errors are passed over the wire as expected. Tests against real KMS
+// implementations should live with the implementations themselves, running the
+// same test suite against both remote and local instances. This should ensure
+// better coverage than picking any particular implementation to test against in
+// this package, or creating a mock implementation.
+func TestKMS(t *testing.T) {
+	raw, err := plugintest.Client(t, "TestServer_UnimplementedKMS").Dispense("kms")
+	require.NoError(t, err)
+
+	service, ok := raw.(kms.KMS)
+	require.True(t, ok)
+
+	ctx := t.Context()
+	_, err = service.GetKey(ctx, &kms.KeyOptions{})
+	require.ErrorIs(t, err, plugin.ErrNoInstance)
+	require.ErrorIs(t, service.Close(ctx), plugin.ErrNoInstance)
+	require.ErrorIs(t, service.Open(ctx, &kms.OpenOptions{}), kms.ErrNotImplemented)
 }
