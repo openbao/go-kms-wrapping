@@ -18,8 +18,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/openbao/go-kms-wrapping/v2/kms"
 )
 
 //type approval struct {
@@ -333,133 +331,90 @@ func BytesToPublicKey(pub []byte) any {
 	}
 	return ifc
 }
-func MapStringCurverToCurve(curveString string) kms.Curve {
+func MapStringCurverToCurve(curveString string) string {
 	switch curveString {
 	case "1.2.840.10045.3.1.7":
-		return kms.Curve_P256
+		return "P-256"
 	case "1.3.132.0.34":
-		return kms.Curve_P384
+		return "P-384"
 	case "1.3.132.0.35":
-		return kms.Curve_P521
-
-	}
-	return kms.Curve_None
-}
-
-func MapCurveToStringCurve(curve kms.Curve) string {
-	switch curve {
-	case kms.Curve_P256:
-		return "1.2.840.10045.3.1.7"
-	case kms.Curve_P384:
-		return "1.3.132.0.34"
-	case kms.Curve_P521:
-		return "1.3.132.0.35"
-
+		return "P-521"
 	}
 	return ""
 }
-func MapSignAlgorithm(alg kms.SignAlgorithm, digest bool) (string, error) {
+
+func MapCurveToStringCurve(curve string) string {
+	switch curve {
+	case "P-256":
+		return "1.2.840.10045.3.1.7"
+	case "P-384":
+		return "1.3.132.0.34"
+	case "P-521":
+		return "1.3.132.0.35"
+	}
+	return ""
+}
+
+// MapSignAlgorithm maps a sign algorithm to a string (kept for backward compatibility)
+// Note: The new interface uses crypto.SignerOpts instead of kms.SignAlgorithm
+func MapSignAlgorithm(alg string, digest bool) (string, error) {
 	if digest {
 		switch alg {
-		case kms.SignAlgo_RSA_PKCS1_PSS_SHA_256:
-			return "NONE_WITH_RSA", nil
-		case kms.SignAlgo_RSA_PKCS1_PSS_SHA_384:
-			return "NONE_WITH_RSA_PSS", nil
-		case kms.SignAlgo_RSA_PKCS1_PSS_SHA_512:
-			return "NONE_WITH_RSA_PSS", nil
-		case kms.SignAlgo_EC_P256:
+		case "RSA_PSS_SHA256":
+			return "NONESHA256_WITH_RSA_PSS", nil
+		case "RSA_PSS_SHA384":
+			return "NONESHA384_WITH_RSA_PSS", nil
+		case "RSA_PSS_SHA512":
+			return "NONESHA512_WITH_RSA_PSS", nil
+		case "EC_P256":
 			return "NONE_WITH_ECDSA", nil
-		case kms.SignAlgo_EC_P384:
+		case "EC_P384":
 			return "NONE_WITH_ECDSA", nil
-		case kms.SignAlgo_EC_P521:
+		case "EC_P521":
 			return "NONE_WITH_ECDSA", nil
-		case kms.SignAlgo_ED:
+		case "ED25519":
 			return "EDDSA", nil
 		}
 
 	} else {
 		switch alg {
-		case kms.SignAlgo_RSA_PKCS1_PSS_SHA_256:
+		case "RSA_PSS_SHA256":
 			return "SHA256_WITH_RSA_PSS", nil
-		case kms.SignAlgo_RSA_PKCS1_PSS_SHA_384:
+		case "RSA_PSS_SHA384":
 			return "SHA384_WITH_RSA_PSS", nil
-		case kms.SignAlgo_RSA_PKCS1_PSS_SHA_512:
+		case "RSA_PSS_SHA512":
 			return "SHA512_WITH_RSA_PSS", nil
-		case kms.SignAlgo_EC_P256:
+		case "EC_P256":
 			return "SHA256_WITH_ECDSA", nil
-		case kms.SignAlgo_EC_P384:
+		case "EC_P384":
 			return "SHA384_WITH_ECDSA", nil
-		case kms.SignAlgo_EC_P521:
+		case "EC_P521":
 			return "SHA512_WITH_ECDSA", nil
-		case kms.SignAlgo_ED:
+		case "ED25519":
 			return "EDDSA", nil
 		}
-		//case kms.Sign_SHA224_RSA_PKCS1_PSS:
-		//	return "SHA224_WITH_RSA_PSS", nil
-		//case kms.Sign_SHA256_RSA_PKCS1_PSS:
-		//	return "SHA256_WITH_RSA_PSS", nil
-		//case kms.Sign_SHA384_RSA_PKCS1_PSS:
-		//	return "SHA384_WITH_RSA_PSS", nil
-		//case kms.Sign_SHA512_RSA_PKCS1_PSS:
-		//	return "SHA512_WITH_RSA_PSS", nil
-		//case kms.Sign_SHA224_RSA:
-		//	return "SHA224_WITH_RSA", nil
-		//case kms.Sign_SHA256_RSA:
-		//	return "SHA256_WITH_RSA", nil
-		//case kms.Sign_SHA384_RSA:
-		//	return "SHA384_WITH_RSA", nil
-		//case kms.Sign_SHA512_RSA:
-		//	return "SHA512_WITH_RSA", nil
-		//
-		//case kms.Sign_SHA1_ECDSA:
-		//	return "SHA1_WITH_ECDSA", nil
-		//case kms.Sign_SHA224_ECDSA:
-		//	return "SHA224_WITH_ECDSA", nil
-		//case kms.Sign_SHA256_ECDSA:
-		//	return "SHA256_WITH_ECDSA", nil
-		//case kms.Sign_SHA384_ECDSA:
-		//	return "SHA384_WITH_ECDSA", nil
-		//case kms.Sign_SHA512_ECDSA:
-		//	return "SHA512_WITH_ECDSA", nil
-		//case kms.Sign_SHA3224_ECDSA:
-		//	return "SHA3224_WITH_ECDSA", nil
-		//case kms.Sign_SHA3256_ECDSA:
-		//	return "SHA3256_WITH_ECDSA", nil
-		//case kms.Sign_SHA3384_ECDSA:
-		//	return "SHA3384_WITH_ECDSA", nil
-		//case kms.Sign_SHA3512_ECDSA:
-		//	return "SHA3512_WITH_ECDSA", nil
-
 	}
-	return "", errors.New("unknown cipher algorithm")
-
+	return "", errors.New("unknown sign algorithm")
 }
-func MapCipherAlgorithm(alg kms.CipherAlgorithmMode) (string, error) {
-	switch alg {
-	case kms.CipherMode_AES_GCM96:
-		return "AES_GCM", nil
-	//case kms.Cipher_AES_CBC:
-	//	return "AES_CBC_NO_PADDING", nil
-	//case kms.Cipher_AES_ECB:
-	//	return "AES_ECB", nil
-	//case kms.Cipher_AES_CTR:
-	//	return "AES_CTR", nil
-	//case kms.Cipher_RSA_MODE:
-	//	return "RSA", nil
-	//case kms.Cipher_RSA_PADDING_OAEP:
-	//	return "RSA_PADDING_OAEP", nil
-	//case kms.Cipher_RSA_PADDING_OAEP_SHA1:
-	//	return "RSA_PADDING_OAEP_WITH_SHA1", nil
-	//case kms.Cipher_RSA_PADDING_OAEP_SHA224:
-	//	return "RSA_PADDING_OAEP_WITH_SHA224", nil
-	case kms.CipherMode_RSA_OAEP_SHA256:
-		return "RSA_PADDING_OAEP_WITH_SHA256", nil
-	case kms.CipherMode_RSA_OAEP_SHA384:
-		return "RSA_PADDING_OAEP_WITH_SHA384", nil
-	case kms.CipherMode_RSA_OAEP_SHA512:
-		return "RSA_PADDING_OAEP_WITH_SHA512", nil
 
+// MapCipherAlgorithm maps a cipher algorithm mode to a string (kept for backward compatibility)
+// Note: The new interface uses different cipher mode types
+func MapCipherAlgorithm(alg string) (string, error) {
+	switch alg {
+	case "AES_GCM":
+		return "AES_GCM", nil
+	case "AES_CBC":
+		return "AES_CBC_NO_PADDING", nil
+	case "AES_ECB":
+		return "AES_ECB", nil
+	case "AES_CTR":
+		return "AES_CTR", nil
+	case "RSA_OAEP_SHA256":
+		return "RSA_PADDING_OAEP_WITH_SHA256", nil
+	case "RSA_OAEP_SHA384":
+		return "RSA_PADDING_OAEP_WITH_SHA384", nil
+	case "RSA_OAEP_SHA512":
+		return "RSA_PADDING_OAEP_WITH_SHA512", nil
 	}
 	return "", errors.New("unknown cipher algorithm")
-
 }

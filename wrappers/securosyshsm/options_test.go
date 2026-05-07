@@ -10,7 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Test_GetOpts provides unit tests for GetOpts and all the options
+// Test_GetOpts verifies both local wrapper option functions and config-map
+// based options populate the internal options struct consistently. These tests
+// do not contact the HSM.
 func Test_GetOpts(t *testing.T) {
 	t.Parallel()
 	t.Run("WithApprovalTimeout", func(t *testing.T) {
@@ -45,22 +47,22 @@ func Test_GetOpts(t *testing.T) {
 		testOpts.withKeyLabel = with
 		assert.Equal(opts, testOpts)
 	})
-	// t.Run("withKeyPassword", func(t *testing.T) {
-	// 	assert, require := assert.New(t), require.New(t)
-	// 	// test default of 0
-	// 	opts, err := getOpts()
-	// 	require.NoError(err)
-	// 	testOpts, err := getOpts()
-	// 	require.NoError(err)
-	// 	testOpts.withKeyPassword = ""
-	// 	assert.Equal(opts, testOpts)
+	t.Run("WithPassword", func(t *testing.T) {
+		assert, require := assert.New(t), require.New(t)
+		// test default of 0
+		opts, err := getOpts()
+		require.NoError(err)
+		testOpts, err := getOpts()
+		require.NoError(err)
+		testOpts.withKeyPassword = ""
+		assert.Equal(opts, testOpts)
 
-	// 	const with = "TEST"
-	// 	opts, err = getOpts(WithKeyLabel(with))
-	// 	require.NoError(err)
-	// 	testOpts.withKeyPassword = with
-	// 	assert.Equal(opts, testOpts)
-	// })
+		const with = "TEST"
+		opts, err = getOpts(WithPassword(with))
+		require.NoError(err)
+		testOpts.withKeyPassword = with
+		assert.Equal(opts, testOpts)
+	})
 	t.Run("WithAuth", func(t *testing.T) {
 		assert, require := assert.New(t), require.New(t)
 		// test default of 0
