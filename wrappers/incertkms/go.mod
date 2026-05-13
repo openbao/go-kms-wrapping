@@ -1,0 +1,27 @@
+module github.com/openbao/go-kms-wrapping/wrappers/incertkms/v2
+
+go 1.25.4
+
+require (
+	github.com/google/uuid v1.6.0
+	github.com/incert-kms/kms-sdk-go v0.0.0
+	github.com/openbao/go-kms-wrapping/v2 v2.7.0
+	github.com/stretchr/testify v1.10.0
+)
+
+require (
+	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
+	github.com/hashicorp/go-secure-stdlib/parseutil v0.1.9 // indirect
+	github.com/hashicorp/go-secure-stdlib/strutil v0.1.2 // indirect
+	github.com/hashicorp/go-sockaddr v1.0.6 // indirect
+	github.com/hashicorp/go-uuid v1.0.3 // indirect
+	github.com/mitchellh/mapstructure v1.5.0 // indirect
+	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
+	github.com/ryanuber/go-glob v1.0.0 // indirect
+	google.golang.org/protobuf v1.36.4 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
+)
+
+replace github.com/openbao/go-kms-wrapping/v2 => ../../
+
+replace github.com/incert-kms/kms-sdk-go => X:/Projects/Chiba/development/kms-sdk-go
