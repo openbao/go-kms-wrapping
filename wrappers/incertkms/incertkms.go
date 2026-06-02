@@ -1,3 +1,6 @@
+// Copyright (c) 2026 OpenBao a Series of LF Projects, LLC
+// SPDX-License-Identifier: MPL-2.0
+
 package incertkms
 
 import (
@@ -13,14 +16,11 @@ import (
 )
 
 type Wrapper struct {
-	baseURL  string
-	username string
-	password string
-	key      uuid.UUID
-	vSlot    uuid.UUID
-	keyName  string
-	kms      *kmssdk.Client
-	logger   log.Logger
+	key     uuid.UUID
+	vSlot   uuid.UUID
+	keyName string
+	kms     *kmssdk.Client
+	logger  log.Logger
 }
 
 var _ wrapping.Wrapper = (*Wrapper)(nil)
@@ -47,20 +47,20 @@ func (w *Wrapper) SetConfig(ctx context.Context, options ...wrapping.Option) (*w
 		return nil, err
 	}
 
-	if opts.withKmsUrl == "" {
+	baseURL := opts.withKmsUrl
+	if baseURL == "" {
 		return nil, fmt.Errorf("incertkms: kms_url is required")
 	}
-	w.baseURL = opts.withKmsUrl
 
-	if opts.withKmsUsername == "" {
+	username := opts.withKmsUsername
+	if username == "" {
 		return nil, fmt.Errorf("incertkms: kms_username is required")
 	}
-	w.username = opts.withKmsUsername
 
-	if opts.withKmsPassword == "" {
+	password := opts.withKmsPassword
+	if password == "" {
 		return nil, fmt.Errorf("incertkms: kms_password is required")
 	}
-	w.password = opts.withKmsPassword
 
 	if opts.withKmsVSlot != "" {
 		vslotId, err := uuid.Parse(opts.withKmsVSlot)
@@ -85,8 +85,8 @@ func (w *Wrapper) SetConfig(ctx context.Context, options ...wrapping.Option) (*w
 	w.kms = kmssdk.NewClient(
 		ctx,
 		kmssdk.WithTLSSkipVerify(),
-		kmssdk.WithUsernameAndPassword(w.username, w.password),
-		kmssdk.WithBaseURL(w.baseURL+"/api"),
+		kmssdk.WithUsernameAndPassword(username, password),
+		kmssdk.WithBaseURL(baseURL+"/api"),
 	)
 
 	err = w.kms.Connect(ctx)
@@ -110,7 +110,7 @@ func (w *Wrapper) SetConfig(ctx context.Context, options ...wrapping.Option) (*w
 
 	wrapConfig := new(wrapping.WrapperConfig)
 	wrapConfig.Metadata = make(map[string]string)
-	wrapConfig.Metadata["kms_url"] = w.baseURL
+	wrapConfig.Metadata["kms_url"] = baseURL
 	wrapConfig.Metadata["kms_vslot"] = w.vSlot.String()
 	wrapConfig.Metadata["kms_key"] = w.key.String()
 
@@ -188,21 +188,7 @@ func (w *Wrapper) Encrypt(ctx context.Context, plaintext []byte, options ...wrap
 
 	// Create a key if an existing one is not configured
 	if w.key == uuid.Nil {
-		w.logger.Info("no encryption key configured, creating a new key")
-
-		key := kmssdk.KeyDetail{
-			Alg:         "AES256",
-			Name:        w.keyName,
-			Persistence: "EXTERNAL",
-		}
-		key, err := w.kms.CreateKey(ctx, key, w.vSlot)
-		if err != nil {
-			return nil, fmt.Errorf("error creating key: %w", err)
-		}
-		w.key = key.ID
-		w.logger.Info("created new key", "key_id", w.key.String())
-	} else {
-		w.logger.Info("using configured key for encryption", "key_id", w.key.String())
+		return nil, fmt.Errorf("incertkms key is not available (key id: %s, key name: %q, vslot: %s)", w.key, w.keyName, w.vSlot)
 	}
 
 	iv := make([]byte, 12)
@@ -210,7 +196,7 @@ func (w *Wrapper) Encrypt(ctx context.Context, plaintext []byte, options ...wrap
 		return nil, fmt.Errorf("error generating IV: %w", err)
 	}
 
-	ciphertext, err := w.kms.Crypto(context.Background(), kmssdk.OperationEncrypt, w.key, kmssdk.CryptoRequest{
+	ciphertext, err := w.kms.Crypto(ctx, kmssdk.OperationEncrypt, w.key, kmssdk.CryptoRequest{
 		Data:       plaintext,
 		Algorithm:  "AES_GCM",
 		Attributes: kmssdk.Attributes{IV: iv},
@@ -238,6 +224,10 @@ func (w *Wrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, options ..
 		return nil, errors.New("incertkms is not configured in the seal")
 	}
 
+	if w.key == uuid.Nil {
+		return nil, fmt.Errorf("incertkms key is not available (key id: %s, key name: %q, vslot: %s)", w.key, w.keyName, w.vSlot)
+	}
+
 	if in.KeyInfo == nil {
 		in.KeyInfo = &wrapping.KeyInfo{
 			KeyId: w.key.String(),
@@ -249,7 +239,7 @@ func (w *Wrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, options ..
 		return nil, fmt.Errorf("error parsing key ID: %w", err)
 	}
 
-	plaintext, err := w.kms.Crypto(context.Background(), kmssdk.OperationDecrypt, keyIdUuid, kmssdk.CryptoRequest{
+	plaintext, err := w.kms.Crypto(ctx, kmssdk.OperationDecrypt, keyIdUuid, kmssdk.CryptoRequest{
 		Data:       in.Ciphertext,
 		Algorithm:  "AES_GCM",
 		Attributes: kmssdk.Attributes{IV: in.Iv},

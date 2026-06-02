@@ -1,34 +1,33 @@
+// Copyright (c) 2026 OpenBao a Series of LF Projects, LLC
+// SPDX-License-Identifier: MPL-2.0
+
 package incertkms
 
 import (
-	"context"
-	"reflect"
-	"strings"
 	"testing"
 
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestIncertKmsWrapper(t *testing.T) {
-	_, srv := NewIncertKmsTestWrapper()
+	_, srv := newIncertKmsTestWrapper()
 	defer srv.Close()
 }
 
 func TestIncertKmsWrapper_Type(t *testing.T) {
-	w, srv := NewIncertKmsTestWrapper()
+	assert, require := assert.New(t), require.New(t)
+	w, srv := newIncertKmsTestWrapper()
 	defer srv.Close()
 
-	typ, err := w.Type(context.Background())
-	if err != nil {
-		t.Fatalf("Type: %v", err)
-	}
-	if typ != wrapping.WrapperTypeIncertKms {
-		t.Errorf("Type = %q, want %q", typ, wrapping.WrapperTypeIncertKms)
-	}
+	typ, err := w.Type(t.Context())
+	require.NoError(err)
+	assert.Equal(wrapping.WrapperTypeIncertKms, typ)
 }
 
 func TestIncertKmsWrapper_Lifecycle(t *testing.T) {
-	w, srv := NewIncertKmsTestWrapper()
+	w, srv := newIncertKmsTestWrapper()
 	defer srv.Close()
 	testEncryptionRoundTrip(t, w)
 }
@@ -36,39 +35,39 @@ func TestIncertKmsWrapper_Lifecycle(t *testing.T) {
 func TestIncertKmsWrapper_SetConfig_RequiredFields(t *testing.T) {
 	cases := []struct {
 		name    string
-		options []wrapping.Option
+		config  map[string]string
 		wantErr string
 	}{
 		{
 			name:    "missing kms_username",
-			options: nil,
+			config:  nil,
 			wantErr: "kms_username is required",
 		},
 		{
 			name: "missing kms_password",
-			options: []wrapping.Option{
-				WithKmsUrl("http://localhost:3000"),
-				WithKmsUsername("opo"),
+			config: map[string]string{
+				"kms_url":      "http://localhost:3000",
+				"kms_username": "opo",
 			},
 			wantErr: "kms_password is required",
 		},
 		{
 			name: "invalid kms_vslot uuid",
-			options: []wrapping.Option{
-				WithKmsUrl("http://localhost:3000"),
-				WithKmsUsername("opo"),
-				WithKmsPassword("Parizer1!"),
-				WithKmsVSlot("not-a-uuid"),
+			config: map[string]string{
+				"kms_url":      "http://localhost:3000",
+				"kms_username": "opo",
+				"kms_password": "Parizer1!",
+				"kms_vslot":    "not-a-uuid",
 			},
 			wantErr: "invalid kms_vslot format",
 		},
 		{
 			name: "invalid kms_key uuid",
-			options: []wrapping.Option{
-				WithKmsUrl("http://localhost:3000"),
-				WithKmsUsername("opo"),
-				WithKmsPassword("Parizer1!"),
-				WithKmsKey("not-a-uuid"),
+			config: map[string]string{
+				"kms_url":      "http://localhost:3000",
+				"kms_username": "opo",
+				"kms_password": "Parizer1!",
+				"kms_key":      "not-a-uuid",
 			},
 			wantErr: "invalid kms_key format",
 		},
@@ -76,63 +75,54 @@ func TestIncertKmsWrapper_SetConfig_RequiredFields(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
 			w := NewWrapper()
-			_, err := w.SetConfig(context.Background(), tc.options...)
-			if err == nil {
-				t.Fatalf("expected error, got nil")
-			}
-			if !strings.Contains(err.Error(), tc.wantErr) {
-				t.Errorf("error = %q, want substring %q", err.Error(), tc.wantErr)
-			}
+			_, err := w.SetConfig(t.Context(), wrapping.WithConfigMap(tc.config))
+			require.Error(err)
+			require.ErrorContains(err, tc.wantErr)
 		})
 	}
 }
 
 func TestIncertKmsWrapper_Encrypt_NilPlaintext(t *testing.T) {
-	w, srv := NewIncertKmsTestWrapper()
+	require := require.New(t)
+	w, srv := newIncertKmsTestWrapper()
 	defer srv.Close()
 
-	if _, err := w.Encrypt(context.Background(), nil); err == nil {
-		t.Fatal("expected error for nil plaintext")
-	}
+	_, err := w.Encrypt(t.Context(), nil)
+	require.Error(err, "expected error for nil plaintext")
 }
 
 func TestIncertKmsWrapper_Decrypt_NilInput(t *testing.T) {
-	w, srv := NewIncertKmsTestWrapper()
+	require := require.New(t)
+	w, srv := newIncertKmsTestWrapper()
 	defer srv.Close()
 
-	if _, err := w.Decrypt(context.Background(), nil); err == nil {
-		t.Fatal("expected error for nil input")
-	}
+	_, err := w.Decrypt(t.Context(), nil)
+	require.Error(err, "expected error for nil input")
 }
 
 func TestIncertKmsWrapper_Unconfigured(t *testing.T) {
+	require := require.New(t)
 	w := NewWrapper()
 
-	if _, err := w.Encrypt(context.Background(), []byte("foo")); err == nil {
-		t.Fatal("expected error when wrapper is unconfigured")
-	}
+	_, err := w.Encrypt(t.Context(), []byte("foo"))
+	require.Error(err, "expected error when wrapper is unconfigured")
 
-	if _, err := w.Decrypt(context.Background(), &wrapping.BlobInfo{}); err == nil {
-		t.Fatal("expected error when wrapper is unconfigured")
-	}
+	_, err = w.Decrypt(t.Context(), &wrapping.BlobInfo{})
+	require.Error(err, "expected error when wrapper is unconfigured")
 }
 
 func testEncryptionRoundTrip(t *testing.T, w *Wrapper) {
 	t.Helper()
-	ctx := context.Background()
+	require := require.New(t)
+	ctx := t.Context()
 	input := []byte("foo")
 	swi, err := w.Encrypt(ctx, input, nil)
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
+	require.NoError(err)
 
 	pt, err := w.Decrypt(ctx, swi, nil)
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
+	require.NoError(err)
 
-	if !reflect.DeepEqual(input, pt) {
-		t.Fatalf("expected %s, got %s", input, pt)
-	}
+	require.Equal(input, pt)
 }

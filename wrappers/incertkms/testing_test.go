@@ -1,3 +1,6 @@
+// Copyright (c) 2026 OpenBao a Series of LF Projects, LLC
+// SPDX-License-Identifier: MPL-2.0
+
 package incertkms
 
 import (
@@ -9,20 +12,21 @@ import (
 
 	"github.com/google/uuid"
 	kmssdk "github.com/incert-kms/kms-sdk-go"
+	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
 
 const (
-	INCERTKMS_TEST_USERNAME = "test-user"
-	INCERTKMS_TEST_PASSWORD = "test-pass"
-	INCERTKMS_TEST_KEY_NAME = "openbao-seal-key"
+	incertkmsTestUsername = "test-user"
+	incertkmsTestPassword = "test-pass"
+	incertkmsTestKeyName  = "openbao-seal-key"
 )
 
-// NewIncertKmsTestWrapper returns a Wrapper configured against an in-process
+// newIncertKmsTestWrapper returns a Wrapper configured against an in-process
 // httptest.Server that fakes the KMS API. The crypto endpoints echo the
 // submitted bytes back so encrypt/decrypt round-trips preserve the plaintext.
 // The caller is responsible for closing the returned server, typically via
 // defer srv.Close() at the call site.
-func NewIncertKmsTestWrapper() (*Wrapper, *httptest.Server) {
+func newIncertKmsTestWrapper() (*Wrapper, *httptest.Server) {
 	vslotID := uuid.New()
 	keyID := uuid.New()
 
@@ -87,7 +91,7 @@ func NewIncertKmsTestWrapper() (*Wrapper, *httptest.Server) {
 		default:
 			_ = json.NewEncoder(w).Encode(kmssdk.KeyDetail{
 				ID:   keyID,
-				Name: INCERTKMS_TEST_KEY_NAME,
+				Name: incertkmsTestKeyName,
 				Alg:  "AES256",
 			})
 		}
@@ -96,13 +100,13 @@ func NewIncertKmsTestWrapper() (*Wrapper, *httptest.Server) {
 	srv := httptest.NewServer(mux)
 
 	wrapper := NewWrapper()
-	_, _ = wrapper.SetConfig(context.Background(),
-		WithKmsUrl(srv.URL),
-		WithKmsUsername(INCERTKMS_TEST_USERNAME),
-		WithKmsPassword(INCERTKMS_TEST_PASSWORD),
-		WithKmsVSlot(vslotID.String()),
-		WithKmsKey(keyID.String()),
-	)
+	_, _ = wrapper.SetConfig(context.Background(), wrapping.WithConfigMap(map[string]string{
+		"kms_url":      srv.URL,
+		"kms_username": incertkmsTestUsername,
+		"kms_password": incertkmsTestPassword,
+		"kms_vslot":    vslotID.String(),
+		"kms_key":      keyID.String(),
+	}))
 
 	return wrapper, srv
 }
