@@ -17,6 +17,8 @@ import (
 	"github.com/oracle/oci-go-sdk/v60/keymanagement"
 )
 
+const Type wrapping.WrapperType = "ocikms"
+
 const (
 	// OCI KMS key ID to use for encryption and decryption
 	EnvOciKmsWrapperKeyId   = "OCIKMS_WRAPPER_KEY_ID"
@@ -138,7 +140,7 @@ func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 }
 
 func (k *Wrapper) Type(_ context.Context) (wrapping.WrapperType, error) {
-	return wrapping.WrapperTypeOciKms, nil
+	return Type, nil
 }
 
 func (k *Wrapper) KeyId(_ context.Context) (string, error) {

@@ -11,6 +11,8 @@ import (
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
 
+const Type wrapping.WrapperType = "pkcs11"
+
 // Wrapper is a Wrapper that uses PKCS11
 type Wrapper struct {
 	client       pkcs11ClientEncryptor
@@ -64,7 +66,7 @@ func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 
 // Type returns the type for this particular wrapper implementation
 func (k *Wrapper) Type(_ context.Context) (wrapping.WrapperType, error) {
-	return wrapping.WrapperTypePkcs11, nil
+	return Type, nil
 }
 
 // KeyId returns the last known key id

@@ -17,6 +17,8 @@ import (
 	kms "github.com/opentelekomcloud/gophertelekomcloud/openstack/kms/v1/keys"
 )
 
+const Type wrapping.WrapperType = "tcloudpublickms"
+
 const (
 	EnvTCloudPublicKmsKeyId         = "TCLOUDPUBLIC_KMS_KEY_ID"
 	EnvTCloudPublicRegion           = "TCLOUDPUBLIC_REGION"
@@ -100,7 +102,7 @@ func (k *Wrapper) SetConfig(
 
 // Type returns the type for this particular wrapper implementation
 func (k *Wrapper) Type(_ context.Context) (wrapping.WrapperType, error) {
-	return wrapping.WrapperTypeTCloudPublicKms, nil
+	return Type, nil
 }
 
 // KeyId returns the last known key id

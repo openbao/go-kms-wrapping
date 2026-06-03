@@ -16,6 +16,8 @@ import (
 	kms "github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/kms/v20190118"
 )
 
+const Type wrapping.WrapperType = "tencentcloudkms"
+
 // These constants are TencentCloud accepted env vars
 const (
 	PROVIDER_SECRET_ID      = "TENCENTCLOUD_SECRET_ID"
@@ -140,7 +142,7 @@ func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 
 // Type returns the type for this particular wrapper implementation
 func (k *Wrapper) Type(_ context.Context) (wrapping.WrapperType, error) {
-	return wrapping.WrapperTypeTencentCloudKms, nil
+	return Type, nil
 }
 
 // KeyId returns the last known key id

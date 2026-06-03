@@ -5,24 +5,13 @@ package wrapping
 
 type WrapperType string
 
-// These values define known types of Wrappers
+// These constants define types of Wrappers known by the main go-kms-wrapping
+// module. Submodules that provide additional Wrapper implementations should
+// export their own type constant for convenience.
 const (
-	WrapperTypeUnknown         WrapperType = "unknown"
-	WrapperTypeAead            WrapperType = "aead"
-	WrapperTypeAliCloudKms     WrapperType = "alicloudkms"
-	WrapperTypeAwsKms          WrapperType = "awskms"
-	WrapperTypeAzureKeyVault   WrapperType = "azurekeyvault"
-	WrapperTypeGcpCkms         WrapperType = "gcpckms"
-	WrapperTypeHuaweiCloudKms  WrapperType = "huaweicloudkms"
-	WrapperTypeKmip            WrapperType = "kmip"
-	WrapperTypeOciKms          WrapperType = "ocikms"
-	WrapperTypePkcs11          WrapperType = "pkcs11"
-	WrapperTypeSecurosysHsm    WrapperType = "securosys-hsm"
-	WrapperTypeTCloudPublicKms WrapperType = "tcloudpublickms"
-	WrapperTypeTencentCloudKms WrapperType = "tencentcloudkms"
-	WrapperTypeTransit         WrapperType = "transit"
-	WrapperTypeStatic          WrapperType = "static"
-	WrapperTypeTest            WrapperType = "test-auto"
+	WrapperTypeUnknown WrapperType = "unknown"
+	WrapperTypeAead    WrapperType = "aead"
+	WrapperTypeTest    WrapperType = "test-auto"
 )
 
 func (t WrapperType) String() string {

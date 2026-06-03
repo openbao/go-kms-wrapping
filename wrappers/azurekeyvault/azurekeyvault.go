@@ -28,6 +28,8 @@ import (
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
 
+const Type wrapping.WrapperType = "azurekeyvault"
+
 const (
 	EnvAzureKeyVaultWrapperVaultName = "AZUREKEYVAULT_WRAPPER_VAULT_NAME"
 	EnvVaultAzureKeyVaultVaultName   = "VAULT_AZUREKEYVAULT_VAULT_NAME"
@@ -306,7 +308,7 @@ func (v *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 
 // Type returns the type for this particular Wrapper implementation
 func (v *Wrapper) Type(_ context.Context) (wrapping.WrapperType, error) {
-	return wrapping.WrapperTypeAzureKeyVault, nil
+	return Type, nil
 }
 
 // KeyId returns the last known key id

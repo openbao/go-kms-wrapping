@@ -19,6 +19,8 @@ import (
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
 
+const Type wrapping.WrapperType = "static"
+
 const (
 	EnvBaoCurrentKeyValueName       = "BAO_STATIC_SEAL_CURRENT_KEY"
 	EnvBaoCurrentKeyIdentifierName  = "BAO_STATIC_SEAL_CURRENT_KEY_ID"
@@ -175,7 +177,7 @@ func (s *Wrapper) Finalize(_ context.Context) error {
 
 // Type returns the type for this particular Wrapper implementation
 func (s *Wrapper) Type(_ context.Context) (wrapping.WrapperType, error) {
-	return wrapping.WrapperTypeStatic, nil
+	return Type, nil
 }
 
 // KeyId returns the last known key id
