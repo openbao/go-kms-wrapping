@@ -20,6 +20,8 @@ import (
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
 
+const Type wrapping.WrapperType = "awskms"
+
 // These constants contain the accepted env vars; the Vault one is for backwards compat
 const (
 	EnvAwsKmsWrapperKeyId   = "AWSKMS_WRAPPER_KEY_ID"
@@ -163,7 +165,7 @@ func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 
 // Type returns the wrapping type for this particular Wrapper implementation
 func (k *Wrapper) Type(_ context.Context) (wrapping.WrapperType, error) {
-	return wrapping.WrapperTypeAwsKms, nil
+	return Type, nil
 }
 
 // KeyId returns the last known key id

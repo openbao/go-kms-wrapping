@@ -11,7 +11,7 @@ import (
 // or more opaque encryption keys.
 type Wrapper interface {
 	// Type returns the type of the Wrapper, e.g., "pkcs11". Well-known types
-	// are available as constants in this package, e.g., WrapperTypePkcs11.
+	// are available as constants in this package, e.g., WrapperTypeAead.
 	//
 	// This is expected to always return the same value such that callers can
 	// safely cache the type after initially retrieving it once.

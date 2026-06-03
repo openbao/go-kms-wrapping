@@ -21,11 +21,8 @@ type Wrapper struct {
 	currentKeyId *atomic.Value
 	hsmClient    *SecurosysHSMClient
 }
-type CustomWrapperType string
 
-const (
-	WrapperTypeSecurosysHSM CustomWrapperType = "securosys-hsm"
-)
+const Type wrapping.WrapperType = "securosys-hsm"
 
 var _ wrapping.Wrapper = (*Wrapper)(nil)
 
@@ -69,7 +66,7 @@ func (s *Wrapper) Finalize(_ context.Context) error {
 
 // Type returns the type for this particular Wrapper implementation
 func (s *Wrapper) Type(_ context.Context) (wrapping.WrapperType, error) {
-	return wrapping.WrapperTypeSecurosysHsm, nil
+	return Type, nil
 }
 
 // KeyId returns the last known key id
