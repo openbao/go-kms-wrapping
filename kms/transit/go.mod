@@ -10,8 +10,8 @@ replace (
 require (
 	github.com/go-viper/mapstructure/v2 v2.5.0
 	github.com/hashicorp/go-hclog v1.6.3
-	github.com/openbao/go-kms-wrapping/plugin/v2 v2.0.0-00010101000000-000000000000
-	github.com/openbao/go-kms-wrapping/v2 v2.7.0
+	github.com/openbao/go-kms-wrapping/plugin/v2 v2.3.0
+	github.com/openbao/go-kms-wrapping/v2 v2.8.0
 	github.com/openbao/openbao/api/v2 v2.5.1
 	github.com/openbao/openbao/sdk/v2 v2.5.1
 	github.com/stretchr/testify v1.11.1
