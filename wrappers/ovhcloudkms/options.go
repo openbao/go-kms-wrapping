@@ -1,7 +1,7 @@
 // Copyright (c) 2026 OpenBao a Series of LF Projects, LLC
 // SPDX-License-Identifier: MPL-2.0
 
-package okms
+package ovhcloudkms
 
 import (
 	"github.com/google/uuid"
@@ -60,6 +60,8 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 				opts.withClientKey = v
 			case "ca_cert":
 				opts.withCACert = v
+			case "token":
+				opts.withToken = v
 			}
 		}
 	}
@@ -89,6 +91,7 @@ type options struct {
 	withClientCert string
 	withClientKey  string
 	withCACert     string
+	withToken      string
 }
 
 func getDefaultOptions() options {
@@ -143,6 +146,16 @@ func WithCACert(with string) wrapping.Option {
 	return func() interface{} {
 		return OptionFunc(func(o *options) error {
 			o.withCACert = with
+			return nil
+		})
+	}
+}
+
+// WithToken provides a way to authenticate using a token for Rest API.
+func WithToken(with string) wrapping.Option {
+	return func() interface{} {
+		return OptionFunc(func(o *options) error {
+			o.withToken = with
 			return nil
 		})
 	}

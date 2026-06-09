@@ -1,7 +1,7 @@
 // Copyright (c) 2026 OpenBao a Series of LF Projects, LLC
 // SPDX-License-Identifier: MPL-2.0
 
-package okms
+package ovhcloudkms
 
 import (
 	"context"
@@ -17,6 +17,12 @@ import (
 //   - OKMS_ACC_TESTS_KEY_ID
 //   - OKMS_ENDPOINT
 //   - OKMS_ID
+//
+// You can choose the auth type by setting corresponding env variables:
+// token:
+//   - OKMS_TOKEN
+//
+// mTLS:
 //   - OKMS_CLIENT_CERT
 //   - OKMS_CLIENT_KEY
 func TestAcckmipWrapper_Lifecycle(t *testing.T) {
