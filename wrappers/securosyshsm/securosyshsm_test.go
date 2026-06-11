@@ -92,6 +92,57 @@ func TestSecurosysHSMWrapperRejectsInvalidCiphertext(t *testing.T) {
 	}
 }
 
+func TestParseCiphertext(t *testing.T) {
+	tests := []struct {
+		name       string
+		ciphertext []byte
+		wantErr    bool
+	}{
+		{
+			name:       "valid",
+			ciphertext: []byte("securosys:v1:nonce:ciphertext"),
+		},
+		{
+			name:       "wrong prefix",
+			ciphertext: []byte("other:v1:nonce:ciphertext"),
+			wantErr:    true,
+		},
+		{
+			name:       "missing key id",
+			ciphertext: []byte("securosys::nonce:ciphertext"),
+			wantErr:    true,
+		},
+		{
+			name:       "missing payload",
+			ciphertext: []byte("securosys:v1:nonce:"),
+			wantErr:    true,
+		},
+		{
+			name:       "too many parts",
+			ciphertext: []byte("securosys:v1:nonce:ciphertext:extra"),
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parsed, err := parseCiphertext(tt.ciphertext)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if parsed.keyID != "v1" || parsed.nonce != "nonce" || parsed.ciphertext != "ciphertext" {
+				t.Fatalf("unexpected parsed ciphertext: %#v", parsed)
+			}
+		})
+	}
+}
+
 // testEncryptionRoundTrip is shared by acceptance tests and validates that a
 // configured wrapper can round-trip arbitrary plaintext.
 func testEncryptionRoundTrip(t *testing.T, w *Wrapper, opt ...wrapping.Option) {
@@ -123,11 +174,11 @@ type mockSecurosysHSMClient struct{}
 
 func (m *mockSecurosysHSMClient) Close() {}
 
-func (m *mockSecurosysHSMClient) Encrypt(plaintext string) ([]byte, error) {
+func (m *mockSecurosysHSMClient) Encrypt(_ context.Context, plaintext string) ([]byte, error) {
 	return []byte("securosys:v1::" + base64.StdEncoding.EncodeToString([]byte(plaintext))), nil
 }
 
-func (m *mockSecurosysHSMClient) Decrypt(ciphertext string, _ string) ([]byte, error) {
+func (m *mockSecurosysHSMClient) Decrypt(_ context.Context, ciphertext string, _ string) ([]byte, error) {
 	plaintext, err := base64.StdEncoding.DecodeString(ciphertext)
 	if err != nil {
 		return nil, err

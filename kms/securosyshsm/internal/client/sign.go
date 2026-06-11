@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"net/http"
 
-	helpers "github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/helpers"
+	helpers "github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/internal/helpers"
 )
 
 // Function thats sends sign request to TSB

@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 
-	helpers "github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/helpers"
+	helpers "github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/internal/helpers"
 )
 
 // securosysClient creates an object storing

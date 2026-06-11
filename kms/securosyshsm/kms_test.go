@@ -8,8 +8,8 @@ import (
 	"os"
 	"testing"
 
-	client "github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/client"
-	"github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/helpers"
+	client "github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/internal/client"
+	"github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/internal/helpers"
 	"github.com/openbao/go-kms-wrapping/v2/kms"
 )
 
