@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"strings"
 	"sync/atomic"
 
@@ -26,6 +27,10 @@ type Wrapper struct {
 }
 
 const Type wrapping.WrapperType = "securosys-hsm"
+const (
+	ciphertextPrefix    = "securosys"
+	ciphertextPartCount = 4
+)
 
 var _ wrapping.Wrapper = (*Wrapper)(nil)
 
@@ -85,27 +90,25 @@ func (s *Wrapper) KeyId(_ context.Context) (string, error) {
 
 // Encrypt base64-encodes plaintext and encrypts it with the configured
 // Securosys KMS key.
-func (s *Wrapper) Encrypt(_ context.Context, plaintext []byte, _ ...wrapping.Option) (*wrapping.BlobInfo, error) {
+func (s *Wrapper) Encrypt(ctx context.Context, plaintext []byte, _ ...wrapping.Option) (*wrapping.BlobInfo, error) {
 	if s.hsmClient == nil {
 		return nil, errors.New("securosys hsm client is not configured")
 	}
-	data, err := s.hsmClient.Encrypt(base64.StdEncoding.EncodeToString(plaintext))
+	data, err := s.hsmClient.Encrypt(ctx, base64.StdEncoding.EncodeToString(plaintext))
 	if err != nil {
 		return nil, err
 	}
 
-	payload := data
-	splitKey := strings.Split(string(payload), ":")
-	if len(splitKey) != 4 {
-		return nil, errors.New("invalid ciphertext returned")
+	parsed, err := parseCiphertext(data)
+	if err != nil {
+		return nil, err
 	}
-	keyId := splitKey[1]
-	s.currentKeyId.Store(keyId)
+	s.currentKeyId.Store(parsed.keyID)
 
 	ret := &wrapping.BlobInfo{
-		Ciphertext: payload,
+		Ciphertext: data,
 		KeyInfo: &wrapping.KeyInfo{
-			KeyId: keyId,
+			KeyId: parsed.keyID,
 		},
 	}
 	return ret, nil
@@ -113,20 +116,19 @@ func (s *Wrapper) Encrypt(_ context.Context, plaintext []byte, _ ...wrapping.Opt
 
 // Decrypt parses the wrapper ciphertext format, restores the nonce, and
 // decrypts using the configured Securosys KMS key.
-func (s *Wrapper) Decrypt(_ context.Context, in *wrapping.BlobInfo, _ ...wrapping.Option) ([]byte, error) {
+func (s *Wrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, _ ...wrapping.Option) ([]byte, error) {
 	if s.hsmClient == nil {
 		return nil, errors.New("securosys hsm client is not configured")
 	}
 	if in == nil {
 		return nil, errors.New("missing blob info")
 	}
-	splitKey := strings.Split(string(in.Ciphertext), ":")
-	if len(splitKey) != 4 {
-		return nil, errors.New("invalid ciphertext returned")
+	parsed, err := parseCiphertext(in.Ciphertext)
+	if err != nil {
+		return nil, err
 	}
-	nonce := splitKey[2]
 
-	plaintext, err := s.hsmClient.Decrypt(splitKey[3], nonce)
+	plaintext, err := s.hsmClient.Decrypt(ctx, parsed.ciphertext, parsed.nonce)
 	if err != nil {
 		return nil, err
 	}
@@ -140,4 +142,31 @@ func (s *Wrapper) Decrypt(_ context.Context, in *wrapping.BlobInfo, _ ...wrappin
 // GetClient returns the securosysHSM Wrapper's securosysHSMClientEncryptor
 func (s *Wrapper) GetClient() securosysHSMClientEncryptor {
 	return s.client
+}
+
+type parsedCiphertext struct {
+	keyID      string
+	nonce      string
+	ciphertext string
+}
+
+func parseCiphertext(ciphertext []byte) (*parsedCiphertext, error) {
+	parts := strings.Split(string(ciphertext), ":")
+	if len(parts) != ciphertextPartCount {
+		return nil, errors.New("invalid ciphertext format")
+	}
+	if parts[0] != ciphertextPrefix {
+		return nil, fmt.Errorf("invalid ciphertext prefix %q", parts[0])
+	}
+	if parts[1] == "" {
+		return nil, errors.New("missing key id in ciphertext")
+	}
+	if parts[3] == "" {
+		return nil, errors.New("missing payload in ciphertext")
+	}
+	return &parsedCiphertext{
+		keyID:      parts[1],
+		nonce:      parts[2],
+		ciphertext: parts[3],
+	}, nil
 }
