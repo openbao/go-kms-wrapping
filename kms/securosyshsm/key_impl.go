@@ -16,8 +16,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/client"
-	"github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/helpers"
+	"github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/internal/client"
+	"github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/internal/helpers"
 	kms "github.com/openbao/go-kms-wrapping/v2/kms"
 )
 
@@ -201,15 +201,7 @@ func (k *securosysKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte,
 		return nil, err
 	}
 
-	// Prepare the data to sign
-	var inputData string
-	if opts.Prehashed {
-		// Data is already hashed
-		inputData = base64.StdEncoding.EncodeToString(opts.Data)
-	} else {
-		// Raw data - let the HSM hash it
-		inputData = base64.StdEncoding.EncodeToString(opts.Data)
-	}
+	inputData := base64.StdEncoding.EncodeToString(opts.Data)
 
 	// Call async sign
 	result, _, err := k.client.AsyncSign(
@@ -224,14 +216,9 @@ func (k *securosysKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte,
 		return nil, fmt.Errorf("sign failed: %w", err)
 	}
 
-	// Poll for result
-	request, _, err := k.client.GetRequest(result)
-	for request.Status == "PENDING" {
-		if err != nil {
-			return nil, err
-		}
-		time.Sleep(5 * time.Second)
-		request, _, err = k.client.GetRequest(result)
+	request, err := k.waitForRequest(ctx, result)
+	if err != nil {
+		return nil, err
 	}
 	if request.Status != "EXECUTED" {
 		return nil, fmt.Errorf("sign failed with status: %s", request.Status)
@@ -268,13 +255,7 @@ func (k *securosysKey) Verify(ctx context.Context, opts *kms.VerifyOptions) erro
 		return err
 	}
 
-	// Prepare the data to verify
-	var inputData string
-	if opts.Prehashed {
-		inputData = base64.StdEncoding.EncodeToString(opts.Data)
-	} else {
-		inputData = base64.StdEncoding.EncodeToString(opts.Data)
-	}
+	inputData := base64.StdEncoding.EncodeToString(opts.Data)
 
 	// Call verify
 	result, _, err := k.client.Verify(
@@ -336,6 +317,30 @@ func (k *securosysKey) ExportPublic(ctx context.Context) (crypto.PublicKey, erro
 func (k *securosysKey) Close(ctx context.Context) error {
 	k.password = ""
 	return nil
+}
+
+func (k *securosysKey) waitForRequest(ctx context.Context, requestID string) (*helpers.RequestResponse, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		request, _, err := k.client.GetRequest(requestID)
+		if err != nil {
+			return nil, err
+		}
+		if request.Status != "PENDING" {
+			return request, nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 // combineCipherOutput combines encrypted payload with an optional MAC/tag.

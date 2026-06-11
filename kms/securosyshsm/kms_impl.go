@@ -8,8 +8,8 @@ import (
 	"errors"
 
 	"github.com/go-viper/mapstructure/v2"
-	"github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/client"
-	"github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/helpers"
+	"github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/internal/client"
+	"github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/internal/helpers"
 	kms "github.com/openbao/go-kms-wrapping/v2/kms"
 )
 

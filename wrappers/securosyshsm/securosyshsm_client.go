@@ -14,7 +14,6 @@ import (
 
 	"github.com/hashicorp/go-hclog"
 	securosyskms "github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2"
-	helpers "github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/helpers"
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 	"github.com/openbao/go-kms-wrapping/v2/kms"
 )
@@ -27,8 +26,8 @@ const (
 
 type securosysHSMClientEncryptor interface {
 	Close()
-	Encrypt(plaintext string) (data []byte, err error)
-	Decrypt(ciphertext string, keyVersion string) (plaintext []byte, err error)
+	Encrypt(ctx context.Context, plaintext string) (data []byte, err error)
+	Decrypt(ctx context.Context, ciphertext string, keyVersion string) (plaintext []byte, err error)
 }
 
 // SecurosysHSMClient adapts the Securosys KMS implementation to the
@@ -176,12 +175,12 @@ func buildWrapperConfigurations(logger hclog.Logger, opts *options) (*Configurat
 	return wrapperConfig, nil
 }
 
-// parsePolicy accepts all supported policy input forms: simplified policy,
-// per-rule simplified policy, full policy JSON, or a full policy JSON file.
-func parsePolicy(logger hclog.Logger, opts *options) (*helpers.Policy, error) {
+// parsePolicy accepts all supported policy input forms and stores them as raw
+// JSON. Policy expansion lives in kms/securosyshsm's internal helpers.
+func parsePolicy(logger hclog.Logger, opts *options) (json.RawMessage, error) {
 	switch {
 	case opts.withPolicy != "":
-		return helpers.PreparePolicy(strings.ReplaceAll(opts.withPolicy, "\n", ""), true)
+		return normalizePolicyJSON(strings.ReplaceAll(opts.withPolicy, "\n", ""))
 	case opts.withPolicyRuleUse != "" || opts.withPolicyRuleBlock != "" || opts.withPolicyRuleUnBlock != "" || opts.withPolicyRuleModify != "":
 		policyPart := make(map[string]map[string]string)
 		for name, value := range map[string]string{
@@ -206,18 +205,26 @@ func parsePolicy(logger hclog.Logger, opts *options) (*helpers.Policy, error) {
 		if err != nil {
 			return nil, err
 		}
-		return helpers.PreparePolicy(string(policyBytes), true)
+		return json.RawMessage(policyBytes), nil
 	case opts.withFullPolicy != "":
-		return helpers.PreparePolicy(opts.withFullPolicy, false)
+		return normalizePolicyJSON(opts.withFullPolicy)
 	case opts.withFullPolicyFile != "":
 		data, err := os.ReadFile(opts.withFullPolicyFile)
 		if err != nil {
 			return nil, err
 		}
-		return helpers.PreparePolicy(string(data), false)
+		return normalizePolicyJSON(string(data))
 	default:
-		return helpers.PreparePolicy("{}", true)
+		return json.RawMessage("{}"), nil
 	}
+}
+
+func normalizePolicyJSON(policy string) (json.RawMessage, error) {
+	var raw json.RawMessage
+	if err := json.Unmarshal([]byte(policy), &raw); err != nil {
+		return nil, err
+	}
+	return raw, nil
 }
 
 // parsePositiveInt returns defaultValue when value is empty, invalid, or not
@@ -259,13 +266,13 @@ func securosysKMSConfigMap(config *Configurations) kms.ConfigMap {
 //
 // The nonce is stored beside the ciphertext because kms.CipherOptions returns
 // it out-of-band for AES-GCM.
-func (c *SecurosysHSMClient) Encrypt(plaintext string) ([]byte, error) {
+func (c *SecurosysHSMClient) Encrypt(ctx context.Context, plaintext string) ([]byte, error) {
 	if c == nil || c.key == nil {
 		return nil, fmt.Errorf("securosys hsm key is not configured")
 	}
 
 	opts := &kms.CipherOptions{Data: []byte(plaintext)}
-	encrypted, err := c.key.Encrypt(context.Background(), opts)
+	encrypted, err := c.key.Encrypt(ctx, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -279,7 +286,7 @@ func (c *SecurosysHSMClient) Encrypt(plaintext string) ([]byte, error) {
 //
 // keyVersion carries the base64 nonce from the wrapper payload for historical
 // compatibility with the client interface name.
-func (c *SecurosysHSMClient) Decrypt(encryptedPayload string, keyVersion string) ([]byte, error) {
+func (c *SecurosysHSMClient) Decrypt(ctx context.Context, encryptedPayload string, keyVersion string) ([]byte, error) {
 	if c == nil || c.key == nil {
 		return nil, fmt.Errorf("securosys hsm key is not configured")
 	}
@@ -297,7 +304,7 @@ func (c *SecurosysHSMClient) Decrypt(encryptedPayload string, keyVersion string)
 		}
 	}
 
-	return c.key.Decrypt(context.Background(), &kms.CipherOptions{
+	return c.key.Decrypt(ctx, &kms.CipherOptions{
 		Data:  encryptedBytes,
 		Nonce: nonce,
 	})

@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	helpers "github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/helpers"
+	helpers "github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/internal/helpers"
 )
 
 // Function thats create a certificate request to TSB
