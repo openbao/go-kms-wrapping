@@ -52,7 +52,7 @@ func (k *securosysKMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 	}
 
 	// Verify connection
-	connection, status, err := c.CheckConnection()
+	connection, status, err := c.CheckConnection(ctx)
 	if err != nil {
 		return err
 	}
@@ -104,7 +104,7 @@ func (k *securosysKMS) GetKey(ctx context.Context, opts *kms.KeyOptions) (kms.Ke
 	}
 
 	// Get key from client
-	keyAttrs, err := k.client.GetKey(config.Name, config.Password)
+	keyAttrs, err := k.client.GetKey(ctx, config.Name, config.Password)
 	if err != nil {
 		if k.logger != nil {
 			k.logger.Debug("failed to resolve securosys hsm key", "key_label", config.Name, "error", err)

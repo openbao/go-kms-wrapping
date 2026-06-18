@@ -67,8 +67,10 @@ func (c *SecurosysHSMClient) Close() {
 // requires bearer_token through configuration validation. The returned
 // WrapperConfig intentionally omits secret values such as bearer_token and
 // key_password from metadata.
-func newSecurosysHSMClient(logger hclog.Logger, opts *options) (*SecurosysHSMClient, *wrapping.WrapperConfig, error) {
-	ctx := context.Background()
+func newSecurosysHSMClient(ctx context.Context, logger hclog.Logger, opts *options) (*SecurosysHSMClient, *wrapping.WrapperConfig, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 
 	keyLabel := opts.withKeyLabel
 	if keyLabel == "" {
