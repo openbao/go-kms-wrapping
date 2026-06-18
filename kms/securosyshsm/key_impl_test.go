@@ -14,6 +14,7 @@ import (
 
 	"github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/internal/client"
 	"github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/internal/helpers"
+	"github.com/openbao/go-kms-wrapping/v2/kms"
 )
 
 func TestWaitForRequestReturnsCompletedRequest(t *testing.T) {
@@ -136,6 +137,37 @@ func TestWaitForRequestStopsWhenKMSClosedDuringPoll(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for waitForRequest to stop")
+	}
+}
+
+func TestEncryptStopsWhenContextTimesOut(t *testing.T) {
+	releaseRequest := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/encrypt" {
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+		select {
+		case <-r.Context().Done():
+		case <-releaseRequest:
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{}`))
+		}
+	}))
+	defer server.Close()
+	defer close(releaseRequest)
+
+	key := testSecurosysKey(t, server.URL)
+	key.keyAttrs = helpers.KeyAttributes{
+		Label:     "key-1",
+		Algorithm: "AES",
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+
+	_, err := key.Encrypt(ctx, &kms.CipherOptions{Data: []byte("plaintext")})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context.DeadlineExceeded, got %v", err)
 	}
 }
 

@@ -78,6 +78,7 @@ func (k *securosysKey) Encrypt(ctx context.Context, opts *kms.CipherOptions) ([]
 
 	// Call the encrypt API
 	encryptResp, _, err := k.client.Encrypt(
+		ctx,
 		k.keyAttrs.Label,
 		k.password,
 		base64.StdEncoding.EncodeToString(opts.Data),
@@ -172,14 +173,15 @@ func (k *securosysKey) decryptPayload(ctx context.Context, ciphertext []byte, in
 	encryptedPayload := base64.StdEncoding.EncodeToString(ciphertext)
 
 	if containsString(helpers.AES_CIPHER_LIST, cipherAlgorithm) {
-		return k.decryptPayloadSync(encryptedPayload, initVector, cipherAlgorithm, tagLength, aad)
+		return k.decryptPayloadSync(ctx, encryptedPayload, initVector, cipherAlgorithm, tagLength, aad)
 	}
 
 	return k.decryptPayloadAsync(ctx, encryptedPayload, initVector, cipherAlgorithm, tagLength, aad)
 }
 
-func (k *securosysKey) decryptPayloadSync(encryptedPayload, initVector, cipherAlgorithm string, tagLength int, aad string) ([]byte, error) {
+func (k *securosysKey) decryptPayloadSync(ctx context.Context, encryptedPayload, initVector, cipherAlgorithm string, tagLength int, aad string) ([]byte, error) {
 	decryptResp, _, err := k.client.Decrypt(
+		ctx,
 		k.keyAttrs.Label,
 		k.password,
 		encryptedPayload,
@@ -202,6 +204,7 @@ func (k *securosysKey) decryptPayloadSync(encryptedPayload, initVector, cipherAl
 
 func (k *securosysKey) decryptPayloadAsync(ctx context.Context, encryptedPayload, initVector, cipherAlgorithm string, tagLength int, aad string) ([]byte, error) {
 	requestID, _, err := k.client.AsyncDecrypt(
+		ctx,
 		k.keyAttrs.Label,
 		k.password,
 		encryptedPayload,
@@ -263,6 +266,7 @@ func (k *securosysKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte,
 
 	// Call async sign
 	result, _, err := k.client.AsyncSign(
+		ctx,
 		k.keyAttrs.Label,
 		k.password,
 		inputData,
@@ -317,6 +321,7 @@ func (k *securosysKey) Verify(ctx context.Context, opts *kms.VerifyOptions) erro
 
 	// Call verify
 	result, _, err := k.client.Verify(
+		ctx,
 		k.keyAttrs.Label,
 		k.password,
 		inputData,

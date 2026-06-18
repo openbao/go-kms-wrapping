@@ -47,7 +47,7 @@ func NewWrapper() *Wrapper {
 //
 // Required config keys are tsb_api_endpoint, auth, and key_label. For TOKEN
 // auth, bearer_token is also required.
-func (s *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrapping.WrapperConfig, error) {
+func (s *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapping.WrapperConfig, error) {
 	opts, err := getOpts(opt...)
 	if err != nil {
 		return nil, err
@@ -55,7 +55,7 @@ func (s *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 
 	s.logger = opts.withLogger
 
-	client, wrapConfig, err := newSecurosysHSMClient(s.logger, opts)
+	client, wrapConfig, err := newSecurosysHSMClient(ctx, s.logger, opts)
 	if err != nil {
 		return nil, err
 	}
