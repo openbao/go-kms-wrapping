@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/hashicorp/go-hclog"
 	"github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/internal/client"
 	"github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/internal/helpers"
 	kms "github.com/openbao/go-kms-wrapping/v2/kms"
@@ -23,6 +24,12 @@ import (
 
 // Ensure securosysKey implements kms.Key
 var _ kms.Key = (*securosysKey)(nil)
+
+var ErrApprovalTimeout = errors.New("approval timeout exceeded")
+var ErrKMSClosed = errors.New("securosys hsm kms closed")
+
+const defaultApprovalTimeout = 60 * time.Second
+const defaultRequestPollInterval = 1 * time.Second
 
 // securosysKey implements kms.Key using a Securosys HSM key.
 //
@@ -36,6 +43,8 @@ type securosysKey struct {
 	keyAttrs        helpers.KeyAttributes
 	password        string
 	cipherAlgorithm string
+	logger          hclog.Logger
+	closeCtx        context.Context
 }
 
 // Encrypt encrypts opts.Data with the configured Securosys key.
@@ -151,11 +160,29 @@ func (k *securosysKey) Decrypt(ctx context.Context, opts *kms.CipherOptions) ([]
 		initVector = base64.StdEncoding.EncodeToString(opts.Nonce)
 	}
 
-	// Call the decrypt API
+	payload, err := k.decryptPayload(ctx, opts.Data, initVector, cipherAlgorithm, tagLength, aad)
+	if err != nil {
+		return nil, err
+	}
+
+	return payload, nil
+}
+
+func (k *securosysKey) decryptPayload(ctx context.Context, ciphertext []byte, initVector, cipherAlgorithm string, tagLength int, aad string) ([]byte, error) {
+	encryptedPayload := base64.StdEncoding.EncodeToString(ciphertext)
+
+	if containsString(helpers.AES_CIPHER_LIST, cipherAlgorithm) {
+		return k.decryptPayloadSync(encryptedPayload, initVector, cipherAlgorithm, tagLength, aad)
+	}
+
+	return k.decryptPayloadAsync(ctx, encryptedPayload, initVector, cipherAlgorithm, tagLength, aad)
+}
+
+func (k *securosysKey) decryptPayloadSync(encryptedPayload, initVector, cipherAlgorithm string, tagLength int, aad string) ([]byte, error) {
 	decryptResp, _, err := k.client.Decrypt(
 		k.keyAttrs.Label,
 		k.password,
-		base64.StdEncoding.EncodeToString(opts.Data),
+		encryptedPayload,
 		initVector,
 		cipherAlgorithm,
 		tagLength,
@@ -166,6 +193,37 @@ func (k *securosysKey) Decrypt(ctx context.Context, opts *kms.CipherOptions) ([]
 	}
 
 	payload, err := base64.StdEncoding.DecodeString(decryptResp.Payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode decrypted payload: %w", err)
+	}
+
+	return payload, nil
+}
+
+func (k *securosysKey) decryptPayloadAsync(ctx context.Context, encryptedPayload, initVector, cipherAlgorithm string, tagLength int, aad string) ([]byte, error) {
+	requestID, _, err := k.client.AsyncDecrypt(
+		k.keyAttrs.Label,
+		k.password,
+		encryptedPayload,
+		initVector,
+		cipherAlgorithm,
+		tagLength,
+		aad,
+		map[string]string{},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt failed: %w", err)
+	}
+
+	request, err := k.waitForRequest(ctx, requestID)
+	if err != nil {
+		return nil, fmt.Errorf("async decrypt failed: %w", err)
+	}
+	if request.Status != "EXECUTED" {
+		return nil, fmt.Errorf("decrypt failed with status: %s", request.Status)
+	}
+
+	payload, err := base64.StdEncoding.DecodeString(request.Result)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode decrypted payload: %w", err)
 	}
@@ -323,24 +381,96 @@ func (k *securosysKey) waitForRequest(ctx context.Context, requestID string) (*h
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	ticker := time.NewTicker(5 * time.Second)
+
+	logger := k.logger
+	waitStarted := time.Now()
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, defaultApprovalTimeout)
+		defer cancel()
+	}
+	ctx, cancelOnClose := k.contextWithKMSClose(ctx)
+	defer cancelOnClose()
+
+	pollInterval := defaultRequestPollInterval
+	if logger != nil {
+		if deadline, ok := ctx.Deadline(); ok {
+			logger.Info("waiting for securosys async request approval", "request_id", requestID, "poll_interval", pollInterval.String(), "timeout_in", time.Until(deadline).Round(time.Second).String())
+		} else {
+			logger.Info("waiting for securosys async request approval", "request_id", requestID, "poll_interval", pollInterval.String())
+		}
+	}
+
+	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
 	for {
-		request, _, err := k.client.GetRequest(requestID)
+		request, _, err := k.client.GetRequest(ctx, requestID)
 		if err != nil {
+			if ctx.Err() != nil {
+				if logger != nil {
+					logger.Warn("securosys async request wait stopped", "request_id", requestID, "elapsed", time.Since(waitStarted).Round(time.Second).String(), "error", ctx.Err())
+				}
+				return nil, k.waitForRequestStopError(ctx, requestID)
+			}
+			if logger != nil {
+				logger.Error("failed to poll securosys async request", "request_id", requestID, "elapsed", time.Since(waitStarted).Round(time.Second).String(), "error", err)
+			}
 			return nil, err
 		}
-		if request.Status != "PENDING" {
+		if logger != nil {
+			logger.Info("polled securosys async request", "request_id", requestID, "status", request.Status, "elapsed", time.Since(waitStarted).Round(time.Second).String())
+		}
+		if request.Status != "PENDING" && request.Status != "APPROVED" {
+			if logger != nil {
+				logger.Info("securosys async request completed", "request_id", requestID, "status", request.Status, "elapsed", time.Since(waitStarted).Round(time.Second).String())
+			}
 			return request, nil
 		}
 
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			if logger != nil {
+				logger.Warn("securosys async request wait stopped", "request_id", requestID, "status", request.Status, "elapsed", time.Since(waitStarted).Round(time.Second).String(), "error", ctx.Err())
+			}
+			return nil, k.waitForRequestStopError(ctx, requestID)
 		case <-ticker.C:
 		}
 	}
+}
+
+func (k *securosysKey) contextWithKMSClose(ctx context.Context) (context.Context, context.CancelFunc) {
+	if k.closeCtx == nil {
+		return ctx, func() {}
+	}
+
+	waitCtx, cancel := context.WithCancel(ctx)
+	go func() {
+		select {
+		case <-k.closeCtx.Done():
+			cancel()
+		case <-waitCtx.Done():
+		}
+	}()
+	return waitCtx, cancel
+}
+
+func (k *securosysKey) waitForRequestStopError(ctx context.Context, requestID string) error {
+	if k.closeCtx != nil {
+		select {
+		case <-k.closeCtx.Done():
+			return fmt.Errorf("%w while waiting for request %s: %w", ErrKMSClosed, requestID, context.Canceled)
+		default:
+		}
+	}
+	return waitForRequestContextError(ctx, requestID)
+}
+
+func waitForRequestContextError(ctx context.Context, requestID string) error {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return fmt.Errorf("%w for request %s: %w", ErrApprovalTimeout, requestID, ctx.Err())
+	}
+	return fmt.Errorf("wait for request %s stopped: %w", requestID, ctx.Err())
 }
 
 // combineCipherOutput combines encrypted payload with an optional MAC/tag.

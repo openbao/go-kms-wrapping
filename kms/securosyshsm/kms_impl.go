@@ -6,8 +6,10 @@ package securosyshsm
 import (
 	"context"
 	"errors"
+	"os"
 
 	"github.com/go-viper/mapstructure/v2"
+	"github.com/hashicorp/go-hclog"
 	"github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/internal/client"
 	"github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/internal/helpers"
 	kms "github.com/openbao/go-kms-wrapping/v2/kms"
@@ -20,7 +22,12 @@ var _ kms.KMS = (*securosysKMS)(nil)
 type securosysKMS struct {
 	kms.UnimplementedKMS
 
-	client *client.SecurosysClient
+	client  *client.SecurosysClient
+	logger  hclog.Logger
+	logFile *os.File
+
+	closeCtx    context.Context
+	closeCancel context.CancelFunc
 }
 
 // New returns a new KMS that uses the Securosys HSM.
@@ -53,7 +60,17 @@ func (k *securosysKMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 		return errors.New(connection)
 	}
 
+	var logger hclog.Logger
+	var logFile *os.File
+	closeCtx, closeCancel := context.WithCancel(context.Background())
 	k.client = c
+	k.logger = logger
+	k.logFile = logFile
+	k.closeCtx = closeCtx
+	k.closeCancel = closeCancel
+	if k.logger != nil {
+		k.logger.Debug("opened securosys hsm kms", "status", status)
+	}
 	return nil
 }
 
@@ -82,11 +99,20 @@ func (k *securosysKMS) GetKey(ctx context.Context, opts *kms.KeyOptions) (kms.Ke
 	if config.Name == "" {
 		return nil, errors.New("key name is required")
 	}
+	if k.logger != nil {
+		k.logger.Debug("resolving securosys hsm key", "key_label", config.Name)
+	}
 
 	// Get key from client
 	keyAttrs, err := k.client.GetKey(config.Name, config.Password)
 	if err != nil {
+		if k.logger != nil {
+			k.logger.Debug("failed to resolve securosys hsm key", "key_label", config.Name, "error", err)
+		}
 		return nil, err
+	}
+	if k.logger != nil {
+		k.logger.Debug("resolved securosys hsm key", "key_label", config.Name)
 	}
 
 	return &securosysKey{
@@ -94,15 +120,32 @@ func (k *securosysKMS) GetKey(ctx context.Context, opts *kms.KeyOptions) (kms.Ke
 		keyAttrs:        keyAttrs,
 		password:        config.Password,
 		cipherAlgorithm: config.CipherAlgorithm,
+		logger:          k.logger,
+		closeCtx:        k.closeCtx,
 	}, nil
 }
 
 // Close terminates this KMS.
 func (k *securosysKMS) Close(ctx context.Context) error {
+	if k.closeCancel != nil {
+		k.closeCancel()
+	}
 	if k.client != nil && k.client.HTTPClient != nil {
 		k.client.HTTPClient.CloseIdleConnections()
 	}
+	if k.logger != nil {
+		k.logger.Debug("closed securosys hsm kms")
+	}
+	if k.logFile != nil {
+		if err := k.logFile.Close(); err != nil {
+			return err
+		}
+	}
 	k.client = nil
+	k.logger = nil
+	k.logFile = nil
+	k.closeCtx = nil
+	k.closeCancel = nil
 	return nil
 }
 
