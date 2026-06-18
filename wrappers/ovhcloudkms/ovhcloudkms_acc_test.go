@@ -14,17 +14,17 @@ import (
 // but the OKMS key used is generally not free.
 //
 // To run this test, the following env variables need to be set:
-//   - OKMS_ACC_TESTS_KEY_ID
-//   - OKMS_ENDPOINT
-//   - OKMS_ID
+//   - OVHCLOUDKMS_ACC_TESTS_KEY_ID
+//   - OVHCLOUDKMS_ENDPOINT
+//   - OVHCLOUDKMS_ID
 //
 // You can choose the auth type by setting corresponding env variables:
 // token:
-//   - OKMS_TOKEN
+//   - OVHCLOUDKMS_TOKEN
 //
 // mTLS:
-//   - OKMS_CLIENT_CERT
-//   - OKMS_CLIENT_KEY
+//   - OVHCLOUDKMS_CLIENT_CERT
+//   - OVHCLOUDKMS_CLIENT_KEY
 func TestAcckmipWrapper_Lifecycle(t *testing.T) {
 	if os.Getenv("VAULT_ACC") == "" && os.Getenv("KMS_ACC_TESTS") == "" {
 		t.SkipNow()
@@ -34,7 +34,7 @@ func TestAcckmipWrapper_Lifecycle(t *testing.T) {
 	if keyId == "" {
 		t.SkipNow()
 	}
-	if os.Setenv(EnvOkmsWrapperKeyId, keyId) != nil {
+	if os.Setenv(EnvOkmsKeyId, keyId) != nil {
 		t.SkipNow()
 	}
 

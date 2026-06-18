@@ -20,14 +20,13 @@ const Type wrapping.WrapperType = "ovhcloudkms"
 
 // These constants contain the accepted env vars; the Vault one is for backwards compat
 const (
-	EnvOkmsWrapperKeyId   = "OKMS_WRAPPER_KEY_ID"
-	EnvVaultOkmsSealKeyId = "OKMS_SEAL_KEY_ID"
-	EnvOkmsEndpoint       = "OKMS_ENDPOINT"
-	EnvOkmsId             = "OKMS_ID"
-	EnvOkmsClientCert     = "OKMS_CLIENT_CERT"
-	EnvOkmsClientKey      = "OKMS_CLIENT_KEY"
-	EnvOkmsCaCert         = "OKMS_CA_CERT"
-	EnvOkmsToken          = "OKMS_TOKEN"
+	EnvOkmsKeyId      = "OVHCLOUDKMS_KEY_ID"
+	EnvOkmsEndpoint   = "OVHCLOUDKMS_ENDPOINT"
+	EnvOkmsId         = "OVHCLOUDKMS_ID"
+	EnvOkmsClientCert = "OVHCLOUDKMS_CLIENT_CERT"
+	EnvOkmsClientKey  = "OVHCLOUDKMS_CLIENT_KEY"
+	EnvOkmsCaCert     = "OVHCLOUDKMS_CA_CERT"
+	EnvOkmsToken      = "OVHCLOUDKMS_TOKEN"
 )
 
 // Wrapper is a wrapper that uses the OVHcloud Service Key API
@@ -68,7 +67,7 @@ func (ow *Wrapper) KeyId(_ context.Context) (string, error) {
 // * Environment variable
 // * Value from Vault configuration file
 // * Instance metadata role (access key and secret key)
-func (ow *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrapping.WrapperConfig, error) {
+func (ow *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapping.WrapperConfig, error) {
 	opts, err := getOpts(opt...)
 	if err != nil {
 		return nil, err
@@ -76,10 +75,8 @@ func (ow *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappi
 
 	// Check and set KeyId
 	switch {
-	case os.Getenv(EnvOkmsWrapperKeyId) != "" && !opts.Options.WithDisallowEnvVars:
-		ow.keyId, err = uuid.Parse(os.Getenv(EnvOkmsWrapperKeyId))
-	case os.Getenv(EnvVaultOkmsSealKeyId) != "" && !opts.Options.WithDisallowEnvVars:
-		ow.keyId, err = uuid.Parse(os.Getenv(EnvVaultOkmsSealKeyId))
+	case os.Getenv(EnvOkmsKeyId) != "" && !opts.Options.WithDisallowEnvVars:
+		ow.keyId, err = uuid.Parse(os.Getenv(EnvOkmsKeyId))
 	case opts.WithKeyId != "":
 		ow.keyId, err = uuid.Parse(opts.WithKeyId)
 	default:
@@ -181,7 +178,7 @@ func (ow *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappi
 	}
 
 	// Validate Service Key operations (expected: encrypt,decrypt)
-	resp, err := ow.client.GetServiceKey(context.Background(), ow.okmsId, ow.keyId, nil)
+	resp, err := ow.client.GetServiceKey(ctx, ow.okmsId, ow.keyId, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -295,16 +292,12 @@ func (ow *Wrapper) Encrypt(_ context.Context, plaintext []byte, opt ...wrapping.
 }
 
 // Decrypt is used to decrypt the ciphertext. This should be called after Init.
-func (ow *Wrapper) Decrypt(_ context.Context, in *wrapping.BlobInfo, opt ...wrapping.Option) ([]byte, error) {
+func (ow *Wrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, opt ...wrapping.Option) ([]byte, error) {
 	if in == nil {
 		return nil, fmt.Errorf("given input for decryption is nil")
 	}
 
-	if ow.client == nil {
-		panic("nil client")
-	}
-
-	decryptedDEK, err := ow.client.Decrypt(context.Background(), ow.okmsId, ow.keyId, "", string(in.KeyInfo.WrappedKey))
+	decryptedDEK, err := ow.client.Decrypt(ctx, ow.okmsId, ow.keyId, "", string(in.KeyInfo.WrappedKey))
 	if err != nil {
 		return nil, fmt.Errorf("error decrypting data encryption key: %w", err)
 	}
