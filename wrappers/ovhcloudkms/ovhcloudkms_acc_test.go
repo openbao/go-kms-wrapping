@@ -14,7 +14,7 @@ import (
 // but the OKMS key used is generally not free.
 //
 // To run this test, the following env variables need to be set:
-//   - OVHCLOUDKMS_ACC_TESTS_KEY_ID
+//   - OVHCLOUDKMS_KEY_ID
 //   - OVHCLOUDKMS_ENDPOINT
 //   - OVHCLOUDKMS_ID
 //
@@ -25,12 +25,12 @@ import (
 // mTLS:
 //   - OVHCLOUDKMS_CLIENT_CERT
 //   - OVHCLOUDKMS_CLIENT_KEY
-func TestAcckmipWrapper_Lifecycle(t *testing.T) {
+func TestAccOvhcloudKmsWrapper_Lifecycle(t *testing.T) {
 	if os.Getenv("VAULT_ACC") == "" && os.Getenv("KMS_ACC_TESTS") == "" {
 		t.SkipNow()
 	}
 
-	keyId := os.Getenv("OKMS_ACC_TESTS_KEY_ID")
+	keyId := os.Getenv("OVHCLOUDKMS_KEY_ID")
 	if keyId == "" {
 		t.SkipNow()
 	}

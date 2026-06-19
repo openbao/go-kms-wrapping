@@ -49,8 +49,8 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 				opts.WithKeyId = v
 			case "endpoint":
 				opts.withEndpoint = v
-			case "okms_id":
-				opts.withOkmsId, err = uuid.Parse(v)
+			case "kms_id":
+				opts.withKmsId, err = uuid.Parse(v)
 				if err != nil {
 					return nil, err
 				}
@@ -87,7 +87,7 @@ type options struct {
 	*wrapping.Options
 
 	withEndpoint   string
-	withOkmsId     uuid.UUID
+	withKmsId      uuid.UUID
 	withClientCert string
 	withClientKey  string
 	withCACert     string

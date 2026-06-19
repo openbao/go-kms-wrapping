@@ -37,7 +37,7 @@ type Wrapper struct {
 	keyId        uuid.UUID
 	currentKeyId *atomic.Value
 	// your kms id
-	okmsId uuid.UUID
+	kmsId uuid.UUID
 }
 
 // Ensure that we are implementing Wrapper
@@ -80,7 +80,7 @@ func (ow *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrap
 	case opts.WithKeyId != "":
 		ow.keyId, err = uuid.Parse(opts.WithKeyId)
 	default:
-		return nil, fmt.Errorf("key id not found (env or config) for okms wrapper configuration")
+		return nil, fmt.Errorf("key id not found (env or config) for kms configuration")
 	}
 	if err != nil {
 		return nil, err
@@ -99,16 +99,16 @@ func (ow *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrap
 
 	// set okms ID
 	if !opts.Options.WithDisallowEnvVars {
-		okmsId := os.Getenv(EnvOkmsId)
-		if okmsId != "" {
-			ow.okmsId, err = uuid.Parse(okmsId)
+		kmsId := os.Getenv(EnvOkmsId)
+		if kmsId != "" {
+			ow.kmsId, err = uuid.Parse(kmsId)
 			if err != nil {
 				return nil, err
 			}
 		}
 	}
-	if ow.okmsId.String() == "" {
-		ow.okmsId = opts.withOkmsId
+	if ow.kmsId == uuid.Nil {
+		ow.kmsId = opts.withKmsId
 	}
 
 	// configure token
@@ -150,7 +150,7 @@ func (ow *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrap
 	hasToken := token != ""
 	switch {
 	case hasMTLS && hasToken:
-		return nil, fmt.Errorf("ambiguous authentication: provide either mTLS (client_cert/client_key) or token (token/okms_id), not both")
+		return nil, fmt.Errorf("ambiguous authentication: provide either mTLS (client_cert/client_key) or token (token/kms_id), not both")
 	case hasMTLS:
 		if clientCertFile == "" || clientKeyFile == "" {
 			return nil, fmt.Errorf("missing client certificate/key for mTLS authentication")
@@ -174,11 +174,11 @@ func (ow *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrap
 		}
 		ow.client.WithCustomHeader("Authorization", "Bearer "+token)
 	default:
-		return nil, fmt.Errorf("missing authentication: provide either mTLS (client_cert/client_key) or token (token/okms_id)")
+		return nil, fmt.Errorf("missing authentication: provide either mTLS (client_cert/client_key) or token (token/kms_id)")
 	}
 
 	// Validate Service Key operations (expected: encrypt,decrypt)
-	resp, err := ow.client.GetServiceKey(ctx, ow.okmsId, ow.keyId, nil)
+	resp, err := ow.client.GetServiceKey(ctx, ow.kmsId, ow.keyId, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -201,7 +201,7 @@ func (ow *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrap
 	wrapConfig.Metadata = make(map[string]string)
 	wrapConfig.Metadata["key_id"] = ow.keyId.String()
 	wrapConfig.Metadata["endpoint"] = endpoint
-	wrapConfig.Metadata["okms_id"] = ow.okmsId.String()
+	wrapConfig.Metadata["kms_id"] = ow.kmsId.String()
 
 	return wrapConfig, nil
 }
@@ -260,21 +260,13 @@ func getTokenConfig(caCertFile string) (okms.ClientConfig, error) {
 // Encrypt is used to encrypt the master key using the OVHcloud CMK.
 // This returns the ciphertext, and/or any errors from this
 // call. This should be called after the OKMS client has been instantiated.
-func (ow *Wrapper) Encrypt(_ context.Context, plaintext []byte, opt ...wrapping.Option) (*wrapping.BlobInfo, error) {
-	if plaintext == nil {
-		return nil, fmt.Errorf("given plaintext for encryption is nil")
-	}
-
+func (ow *Wrapper) Encrypt(ctx context.Context, plaintext []byte, opt ...wrapping.Option) (*wrapping.BlobInfo, error) {
 	env, err := wrapping.EnvelopeEncrypt(plaintext, opt...)
 	if err != nil {
 		return nil, fmt.Errorf("error wrapping data: %w", err)
 	}
 
-	if ow.client == nil {
-		panic("nil client")
-	}
-
-	encryptedDEK, err := ow.client.Encrypt(context.Background(), ow.okmsId, ow.keyId, "", env.Key)
+	encryptedDEK, err := ow.client.Encrypt(ctx, ow.kmsId, ow.keyId, "", env.Key)
 	if err != nil {
 		return nil, fmt.Errorf("error encrypting data: %w", err)
 	}
@@ -293,11 +285,7 @@ func (ow *Wrapper) Encrypt(_ context.Context, plaintext []byte, opt ...wrapping.
 
 // Decrypt is used to decrypt the ciphertext. This should be called after Init.
 func (ow *Wrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, opt ...wrapping.Option) ([]byte, error) {
-	if in == nil {
-		return nil, fmt.Errorf("given input for decryption is nil")
-	}
-
-	decryptedDEK, err := ow.client.Decrypt(ctx, ow.okmsId, ow.keyId, "", string(in.KeyInfo.WrappedKey))
+	decryptedDEK, err := ow.client.Decrypt(ctx, ow.kmsId, ow.keyId, "", string(in.KeyInfo.WrappedKey))
 	if err != nil {
 		return nil, fmt.Errorf("error decrypting data encryption key: %w", err)
 	}
