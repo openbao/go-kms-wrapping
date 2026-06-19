@@ -34,9 +34,6 @@ func TestAccOvhcloudKmsWrapper_Lifecycle(t *testing.T) {
 	if keyId == "" {
 		t.SkipNow()
 	}
-	if os.Setenv(EnvOkmsKeyId, keyId) != nil {
-		t.SkipNow()
-	}
 
 	ow := NewWrapper()
 	_, err := ow.SetConfig(context.Background())

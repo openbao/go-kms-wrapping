@@ -18,7 +18,6 @@ import (
 
 const Type wrapping.WrapperType = "ovhcloudkms"
 
-// These constants contain the accepted env vars; the Vault one is for backwards compat
 const (
 	EnvOkmsKeyId      = "OVHCLOUDKMS_KEY_ID"
 	EnvOkmsEndpoint   = "OVHCLOUDKMS_ENDPOINT"
