@@ -20,7 +20,7 @@ func TestSecurosysHSMWrapper(t *testing.T) {
 	}
 }
 
-// TestSecurosysHSMWrapper_Lifecycle is an HSM-backed acceptance test for the
+// TestSecurosysHSMWrapper_Lifecycle is an HSM-backed test for the
 // wrapper path: SetConfig, Encrypt, Decrypt, and Finalize through the public
 // wrapping.Wrapper interface.
 func TestSecurosysHSMWrapper_Lifecycle(t *testing.T) {

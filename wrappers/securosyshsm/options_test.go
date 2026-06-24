@@ -11,8 +11,7 @@ import (
 )
 
 // Test_GetOpts verifies both local wrapper option functions and config-map
-// based options populate the internal options struct consistently. These tests
-// do not contact the HSM.
+// based options.
 func Test_GetOpts(t *testing.T) {
 	t.Parallel()
 	t.Run("WithApprovalTimeout", func(t *testing.T) {
