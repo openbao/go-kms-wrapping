@@ -6,7 +6,6 @@ package awskms
 import (
 	"strconv"
 
-	"github.com/hashicorp/go-hclog"
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
 
@@ -114,8 +113,6 @@ type options struct {
 	withWebIdentityTokenFile string
 	withRoleSessionName      string
 	withRoleArn              string
-
-	withLogger hclog.Logger
 }
 
 func getDefaultOptions() options {
@@ -227,16 +224,6 @@ func WithRoleArn(with string) wrapping.Option {
 	return func() interface{} {
 		return OptionFunc(func(o *options) error {
 			o.withRoleArn = with
-			return nil
-		})
-	}
-}
-
-// WithLogger provides a way to pass in a logger
-func WithLogger(with hclog.Logger) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withLogger = with
 			return nil
 		})
 	}

@@ -46,7 +46,7 @@ func (s *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 		return nil, err
 	}
 
-	s.logger = opts.withLogger
+	s.logger = opts.WithLogger
 
 	client, wrapConfig, err := newTransitClient(s.logger, opts)
 	if err != nil {

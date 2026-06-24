@@ -10,7 +10,7 @@ require (
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/hashicorp/go-plugin v1.7.0
 	github.com/openbao/go-kms-wrapping/plugin/v2 v2.0.0-20240219184625-e8f4fba40bca
-	github.com/openbao/go-kms-wrapping/v2 v2.6.0
+	github.com/openbao/go-kms-wrapping/v2 v2.8.0
 )
 
 require (

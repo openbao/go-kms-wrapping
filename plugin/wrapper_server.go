@@ -7,10 +7,11 @@ import (
 	"context"
 	"sync"
 
+	log "github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin"
 	"github.com/hashicorp/go-uuid"
 	"github.com/openbao/go-kms-wrapping/plugin/v2/pb"
-	"github.com/openbao/go-kms-wrapping/v2"
+	wrapping "github.com/openbao/go-kms-wrapping/v2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -18,6 +19,8 @@ import (
 
 type gRPCWrapperServer struct {
 	pb.UnimplementedWrapperServer
+
+	logger log.Logger
 
 	instances     map[string]wrapping.Wrapper
 	instancesLock sync.Mutex
@@ -27,6 +30,7 @@ type gRPCWrapperServer struct {
 
 func (wp *gRPCWrapperPlugin) GRPCServer(broker *plugin.GRPCBroker, s *grpc.Server) error {
 	pb.RegisterWrapperServer(s, &gRPCWrapperServer{
+		logger:    wp.logger,
 		factory:   wp.factory,
 		instances: make(map[string]wrapping.Wrapper),
 	})
@@ -47,7 +51,7 @@ func (s *gRPCWrapperServer) get(id string) (wrapping.Wrapper, error) {
 func (s *gRPCWrapperServer) SetConfig(ctx context.Context, req *pb.SetConfigRequest) (*pb.SetConfigResponse, error) {
 	opts := req.Options
 	if opts == nil {
-		opts = new(wrapping.Options)
+		opts = new(wrapping.RPCOptions)
 	}
 
 	// SetConfig drives initial wrapper construction.
@@ -58,6 +62,7 @@ func (s *gRPCWrapperServer) SetConfig(ctx context.Context, req *pb.SetConfigRequ
 		wrapping.WithKeyId(opts.WithKeyId),
 		wrapping.WithConfigMap(opts.WithConfigMap),
 		wrapping.WithDisallowEnvVars(opts.WithDisallowEnvVars),
+		wrapping.WithLogger(s.logger),
 	)
 	if err != nil {
 		return nil, err
@@ -106,7 +111,7 @@ func (s *gRPCWrapperServer) Encrypt(ctx context.Context, req *pb.EncryptRequest)
 	}
 	opts := req.Options
 	if opts == nil {
-		opts = new(wrapping.Options)
+		opts = new(wrapping.RPCOptions)
 	}
 	ct, err := wrapper.Encrypt(
 		ctx,
@@ -127,7 +132,7 @@ func (s *gRPCWrapperServer) Decrypt(ctx context.Context, req *pb.DecryptRequest)
 	}
 	opts := req.Options
 	if opts == nil {
-		opts = new(wrapping.Options)
+		opts = new(wrapping.RPCOptions)
 	}
 	pt, err := wrapper.Decrypt(
 		ctx,

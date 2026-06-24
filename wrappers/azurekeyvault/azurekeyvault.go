@@ -140,7 +140,7 @@ func (v *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 	}
 
 	v.keyNotRequired = opts.withKeyNotRequired
-	v.logger = opts.withLogger
+	v.logger = opts.WithLogger
 
 	authMethod := ""
 	switch {

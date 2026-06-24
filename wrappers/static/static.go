@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/hashicorp/go-hclog"
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
 
@@ -31,7 +30,6 @@ const (
 // Wrapper is a wrapper that leverages Vault's Transit secret
 // engine
 type Wrapper struct {
-	logger        hclog.Logger
 	previousKeyId string
 	previousKey   []byte
 
@@ -53,8 +51,6 @@ func (s *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 	if err != nil {
 		return nil, err
 	}
-
-	s.logger = opts.withLogger
 
 	// Load keys, identifiers from environments or options.
 	currentKey := opts.withCurrentKey

@@ -6,8 +6,6 @@ package transit
 import (
 	"strconv"
 
-	"github.com/hashicorp/go-hclog"
-
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
 
@@ -119,8 +117,6 @@ type options struct {
 	withTlsSkipVerify  bool
 	withToken          string
 	withKeyIdPrefix    string
-
-	withLogger hclog.Logger
 }
 
 func getDefaultOptions() options {
@@ -242,16 +238,6 @@ func WithToken(with string) wrapping.Option {
 	return func() interface{} {
 		return OptionFunc(func(o *options) error {
 			o.withToken = with
-			return nil
-		})
-	}
-}
-
-// WithLogger provides a way to pass in a logger
-func WithLogger(with hclog.Logger) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withLogger = with
 			return nil
 		})
 	}

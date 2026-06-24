@@ -11,7 +11,7 @@ import (
 
 	"github.com/openbao/go-kms-wrapping/plugin/v2"
 	"github.com/openbao/go-kms-wrapping/plugin/v2/plugintest"
-	"github.com/openbao/go-kms-wrapping/v2"
+	wrapping "github.com/openbao/go-kms-wrapping/v2"
 	"github.com/openbao/go-kms-wrapping/v2/aead"
 	"github.com/openbao/go-kms-wrapping/v2/kms"
 	"github.com/stretchr/testify/require"
@@ -39,17 +39,17 @@ func TestWrapper(t *testing.T) {
 
 	tests := []struct {
 		server string
-		opts   *wrapping.Options
+		opts   *wrapping.RPCOptions
 	}{
 		{
 			server: "TestWrapper",
-			opts: &wrapping.Options{
+			opts: &wrapping.RPCOptions{
 				WithKeyId: "test",
 			},
 		},
 		{
 			server: "AeadWrapper",
-			opts: &wrapping.Options{
+			opts: &wrapping.RPCOptions{
 				WithKeyId: "root",
 				WithConfigMap: map[string]string{
 					"key": base64.StdEncoding.EncodeToString(key),

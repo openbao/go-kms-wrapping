@@ -32,6 +32,7 @@ tidy-all:
 	cd wrappers/huaweicloudkms && go mod tidy
 	cd wrappers/kmip && go mod tidy
 	cd wrappers/ocikms && go mod tidy
+	cd wrappers/pkcs11 && go mod tidy
 	cd wrappers/tcloudpublickms && go mod tidy
 	cd wrappers/tencentcloudkms && go mod tidy
 	cd wrappers/static && go mod tidy

@@ -9,7 +9,7 @@ import (
 
 	"github.com/hashicorp/go-plugin"
 	"github.com/openbao/go-kms-wrapping/plugin/v2/pb"
-	"github.com/openbao/go-kms-wrapping/v2"
+	wrapping "github.com/openbao/go-kms-wrapping/v2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -58,7 +58,7 @@ func (c *gRPCWrapperClient) SetConfig(ctx context.Context, options ...wrapping.O
 		return nil, err
 	}
 
-	resp, err := c.client.SetConfig(ctx, &pb.SetConfigRequest{Options: opts})
+	resp, err := c.client.SetConfig(ctx, &pb.SetConfigRequest{Options: &opts.RPCOptions})
 	if err != nil {
 		return nil, c.handleRPCError(err)
 	}
@@ -90,7 +90,7 @@ func (c *gRPCWrapperClient) Encrypt(ctx context.Context, pt []byte, options ...w
 	}
 	resp, err := c.client.Encrypt(ctx, &pb.EncryptRequest{
 		Plaintext: pt,
-		Options:   opts,
+		Options:   &opts.RPCOptions,
 		WrapperId: c.id,
 	})
 	if err != nil {
@@ -106,7 +106,7 @@ func (c *gRPCWrapperClient) Decrypt(ctx context.Context, ct *wrapping.BlobInfo, 
 	}
 	resp, err := c.client.Decrypt(ctx, &pb.DecryptRequest{
 		Ciphertext: ct,
-		Options:    opts,
+		Options:    &opts.RPCOptions,
 		WrapperId:  c.id,
 	})
 	if err != nil {
@@ -121,7 +121,7 @@ func (c *gRPCWrapperClient) Init(ctx context.Context, options ...wrapping.Option
 		return err
 	}
 	_, err = c.client.Init(ctx, &pb.InitRequest{
-		Options:   opts,
+		Options:   &opts.RPCOptions,
 		WrapperId: c.id,
 	})
 	return c.handleRPCError(err)
@@ -133,7 +133,7 @@ func (c *gRPCWrapperClient) Finalize(ctx context.Context, options ...wrapping.Op
 		return err
 	}
 	_, err = c.client.Finalize(ctx, &pb.FinalizeRequest{
-		Options:   opts,
+		Options:   &opts.RPCOptions,
 		WrapperId: c.id,
 	})
 	return c.handleRPCError(err)
