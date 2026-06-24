@@ -20,38 +20,6 @@ import (
 	"time"
 )
 
-//type approval struct {
-//	TypeOfKey string  `json:"type"`
-//	Name      *string `json:"name"`
-//	Value     *string `json:"value"`
-//}
-//type group struct {
-//	Name      string     `json:"name"`
-//	Quorum    int        `json:"quorum"`
-//	Approvals []approval `json:"approvals"`
-//}
-//type token struct {
-//	Name     string  `json:"name"`
-//	Timelock int     `json:"timelock"`
-//	Timeout  int     `json:"timeout"`
-//	Groups   []group `json:"groups"`
-//}
-//type rule struct {
-//	Tokens []token `json:"tokens"`
-//}
-//type keyStatus struct {
-//	Blocked bool `json:"blocked"`
-//}
-//
-//// Policy structure for rules use, block, unblock, modify
-//type Policy struct {
-//	RuleUse     rule       `json:"ruleUse"`
-//	RuleBlock   *rule      `json:"ruleBlock,omitempty"`
-//	RuleUnBlock *rule      `json:"ruleUnblock,omitempty"`
-//	RuleModify  *rule      `json:"ruleModify,omitempty"`
-//	KeyStatus   *keyStatus `json:"keyStatus,omitempty"`
-//}
-
 // Function converts string into char array
 func StringToCharArray(text string) []string {
 	var array []string = make([]string, 0)
@@ -355,8 +323,7 @@ func MapCurveToStringCurve(curve string) string {
 	return ""
 }
 
-// MapSignAlgorithm maps a sign algorithm to a string (kept for backward compatibility)
-// Note: The new interface uses crypto.SignerOpts instead of kms.SignAlgorithm
+// Function maps a sign algorithm to a Securosys HSM algorithm
 func MapSignAlgorithm(alg string, digest bool) (string, error) {
 	if digest {
 		switch alg {
@@ -397,8 +364,7 @@ func MapSignAlgorithm(alg string, digest bool) (string, error) {
 	return "", errors.New("unknown sign algorithm")
 }
 
-// MapCipherAlgorithm maps a cipher algorithm mode to a string (kept for backward compatibility)
-// Note: The new interface uses different cipher mode types
+// Function maps a crypto algorithm to a Securosys HSM algorithm
 func MapCipherAlgorithm(alg string) (string, error) {
 	switch alg {
 	case "AES_GCM":

@@ -23,9 +23,6 @@ var RSA_KEY_NAME = "openbao_test_rsa_key"
 var EC_KEY_NAME = "openbao_test_ec_key"
 var ED_KEY_NAME = "openbao_test_ed_key"
 
-// getTestClient returns a low-level TSB client used only by acceptance tests to
-// create and clean up keys. Tests are skipped unless HSM endpoint credentials
-// are provided through environment variables.
 func getTestClient(t *testing.T) *client.TSBClient {
 	restAPI := os.Getenv(SECUROSYS_HSM_RESTAPI_ENV_VAR)
 	bearerToken := os.Getenv(SECUROSYS_BEARER_TOKEN_ENV_VAR)
@@ -47,9 +44,6 @@ func getTestClient(t *testing.T) *client.TSBClient {
 	return tsbClient
 }
 
-// openTestKMS opens the Securosys implementation through the public kms.KMS
-// interface. Acceptance tests use this helper so they exercise the same path
-// plugin clients and wrappers use.
 func openTestKMS(t *testing.T) kms.KMS {
 	t.Helper()
 
@@ -74,9 +68,6 @@ func openTestKMS(t *testing.T) kms.KMS {
 	return kmsInstance
 }
 
-// getTestKMSKey resolves a key through kms.KMS.GetKey. cipherAlgorithm is
-// optional and drives the provider-specific cipher override used by the cipher
-// matrix tests.
 func getTestKMSKey(t *testing.T, kmsInstance kms.KMS, keyName, cipherAlgorithm string) kms.Key {
 	t.Helper()
 
@@ -93,8 +84,6 @@ func getTestKMSKey(t *testing.T, kmsInstance kms.KMS, keyName, cipherAlgorithm s
 	return key
 }
 
-// assertCipherRoundTrip verifies that a key can encrypt and decrypt the same
-// plaintext, carrying the nonce returned by Encrypt into Decrypt.
 func assertCipherRoundTrip(t *testing.T, key kms.Key, plaintext, aad []byte) {
 	t.Helper()
 
@@ -120,9 +109,6 @@ func assertCipherRoundTrip(t *testing.T, key kms.Key, plaintext, aad []byte) {
 	}
 }
 
-// assertSignVerify verifies that Sign and Verify agree for the same algorithm
-// mapping. signerOpts is the public kms interface input; algorithm is included
-// only to make subtest failures readable.
 func assertSignVerify(t *testing.T, key kms.Key, algorithm string, signerOpts crypto.SignerOpts, prehashed bool) {
 	t.Helper()
 
@@ -147,9 +133,6 @@ func assertSignVerify(t *testing.T, key kms.Key, algorithm string, signerOpts cr
 	}
 }
 
-// cipherPlaintext returns payloads that satisfy algorithm-specific constraints.
-// RSA_NO_PADDING requires a full RSA block, while AES no-padding modes require
-// block-aligned plaintext.
 func cipherPlaintext(algorithm string) []byte {
 	if algorithm == "RSA_NO_PADDING" {
 		plaintext := make([]byte, 256)
@@ -159,8 +142,6 @@ func cipherPlaintext(algorithm string) []byte {
 	return []byte("OpenBao Securosys cipher test!!!")
 }
 
-// createTestKey creates a key for testing and returns cleanup function.
-// It is kept for focused tests that need a single temporary key.
 func createTestKey(t *testing.T, keyName, keyType string, keySize int) func() {
 	tsbClient := getTestClient(t)
 	if tsbClient == nil {
@@ -201,8 +182,6 @@ func createTestKey(t *testing.T, keyName, keyType string, keySize int) func() {
 }
 
 // setupTestKeys creates the AES, RSA, EC, and ED keys used by acceptance tests.
-// Creation warnings are logged because keys may already exist from a previous
-// run or from manual setup.
 func setupTestKeys(t *testing.T) {
 	tsbClient := getTestClient(t)
 	if tsbClient == nil {
@@ -247,9 +226,6 @@ func setupTestKeys(t *testing.T) {
 	}
 }
 
-// cleanupTestKeys removes the acceptance-test keys after a run. Cleanup errors
-// are logged instead of failing the test so the primary operation failure is not
-// hidden.
 func cleanupTestKeys(t *testing.T) {
 	tsbClient := getTestClient(t)
 	if tsbClient == nil {
@@ -266,12 +242,10 @@ func cleanupTestKeys(t *testing.T) {
 	}
 }
 
-// TestKMS covers the minimum KMS contract: Open, GetKey, Encrypt, Decrypt, and
-// Close using the default AES-GCM behavior.
+// TestKMS covers the minimum KMS contract: Open, GetKey, Encrypt and Decrypt for AES Key
 func TestKMS(t *testing.T) {
 	ctx := t.Context()
 
-	// Setup: Create test keys
 	setupTestKeys(t)
 	defer cleanupTestKeys(t)
 
@@ -283,10 +257,8 @@ func TestKMS(t *testing.T) {
 		t.Skip("SECUROSYS_HSM_RESTAPI or SECUROSYS_BEARER_TOKEN not set, skipping test")
 	}
 
-	// Create new KMS instance
 	kmsInstance := New()
 
-	// Open KMS with configuration
 	err := kmsInstance.Open(ctx, &kms.OpenOptions{
 		ConfigMap: kms.ConfigMap{
 			"restapi":     restAPI,
@@ -299,7 +271,6 @@ func TestKMS(t *testing.T) {
 	}
 	defer kmsInstance.Close(ctx)
 
-	// Test GetKey with AES key
 	key, err := kmsInstance.GetKey(ctx, &kms.KeyOptions{
 		ConfigMap: kms.ConfigMap{
 			"name": AES_KEY_NAME,
@@ -336,8 +307,7 @@ func TestKMS(t *testing.T) {
 	t.Log("Encrypt/Decrypt test passed")
 }
 
-// TestKMSCipherAlgorithms verifies every AES and RSA cipher advertised by the
-// Securosys helper constants can round-trip through kms.Key Encrypt/Decrypt.
+// TestKMSCipherAlgorithms verifies every AES and RSA cipher implemented in KMS.
 func TestKMSCipherAlgorithms(t *testing.T) {
 	ctx := t.Context()
 
@@ -362,7 +332,7 @@ func TestKMSCipherAlgorithms(t *testing.T) {
 	}
 }
 
-// TestKMSSignVerify is the basic RSA-PSS sign/verify smoke test.
+// TestKMSSignVerify verifies RSA-PSS sign flow.
 func TestKMSSignVerify(t *testing.T) {
 	ctx := t.Context()
 
@@ -378,10 +348,8 @@ func TestKMSSignVerify(t *testing.T) {
 		t.Skip("SECUROSYS_HSM_RESTAPI or SECUROSYS_BEARER_TOKEN not set, skipping test")
 	}
 
-	// Create new KMS instance
 	kmsInstance := New()
 
-	// Open KMS with configuration
 	err := kmsInstance.Open(ctx, &kms.OpenOptions{
 		ConfigMap: kms.ConfigMap{
 			"restapi":     restAPI,
@@ -428,8 +396,7 @@ func TestKMSSignVerify(t *testing.T) {
 	t.Log("Sign/Verify test passed")
 }
 
-// TestKMSSignatureAlgorithms verifies the supported signature matrix:
-// selected ECDSA algorithms, EDDSA, RSA PKCS#1, and RSA-PSS.
+// TestKMSSignatureAlgorithms verifies the supported signature algorithms ECDSA, EDDSA, RSA, RSA-PSS
 func TestKMSSignatureAlgorithms(t *testing.T) {
 	ctx := t.Context()
 
@@ -503,10 +470,8 @@ func TestKMSExportPublic(t *testing.T) {
 		t.Skip("SECUROSYS_HSM_RESTAPI or SECUROSYS_BEARER_TOKEN not set, skipping test")
 	}
 
-	// Create new KMS instance
 	kmsInstance := New()
 
-	// Open KMS with configuration
 	err := kmsInstance.Open(ctx, &kms.OpenOptions{
 		ConfigMap: kms.ConfigMap{
 			"restapi":     restAPI,
@@ -544,7 +509,6 @@ func TestKMSExportPublic(t *testing.T) {
 }
 
 // TestKMSWithAAD verifies AES-GCM authenticated data handling, including nonce
-// propagation between Encrypt and Decrypt.
 func TestKMSWithAAD(t *testing.T) {
 	ctx := t.Context()
 
@@ -560,10 +524,8 @@ func TestKMSWithAAD(t *testing.T) {
 		t.Skip("SECUROSYS_HSM_RESTAPI or SECUROSYS_BEARER_TOKEN not set, skipping test")
 	}
 
-	// Create new KMS instance
 	kmsInstance := New()
 
-	// Open KMS with configuration
 	err := kmsInstance.Open(ctx, &kms.OpenOptions{
 		ConfigMap: kms.ConfigMap{
 			"restapi":     restAPI,

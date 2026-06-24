@@ -75,15 +75,6 @@ func (k *securosysKMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 }
 
 // GetKey returns an opaque Key using the passed options.
-//
-// Required ConfigMap key:
-//   - "name": Securosys key label
-//
-// Optional ConfigMap keys:
-//   - "password": key password, if the Securosys key requires one
-//   - "cipher_algorithm": provider-specific cipher override. Native Securosys
-//     values from helpers.AES_CIPHER_LIST and helpers.RSA_CIPHER_LIST are
-//     accepted, as are compatibility names handled by helpers.MapCipherAlgorithm.
 func (k *securosysKMS) GetKey(ctx context.Context, opts *kms.KeyOptions) (kms.Key, error) {
 	if k.client == nil {
 		return nil, errors.New("KMS not opened")

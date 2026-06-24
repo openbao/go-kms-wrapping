@@ -33,14 +33,10 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 		return nil, err
 	}
 
-	// Don't ever return blank options
 	if opts.Options == nil {
 		opts.Options = new(wrapping.Options)
 	}
 
-	// Local options can be provided either via the WithConfigMap field
-	// (for over the plugin barrier or embedding) or via local option functions
-	// (for embedding). First pull from the option.
 	if opts.WithConfigMap != nil {
 		for k, v := range opts.WithConfigMap {
 			switch k {
@@ -84,8 +80,6 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 		}
 
 	}
-	// Now run the local options functions. This may overwrite options set by
-	// the options above.
 	for _, o := range localOptions {
 		if o != nil {
 			if err := o(&opts); err != nil {

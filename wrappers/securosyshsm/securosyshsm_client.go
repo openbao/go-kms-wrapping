@@ -42,8 +42,6 @@ type SecurosysHSMClient struct {
 	config   *Configurations
 }
 
-// Close releases the Securosys key reference and closes the underlying KMS
-// client.
 func (c *SecurosysHSMClient) Close() {
 	if c == nil {
 		return
@@ -62,11 +60,6 @@ func (c *SecurosysHSMClient) Close() {
 
 // newSecurosysHSMClient validates wrapper options, opens the Securosys KMS,
 // and resolves the configured key label.
-//
-// Required options are key_label, auth, and tsb_api_endpoint. TOKEN auth also
-// requires bearer_token through configuration validation. The returned
-// WrapperConfig intentionally omits secret values such as bearer_token and
-// key_password from metadata.
 func newSecurosysHSMClient(ctx context.Context, logger hclog.Logger, opts *options) (*SecurosysHSMClient, *wrapping.WrapperConfig, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -178,7 +171,7 @@ func buildWrapperConfigurations(logger hclog.Logger, opts *options) (*Configurat
 }
 
 // parsePolicy accepts all supported policy input forms and stores them as raw
-// JSON. Policy expansion lives in kms/securosyshsm's internal helpers.
+// JSON.
 func parsePolicy(logger hclog.Logger, opts *options) (json.RawMessage, error) {
 	switch {
 	case opts.withPolicy != "":
@@ -261,13 +254,6 @@ func securosysKMSConfigMap(config *Configurations) kms.ConfigMap {
 
 // Encrypt encrypts a base64-encoded wrapper plaintext with the configured KMS
 // key.
-//
-// The returned payload format is:
-//
-//	securosys:<key-label>:<base64 nonce>:<base64 ciphertext>
-//
-// The nonce is stored beside the ciphertext because kms.CipherOptions returns
-// it out-of-band for AES-GCM.
 func (c *SecurosysHSMClient) Encrypt(ctx context.Context, plaintext string) ([]byte, error) {
 	if c == nil || c.key == nil {
 		return nil, fmt.Errorf("securosys hsm key is not configured")
@@ -285,9 +271,6 @@ func (c *SecurosysHSMClient) Encrypt(ctx context.Context, plaintext string) ([]b
 }
 
 // Decrypt decrypts the base64 ciphertext component produced by Encrypt.
-//
-// keyVersion carries the base64 nonce from the wrapper payload for historical
-// compatibility with the client interface name.
 func (c *SecurosysHSMClient) Decrypt(ctx context.Context, encryptedPayload string, keyVersion string) ([]byte, error) {
 	if c == nil || c.key == nil {
 		return nil, fmt.Errorf("securosys hsm key is not configured")
