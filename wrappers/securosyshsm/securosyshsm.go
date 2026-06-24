@@ -15,10 +15,6 @@ import (
 )
 
 // Wrapper encrypts and decrypts go-kms-wrapping blobs with a Securosys HSM key.
-//
-// It delegates cryptographic operations to kms/securosyshsm via the new
-// kms.KMS/kms.Key interfaces. Blob ciphertext is stored as
-// "securosys:<key-label>:<base64 nonce>:<base64 ciphertext>".
 type Wrapper struct {
 	logger       hclog.Logger
 	client       securosysHSMClientEncryptor
@@ -44,9 +40,6 @@ func NewWrapper() *Wrapper {
 }
 
 // SetConfig processes wrapper configuration and opens the Securosys KMS client.
-//
-// Required config keys are tsb_api_endpoint, auth, and key_label. For TOKEN
-// auth, bearer_token is also required.
 func (s *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapping.WrapperConfig, error) {
 	opts, err := getOpts(opt...)
 	if err != nil {
