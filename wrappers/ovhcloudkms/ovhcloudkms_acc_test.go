@@ -4,10 +4,13 @@
 package ovhcloudkms
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"reflect"
 	"testing"
+
+	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
 
 // This test executes real calls. The calls themselves should be free,
@@ -46,6 +49,9 @@ func TestAccOvhcloudKmsWrapper_Lifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err: %s", err.Error())
 	}
+	if bytes.Equal(input, swi.Ciphertext) {
+		t.Fatalf("ciphertext should differ from input")
+	}
 
 	pt, err := ow.Decrypt(context.Background(), swi)
 	if err != nil {
@@ -54,5 +60,23 @@ func TestAccOvhcloudKmsWrapper_Lifecycle(t *testing.T) {
 
 	if !reflect.DeepEqual(input, pt) {
 		t.Fatalf("expected %s, got %s", input, pt)
+	}
+
+	swi2, err := ow.Encrypt(context.Background(), input)
+	if err != nil {
+		t.Fatalf("err: %s", err.Error())
+	}
+	if bytes.Equal(swi.Ciphertext, swi2.Ciphertext) {
+		t.Fatalf("re-encrypting the same input should produce a different ciphertext")
+	}
+
+	corruptedSwi := &wrapping.BlobInfo{
+		Ciphertext: bytes.Clone(swi.Ciphertext),
+		Iv:         swi.Iv,
+		KeyInfo:    swi.KeyInfo,
+	}
+	corruptedSwi.Ciphertext[0] ^= 0xff
+	if _, err := ow.Decrypt(context.Background(), corruptedSwi); err == nil {
+		t.Fatalf("decrypt corrupted ciphertext should return an error")
 	}
 }
