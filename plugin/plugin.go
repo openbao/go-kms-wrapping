@@ -9,7 +9,7 @@ import (
 
 	log "github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin"
-	"github.com/openbao/go-kms-wrapping/v2"
+	wrapping "github.com/openbao/go-kms-wrapping/v2"
 	"github.com/openbao/go-kms-wrapping/v2/kms"
 )
 
@@ -65,6 +65,7 @@ func Serve(opts *ServeOpts) {
 	if opts.WrapperFactoryFunc != nil {
 		v1["wrapper"] = &gRPCWrapperPlugin{
 			factory: opts.WrapperFactoryFunc,
+			logger:  logger,
 		}
 	}
 
@@ -93,6 +94,7 @@ var PluginSets = map[int]plugin.PluginSet{
 
 type gRPCWrapperPlugin struct {
 	factory func() wrapping.Wrapper
+	logger  log.Logger
 
 	// Embedding this will disable the netRPC protocol.
 	plugin.NetRPCUnsupportedPlugin

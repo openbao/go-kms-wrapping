@@ -89,7 +89,7 @@ func (k *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 	}
 
 	k.keyNotRequired = opts.withKeyNotRequired
-	k.logger = opts.withLogger
+	k.logger = opts.WithLogger
 
 	// Check and set KeyId
 	switch {

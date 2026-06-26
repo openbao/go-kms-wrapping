@@ -21,7 +21,7 @@ func Test_GetOpts(t *testing.T) {
 	})
 	t.Run("wrong-type", func(t *testing.T) {
 		assert := assert.New(t)
-		opts, err := GetOpts(Option(func() interface{} {
+		opts, err := GetOpts(Option(func() any {
 			return nil
 		}))
 		assert.Error(err)
@@ -29,7 +29,7 @@ func Test_GetOpts(t *testing.T) {
 	})
 	t.Run("right-type", func(t *testing.T) {
 		assert := assert.New(t)
-		opts, err := GetOpts(Option(func() interface{} {
+		opts, err := GetOpts(Option(func() any {
 			return OptionFunc(func(*Options) error {
 				return nil
 			})
@@ -70,7 +70,7 @@ func Test_GetOpts(t *testing.T) {
 
 func testOptionWithError(t *testing.T) Option {
 	t.Helper()
-	return func() interface{} {
+	return func() any {
 		return OptionFunc(func(o *Options) error {
 			return errors.New("option error")
 		})

@@ -9,7 +9,7 @@ option go_package = "github.com/openbao/go-kms-wrapping/plugin/v2/pb";
 import "types.proto";
 
 message SetConfigRequest {
-  wrapping.Options options = 20;
+  wrapping.RPCOptions options = 20;
 }
 message SetConfigResponse {
   string wrapper_id = 1;
@@ -33,7 +33,7 @@ message KeyIdResponse {
 message EncryptRequest {
   string wrapper_id = 1;
   bytes plaintext = 10;
-  wrapping.Options options = 20;
+  wrapping.RPCOptions options = 20;
 }
 message EncryptResponse {
   wrapping.BlobInfo ciphertext = 10;
@@ -42,7 +42,7 @@ message EncryptResponse {
 message DecryptRequest {
   string wrapper_id = 1;
   wrapping.BlobInfo ciphertext = 10;
-  wrapping.Options options = 20;
+  wrapping.RPCOptions options = 20;
 }
 message DecryptResponse {
   bytes plaintext = 10;
@@ -50,13 +50,13 @@ message DecryptResponse {
 
 message InitRequest {
   string wrapper_id = 1;
-  wrapping.Options options = 20;
+  wrapping.RPCOptions options = 20;
 }
 message InitResponse {}
 
 message FinalizeRequest {
   string wrapper_id = 1;
-  wrapping.Options options = 20;
+  wrapping.RPCOptions options = 20;
 }
 message FinalizeResponse {}
 

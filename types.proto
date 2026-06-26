@@ -55,8 +55,9 @@ message KeyInfo {
   bytes wrapped_key = 5;
 }
 
-// Options holds options common to all wrappers.
-message Options {
+// RPCOptions holds options common to all wrappers that can pass over an
+// RPC/plugin boundary.
+message RPCOptions {
   // The key ID to specify.
   string with_key_id = 10;
 

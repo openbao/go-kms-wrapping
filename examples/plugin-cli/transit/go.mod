@@ -8,7 +8,7 @@ replace github.com/openbao/go-kms-wrapping/wrappers/transit/v2 => ../../../wrapp
 
 require (
 	github.com/openbao/go-kms-wrapping/plugin/v2 v2.0.0-00010101000000-000000000000
-	github.com/openbao/go-kms-wrapping/v2 v2.6.0
+	github.com/openbao/go-kms-wrapping/v2 v2.8.0
 	github.com/openbao/go-kms-wrapping/wrappers/transit/v2 v2.3.0
 )
 

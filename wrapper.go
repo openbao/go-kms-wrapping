@@ -24,6 +24,7 @@ type Wrapper interface {
 	// 	- WithKeyId
 	// 	- WithConfigMap
 	//  - WithDisallowEnvVars
+	//  - WithLogger
 	//
 	// Not all wrappers will support all available options. Additionally,
 	// provider-specific options defined by specific wrapper packages may be
