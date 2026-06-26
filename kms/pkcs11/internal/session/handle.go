@@ -26,7 +26,6 @@ func (h *Handle) Close() error {
 	if !h.closed.CompareAndSwap(false, true) {
 		return errors.New("session is already closed")
 	}
-
 	return h.pool.put(h.session)
 }
 
@@ -73,18 +72,6 @@ func (h *Handle) Encrypt(data []byte) ([]byte, error) {
 	return output, mapErr(err, "Encrypt")
 }
 
-// EncryptUpdate wraps C_EncryptUpdate.
-func (h *Handle) EncryptUpdate(data []byte) ([]byte, error) {
-	output, err := h.pool.mod.EncryptUpdate(h.session, data)
-	return output, mapErr(err, "EncryptUpdate")
-}
-
-// EncryptFinal wraps C_EncryptFinal.
-func (h *Handle) EncryptFinal() ([]byte, error) {
-	output, err := h.pool.mod.EncryptFinal(h.session)
-	return output, mapErr(err, "EncryptFinal")
-}
-
 // DecryptInit wraps C_DecryptInit.
 func (h *Handle) DecryptInit(m *pkcs11.Mechanism, o pkcs11.ObjectHandle) error {
 	return mapErr(h.pool.mod.DecryptInit(h.session, []*pkcs11.Mechanism{m}, o), "DecryptInit")
@@ -94,18 +81,6 @@ func (h *Handle) DecryptInit(m *pkcs11.Mechanism, o pkcs11.ObjectHandle) error {
 func (h *Handle) Decrypt(data []byte) ([]byte, error) {
 	output, err := h.pool.mod.Decrypt(h.session, data)
 	return output, mapErr(err, "Decrypt")
-}
-
-// DecryptUpdate wraps C_DecryptUpdate.
-func (h *Handle) DecryptUpdate(data []byte) ([]byte, error) {
-	output, err := h.pool.mod.DecryptUpdate(h.session, data)
-	return output, mapErr(err, "DecryptUpdate")
-}
-
-// DecryptFinal wraps C_DecryptFinal.
-func (h *Handle) DecryptFinal() ([]byte, error) {
-	output, err := h.pool.mod.DecryptFinal(h.session)
-	return output, mapErr(err, "DecryptFinal")
 }
 
 // SignInit wraps C_SignInit.
