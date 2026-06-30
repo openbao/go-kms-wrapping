@@ -9,6 +9,7 @@ test:
 	cd wrappers/huaweicloudkms && go test ./... $(TESTARGS)
 	cd wrappers/kmip && go test ./... $(TESTARGS)
 	cd wrappers/ocikms && go test ./... $(TESTARGS)
+	cd wrappers/ovhcloudkms && go test ./... $(TESTARGS)
 	cd wrappers/tcloudpublickms && go test ./... $(TESTARGS)
 	cd wrappers/pkcs11 && go test ./... $(TESTARGS)
 	cd wrappers/static && go test ./... $(TESTARGS)
@@ -32,6 +33,7 @@ tidy-all:
 	cd wrappers/huaweicloudkms && go mod tidy
 	cd wrappers/kmip && go mod tidy
 	cd wrappers/ocikms && go mod tidy
+	cd wrappers/ovhcloudkms && go mod tidy
 	cd wrappers/pkcs11 && go mod tidy
 	cd wrappers/tcloudpublickms && go mod tidy
 	cd wrappers/tencentcloudkms && go mod tidy
@@ -54,6 +56,7 @@ generate-all:
 	cd wrappers/huaweicloudkms && GOARCH= GOOS= go generate ./...
 	cd wrappers/kmip && GOARCH= GOOS= go generate ./...
 	cd wrappers/ocikms && GOARCH= GOOS= go generate ./...
+	cd wrappers/ovhcloudkms && GOARCH= GOOS= go generate ./...
 	cd wrappers/tcloudpublickms && GOARCH= GOOS= go generate ./...
 	cd wrappers/pkcs11 && GOARCH= GOOS= go generate ./...
 	cd wrappers/static && GOARCH= GOOS= go generate ./...
