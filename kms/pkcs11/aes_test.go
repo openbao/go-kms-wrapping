@@ -26,7 +26,8 @@ func TestGCM(t *testing.T) {
 
 	// Retrieve it via GetKey:
 	key, err := svc.GetKey(ctx, &kms.KeyOptions{
-		ConfigMap: kms.ConfigMap{"label": label}})
+		ConfigMap: kms.ConfigMap{"label": label},
+	})
 	require.NoError(t, err)
 	require.IsType(t, aesKey{}, key)
 
@@ -38,7 +39,8 @@ func TestGCM(t *testing.T) {
 		require.NotEmpty(t, ciphertext)
 		require.NotEqual(t, input, ciphertext)
 		plaintext, err := key.Decrypt(ctx, &kms.CipherOptions{
-			Data: ciphertext, AAD: aad, Nonce: opts.Nonce})
+			Data: ciphertext, AAD: aad, Nonce: opts.Nonce,
+		})
 		require.NoError(t, err)
 		require.Equal(t, input, plaintext)
 	}

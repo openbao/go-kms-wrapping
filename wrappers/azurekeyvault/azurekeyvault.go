@@ -206,7 +206,6 @@ func (v *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 
 	switch {
 	case os.Getenv(EnvVaultAzureKeyVaultManagedIdentityKind) != "" && !opts.WithDisallowEnvVars:
-
 	}
 
 	switch {

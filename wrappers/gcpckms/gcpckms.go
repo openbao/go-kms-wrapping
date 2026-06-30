@@ -313,7 +313,8 @@ func (s *Wrapper) Client() *cloudkms.KeyManagementClient {
 
 // createClient returns a configured GCP KMS client.
 func (s *Wrapper) createClient() (*cloudkms.KeyManagementClient, error) {
-	client, err := cloudkms.NewKeyManagementClient(context.Background(),
+	client, err := cloudkms.NewKeyManagementClient(
+		context.Background(),
 		option.WithCredentialsFile(s.credsPath),
 		option.WithUserAgent(s.userAgent),
 	)

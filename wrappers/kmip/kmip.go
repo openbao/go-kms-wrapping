@@ -465,7 +465,8 @@ func (kms *Wrapper) verifyKey(ctx context.Context, client *kmipclient.Client) er
 //
 // The public key id is returned when keyId matches a private key, otherwise the returned public key id is empty.
 func verifyKeyAttributes(ctx context.Context, client *kmipclient.Client, keyId string, alg kmip.CryptographicAlgorithm, expectedObjectType kmip.ObjectType) (string, error) {
-	resp, err := client.GetAttributes(keyId,
+	resp, err := client.GetAttributes(
+		keyId,
 		kmip.AttributeNameObjectType,
 		kmip.AttributeNameCryptographicAlgorithm,
 		kmip.AttributeNameCryptographicUsageMask,
