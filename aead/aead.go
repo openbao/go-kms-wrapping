@@ -89,7 +89,7 @@ func (s *Wrapper) NewDerivedWrapper(opt ...wrapping.Option) (*Wrapper, error) {
 		}
 		ret.keyBytes = keyBytes
 
-		if (len(ret.keyBytes)) != len(s.keyBytes) {
+		if len(ret.keyBytes) != len(s.keyBytes) {
 			return nil, fmt.Errorf("expected to read %d bytes, but read %d bytes from derived reader", len(s.keyBytes), len(keyBytes))
 		}
 		if err := ret.SetAesGcmKeyBytes(ret.keyBytes); err != nil {

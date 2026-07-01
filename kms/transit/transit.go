@@ -188,7 +188,8 @@ func (k *transitKey) Encrypt(ctx context.Context, opts *kms.CipherOptions) ([]by
 	}
 
 	resp, err := k.client.Logical().WriteWithContext(
-		ctx, path.Join(k.mount, "encrypt", k.name), data)
+		ctx, path.Join(k.mount, "encrypt", k.name), data,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +222,8 @@ func (k *transitKey) Decrypt(ctx context.Context, opts *kms.CipherOptions) ([]by
 	}
 
 	resp, err := k.client.Logical().WriteWithContext(
-		ctx, path.Join(k.mount, "decrypt", k.name), data)
+		ctx, path.Join(k.mount, "decrypt", k.name), data,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -296,7 +298,8 @@ func (k *transitKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte, e
 	}
 
 	resp, err := k.client.Logical().WriteWithContext(
-		ctx, path.Join(k.mount, "sign", k.name), data)
+		ctx, path.Join(k.mount, "sign", k.name), data,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -370,7 +373,8 @@ func (k *transitKey) Verify(ctx context.Context, opts *kms.VerifyOptions) error 
 	}
 
 	resp, err := k.client.Logical().WriteWithContext(
-		ctx, path.Join(k.mount, "verify", k.name), data)
+		ctx, path.Join(k.mount, "verify", k.name), data,
+	)
 	if err != nil {
 		return err
 	}
@@ -388,7 +392,8 @@ func (k *transitKey) Verify(ctx context.Context, opts *kms.VerifyOptions) error 
 // See: https://openbao.org/api-docs/secret/transit/#export-key
 func (k *transitKey) ExportPublic(ctx context.Context) (crypto.PublicKey, error) {
 	resp, err := k.client.Logical().ReadWithContext(
-		ctx, path.Join(k.mount, "export/public-key", k.name, "latest"))
+		ctx, path.Join(k.mount, "export/public-key", k.name, "latest"),
+	)
 	if err != nil {
 		return nil, err
 	}

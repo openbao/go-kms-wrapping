@@ -86,7 +86,8 @@ func TestPSS(t *testing.T) {
 
 	// Retrieve it via GetKey:
 	key, err := svc.GetKey(ctx, &kms.KeyOptions{
-		ConfigMap: kms.ConfigMap{"label": label}})
+		ConfigMap: kms.ConfigMap{"label": label},
+	})
 	require.NoError(t, err)
 	require.IsType(t, &rsaKey{}, key)
 

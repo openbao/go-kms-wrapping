@@ -104,7 +104,8 @@ func test(t *testing.T, k kms.KMS, opts *kms.OpenOptions) {
 		} {
 			t.Run(name, func(t *testing.T) {
 				key, err := k.GetKey(ctx, &kms.KeyOptions{
-					ConfigMap: kms.ConfigMap{"name": name}})
+					ConfigMap: kms.ConfigMap{"name": name},
+				})
 				require.NoError(t, err)
 				t.Run("aad", func(t *testing.T) { roundtrip(t, key, input, aad) })
 				t.Run("no-aad", func(t *testing.T) { roundtrip(t, key, input, nil) })
@@ -113,7 +114,8 @@ func test(t *testing.T, k kms.KMS, opts *kms.OpenOptions) {
 
 		t.Run("rsa-4096", func(t *testing.T) {
 			key, err := k.GetKey(ctx, &kms.KeyOptions{
-				ConfigMap: kms.ConfigMap{"name": "rsa-4096"}})
+				ConfigMap: kms.ConfigMap{"name": "rsa-4096"},
+			})
 			require.NoError(t, err)
 			roundtrip(t, key, input, nil)
 		})
@@ -161,7 +163,8 @@ func test(t *testing.T, k kms.KMS, opts *kms.OpenOptions) {
 
 		t.Run("rsa-4096", func(t *testing.T) {
 			key, err := k.GetKey(ctx, &kms.KeyOptions{
-				ConfigMap: kms.ConfigMap{"name": "rsa-4096"}})
+				ConfigMap: kms.ConfigMap{"name": "rsa-4096"},
+			})
 			require.NoError(t, err)
 			roundtrip(t, key, &rsa.PSSOptions{
 				SaltLength: rsa.PSSSaltLengthAuto,
@@ -176,7 +179,8 @@ func test(t *testing.T, k kms.KMS, opts *kms.OpenOptions) {
 		} {
 			t.Run(name, func(t *testing.T) {
 				key, err := k.GetKey(ctx, &kms.KeyOptions{
-					ConfigMap: kms.ConfigMap{"name": name}})
+					ConfigMap: kms.ConfigMap{"name": name},
+				})
 				require.NoError(t, err)
 				roundtrip(t, key, hash)
 			})
@@ -184,7 +188,8 @@ func test(t *testing.T, k kms.KMS, opts *kms.OpenOptions) {
 
 		t.Run("ed25519", func(t *testing.T) {
 			key, err := k.GetKey(ctx, &kms.KeyOptions{
-				ConfigMap: kms.ConfigMap{"name": "ed25519"}})
+				ConfigMap: kms.ConfigMap{"name": "ed25519"},
+			})
 			require.NoError(t, err)
 			opts := &kms.SignOptions{
 				Data:       []byte("foo"),
@@ -206,7 +211,8 @@ func test(t *testing.T, k kms.KMS, opts *kms.OpenOptions) {
 				ConfigMap: kms.ConfigMap{
 					"name":               "ecdsa-p256",
 					"disable_prehashing": true,
-				}})
+				},
+			})
 			require.NoError(t, err)
 			h := crypto.SHA256.New()
 			_, _ = h.Write([]byte("foo"))
@@ -231,7 +237,8 @@ func test(t *testing.T, k kms.KMS, opts *kms.OpenOptions) {
 		for name, want := range tests {
 			t.Run(name, func(t *testing.T) {
 				key, err := k.GetKey(ctx, &kms.KeyOptions{
-					ConfigMap: kms.ConfigMap{"name": name}})
+					ConfigMap: kms.ConfigMap{"name": name},
+				})
 				require.NoError(t, err)
 				pub, err := key.ExportPublic(ctx)
 				require.NoError(t, err)
@@ -243,7 +250,8 @@ func test(t *testing.T, k kms.KMS, opts *kms.OpenOptions) {
 		// part.
 		t.Run("aes256-gcm96", func(t *testing.T) {
 			key, err := k.GetKey(ctx, &kms.KeyOptions{
-				ConfigMap: kms.ConfigMap{"name": "aes256-gcm96"}})
+				ConfigMap: kms.ConfigMap{"name": "aes256-gcm96"},
+			})
 			require.NoError(t, err)
 			_, err = key.ExportPublic(ctx)
 			require.Error(t, err)
@@ -261,7 +269,8 @@ func test(t *testing.T, k kms.KMS, opts *kms.OpenOptions) {
 		for name, algo := range tests {
 			t.Run(name, func(t *testing.T) {
 				key, err := k.GetKey(ctx, &kms.KeyOptions{
-					ConfigMap: kms.ConfigMap{"name": name}})
+					ConfigMap: kms.ConfigMap{"name": name},
+				})
 				require.NoError(t, err)
 				signer, err := kms.NewSigner(ctx, key)
 				require.NoError(t, err)

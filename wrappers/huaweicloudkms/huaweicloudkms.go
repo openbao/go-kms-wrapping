@@ -61,7 +61,8 @@ func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 	keyId, err := getConfig(
 		"kms_key_id",
 		os.Getenv(EnvHuaweiCloudKmsWrapperKeyId),
-		opts.WithKeyId)
+		opts.WithKeyId,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -288,7 +289,8 @@ func (c *kmsClientImpl) encrypt(keyID, plainText string) (encryptResponse, error
 		&golangsdk.RequestOpts{
 			OkCodes:     []int{200},
 			MoreHeaders: map[string]string{"Content-Type": "application/json"},
-		})
+		},
+	)
 
 	resp := encryptResponse{}
 	err := r.ExtractInto(&resp)
@@ -308,7 +310,8 @@ func (c *kmsClientImpl) decrypt(cipherText string) (string, error) {
 		&golangsdk.RequestOpts{
 			OkCodes:     []int{200},
 			MoreHeaders: map[string]string{"Content-Type": "application/json"},
-		})
+		},
+	)
 
 	var resp struct {
 		PlainText string `json:"plain_text"`

@@ -269,9 +269,11 @@ var _ KMS = UnimplementedKMS{}
 func (UnimplementedKMS) Open(context.Context, *OpenOptions) error {
 	return ErrNotImplemented
 }
+
 func (UnimplementedKMS) GetKey(context.Context, *KeyOptions) (Key, error) {
 	return nil, ErrNotImplemented
 }
+
 func (UnimplementedKMS) Close(context.Context) error {
 	return nil
 }
@@ -287,18 +289,23 @@ var _ Key = UnimplementedKey{}
 func (UnimplementedKey) Encrypt(context.Context, *CipherOptions) ([]byte, error) {
 	return nil, ErrNotImplemented
 }
+
 func (UnimplementedKey) Decrypt(context.Context, *CipherOptions) ([]byte, error) {
 	return nil, ErrNotImplemented
 }
+
 func (UnimplementedKey) Sign(context.Context, *SignOptions) ([]byte, error) {
 	return nil, ErrNotImplemented
 }
+
 func (UnimplementedKey) Verify(context.Context, *VerifyOptions) error {
 	return ErrNotImplemented
 }
+
 func (UnimplementedKey) ExportPublic(context.Context) (crypto.PublicKey, error) {
 	return nil, ErrNotImplemented
 }
+
 func (UnimplementedKey) Close(context.Context) error {
 	return nil
 }
