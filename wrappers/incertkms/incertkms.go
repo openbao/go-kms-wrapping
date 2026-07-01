@@ -10,31 +10,30 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	log "github.com/hashicorp/go-hclog"
 	kmssdk "github.com/incert-kms/kms-sdk-go"
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
+
+const Type wrapping.WrapperType = "incertkms"
 
 type Wrapper struct {
 	key     uuid.UUID
 	vSlot   uuid.UUID
 	keyName string
 	kms     *kmssdk.Client
-	logger  log.Logger
 }
 
 var _ wrapping.Wrapper = (*Wrapper)(nil)
 
 func NewWrapper() *Wrapper {
 	s := &Wrapper{
-		logger:  log.New(&log.LoggerOptions{Name: "incertkms"}),
 		keyName: "openbao-seal-key",
 	}
 	return s
 }
 
 func (w *Wrapper) Type(ctx context.Context) (wrapping.WrapperType, error) {
-	return wrapping.WrapperTypeIncertKms, nil
+	return Type, nil
 }
 
 func (w *Wrapper) KeyId(ctx context.Context) (string, error) {
@@ -47,47 +46,58 @@ func (w *Wrapper) SetConfig(ctx context.Context, options ...wrapping.Option) (*w
 		return nil, err
 	}
 
-	baseURL := opts.withKmsUrl
+	baseURL := opts.withUrl
 	if baseURL == "" {
-		return nil, fmt.Errorf("incertkms: kms_url is required")
+		return nil, fmt.Errorf("incertkms: url is required")
 	}
 
-	username := opts.withKmsUsername
+	username := opts.withUsername
 	if username == "" {
-		return nil, fmt.Errorf("incertkms: kms_username is required")
+		return nil, fmt.Errorf("incertkms: username is required")
 	}
 
-	password := opts.withKmsPassword
+	password := opts.withPassword
 	if password == "" {
-		return nil, fmt.Errorf("incertkms: kms_password is required")
+		return nil, fmt.Errorf("incertkms: password is required")
 	}
 
-	if opts.withKmsVSlot != "" {
-		vslotId, err := uuid.Parse(opts.withKmsVSlot)
+	if opts.withVSlot != "" {
+		vslotId, err := uuid.Parse(opts.withVSlot)
 		if err != nil {
-			return nil, fmt.Errorf("incertkms: invalid kms_vslot format: %w", err)
+			return nil, fmt.Errorf("incertkms: invalid vslot format: %w", err)
 		}
 		w.vSlot = vslotId
 	}
 
-	if opts.withKmsKey != "" {
-		keyId, err := uuid.Parse(opts.withKmsKey)
+	if opts.withKey != "" {
+		keyId, err := uuid.Parse(opts.withKey)
 		if err != nil {
-			return nil, fmt.Errorf("incertkms: invalid kms_key format: %w", err)
+			return nil, fmt.Errorf("incertkms: invalid key format: %w", err)
 		}
 		w.key = keyId
 	}
 
-	if opts.withKmsKeyName != "" {
-		w.keyName = opts.withKmsKeyName
+	if opts.withKeyName != "" {
+		w.keyName = opts.withKeyName
 	}
 
-	w.kms = kmssdk.NewClient(
-		ctx,
-		kmssdk.WithTLSSkipVerify(),
+	clientOpts := []kmssdk.Option{
 		kmssdk.WithUsernameAndPassword(username, password),
-		kmssdk.WithBaseURL(baseURL+"/api"),
-	)
+		kmssdk.WithBaseURL(baseURL + "/api"),
+	}
+
+	// TLS verification is enabled by default. Only override the SDK's default
+	// client when the operator has supplied a custom CA or has explicitly opted
+	// into skipping verification.
+	if opts.tlsConfigured() {
+		httpClient, err := opts.buildHTTPClient()
+		if err != nil {
+			return nil, err
+		}
+		clientOpts = append(clientOpts, kmssdk.WithHTTPClient(httpClient))
+	}
+
+	w.kms = kmssdk.NewClient(ctx, clientOpts...)
 
 	err = w.kms.Connect(ctx)
 	if err != nil {
@@ -110,9 +120,9 @@ func (w *Wrapper) SetConfig(ctx context.Context, options ...wrapping.Option) (*w
 
 	wrapConfig := new(wrapping.WrapperConfig)
 	wrapConfig.Metadata = make(map[string]string)
-	wrapConfig.Metadata["kms_url"] = baseURL
-	wrapConfig.Metadata["kms_vslot"] = w.vSlot.String()
-	wrapConfig.Metadata["kms_key"] = w.key.String()
+	wrapConfig.Metadata["url"] = baseURL
+	wrapConfig.Metadata["vslot"] = w.vSlot.String()
+	wrapConfig.Metadata["key"] = w.key.String()
 
 	return wrapConfig, nil
 }

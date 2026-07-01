@@ -15,6 +15,7 @@ jobs:
           - './wrappers/azurekeyvault'
           - './wrappers/gcpckms'
           - './wrappers/huaweicloudkms'
+          - './wrappers/incertkms'
           - './wrappers/kmip'
           - './wrappers/ocikms'
           - './wrappers/pkcs11'

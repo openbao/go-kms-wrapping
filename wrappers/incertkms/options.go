@@ -3,7 +3,12 @@
 
 package incertkms
 
-import wrapping "github.com/openbao/go-kms-wrapping/v2"
+import (
+	"fmt"
+	"strconv"
+
+	wrapping "github.com/openbao/go-kms-wrapping/v2"
+)
 
 // getOpts iterates the inbound Options and returns a struct
 func getOpts(opt ...wrapping.Option) (*options, error) {
@@ -26,18 +31,27 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 	if opts.WithConfigMap != nil {
 		for k, v := range opts.WithConfigMap {
 			switch k {
-			case "kms_url":
-				opts.withKmsUrl = v
-			case "kms_username":
-				opts.withKmsUsername = v
-			case "kms_password":
-				opts.withKmsPassword = v
-			case "kms_key":
-				opts.withKmsKey = v
-			case "kms_vslot":
-				opts.withKmsVSlot = v
-			case "kms_key_name":
-				opts.withKmsKeyName = v
+			case "url":
+				opts.withUrl = v
+			case "username":
+				opts.withUsername = v
+			case "password":
+				opts.withPassword = v
+			case "key":
+				opts.withKey = v
+			case "vslot":
+				opts.withVSlot = v
+			case "key_name":
+				opts.withKeyName = v
+			case "tls_ca_cert":
+				opts.withTlsCaCert = v
+			case "tls_ca_path":
+				opts.withTlsCaPath = v
+			case "tls_skip_verify":
+				opts.withTlsSkipVerify, err = strconv.ParseBool(v)
+				if err != nil {
+					return nil, fmt.Errorf("incertkms: invalid tls_skip_verify value %q: %w", v, err)
+				}
 			}
 		}
 	}
@@ -48,16 +62,20 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 type options struct {
 	*wrapping.Options
 
-	withKmsUrl      string
-	withKmsUsername string
-	withKmsPassword string
-	withKmsKey      string
-	withKmsVSlot    string
-	withKmsKeyName  string
+	withUrl      string
+	withUsername string
+	withPassword string
+	withKey      string
+	withVSlot    string
+	withKeyName  string
+
+	withTlsCaCert     string
+	withTlsCaPath     string
+	withTlsSkipVerify bool
 }
 
 func getDefaultOptions() options {
 	return options{
-		withKmsUrl: "https://kms-uat.incert.lu/kms",
+		withUrl: "https://kms-uat.incert.lu/kms",
 	}
 }

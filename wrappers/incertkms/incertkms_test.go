@@ -23,7 +23,7 @@ func TestIncertKmsWrapper_Type(t *testing.T) {
 
 	typ, err := w.Type(t.Context())
 	require.NoError(err)
-	assert.Equal(wrapping.WrapperTypeIncertKms, typ)
+	assert.Equal(Type, typ)
 }
 
 func TestIncertKmsWrapper_Lifecycle(t *testing.T) {
@@ -39,37 +39,37 @@ func TestIncertKmsWrapper_SetConfig_RequiredFields(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name:    "missing kms_username",
+			name:    "missing username",
 			config:  nil,
-			wantErr: "kms_username is required",
+			wantErr: "username is required",
 		},
 		{
-			name: "missing kms_password",
+			name: "missing password",
 			config: map[string]string{
-				"kms_url":      "http://localhost:3000",
-				"kms_username": "opo",
+				"url":      "http://localhost:3000",
+				"username": "opo",
 			},
-			wantErr: "kms_password is required",
+			wantErr: "password is required",
 		},
 		{
-			name: "invalid kms_vslot uuid",
+			name: "invalid vslot uuid",
 			config: map[string]string{
-				"kms_url":      "http://localhost:3000",
-				"kms_username": "opo",
-				"kms_password": "Parizer1!",
-				"kms_vslot":    "not-a-uuid",
+				"url":      "http://localhost:3000",
+				"username": "opo",
+				"password": "Parizer1!",
+				"vslot":    "not-a-uuid",
 			},
-			wantErr: "invalid kms_vslot format",
+			wantErr: "invalid vslot format",
 		},
 		{
-			name: "invalid kms_key uuid",
+			name: "invalid key uuid",
 			config: map[string]string{
-				"kms_url":      "http://localhost:3000",
-				"kms_username": "opo",
-				"kms_password": "Parizer1!",
-				"kms_key":      "not-a-uuid",
+				"url":      "http://localhost:3000",
+				"username": "opo",
+				"password": "Parizer1!",
+				"key":      "not-a-uuid",
 			},
-			wantErr: "invalid kms_key format",
+			wantErr: "invalid key format",
 		},
 	}
 

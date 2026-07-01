@@ -18,32 +18,49 @@ func Test_GetOpts(t *testing.T) {
 		opts, err := getOpts()
 		require.NoError(err)
 		// default is the public UAT endpoint
-		assert.Equal("https://kms-uat.incert.lu/kms", opts.withKmsUrl)
-		assert.Empty(opts.withKmsUsername)
-		assert.Empty(opts.withKmsPassword)
-		assert.Empty(opts.withKmsVSlot)
-		assert.Empty(opts.withKmsKey)
-		assert.Empty(opts.withKmsKeyName)
+		assert.Equal("https://kms-uat.incert.lu/kms", opts.withUrl)
+		assert.Empty(opts.withUsername)
+		assert.Empty(opts.withPassword)
+		assert.Empty(opts.withVSlot)
+		assert.Empty(opts.withKey)
+		assert.Empty(opts.withKeyName)
+		// TLS verification is on by default; no TLS material configured.
+		assert.False(opts.withTlsSkipVerify)
+		assert.False(opts.tlsConfigured())
 	})
 	t.Run("WithConfigMap", func(t *testing.T) {
 		assert, require := assert.New(t), require.New(t)
 
 		configMap := map[string]string{
-			"kms_url":      "http://localhost:3000",
-			"kms_username": "opo",
-			"kms_password": "Parizer1!",
-			"kms_vslot":    "a73b7303-ce75-4666-8a3d-e9fb269424fb",
-			"kms_key":      "bd5d7c4b-8ed3-4390-bcee-f37446bb420f",
-			"kms_key_name": "openbao-seal-key",
+			"url":             "http://localhost:3000",
+			"username":        "opo",
+			"password":        "Parizer1!",
+			"vslot":           "a73b7303-ce75-4666-8a3d-e9fb269424fb",
+			"key":             "bd5d7c4b-8ed3-4390-bcee-f37446bb420f",
+			"key_name":        "openbao-seal-key",
+			"tls_ca_cert":     "/etc/incert/ca.pem",
+			"tls_ca_path":     "/etc/incert/ca.d",
+			"tls_skip_verify": "true",
 		}
 
 		opts, err := getOpts(wrapping.WithConfigMap(configMap))
 		require.NoError(err)
-		assert.Equal("http://localhost:3000", opts.withKmsUrl)
-		assert.Equal("opo", opts.withKmsUsername)
-		assert.Equal("Parizer1!", opts.withKmsPassword)
-		assert.Equal("a73b7303-ce75-4666-8a3d-e9fb269424fb", opts.withKmsVSlot)
-		assert.Equal("bd5d7c4b-8ed3-4390-bcee-f37446bb420f", opts.withKmsKey)
-		assert.Equal("openbao-seal-key", opts.withKmsKeyName)
+		assert.Equal("http://localhost:3000", opts.withUrl)
+		assert.Equal("opo", opts.withUsername)
+		assert.Equal("Parizer1!", opts.withPassword)
+		assert.Equal("a73b7303-ce75-4666-8a3d-e9fb269424fb", opts.withVSlot)
+		assert.Equal("bd5d7c4b-8ed3-4390-bcee-f37446bb420f", opts.withKey)
+		assert.Equal("openbao-seal-key", opts.withKeyName)
+		assert.Equal("/etc/incert/ca.pem", opts.withTlsCaCert)
+		assert.Equal("/etc/incert/ca.d", opts.withTlsCaPath)
+		assert.True(opts.withTlsSkipVerify)
+		assert.True(opts.tlsConfigured())
+	})
+	t.Run("tls_skip_verify invalid", func(t *testing.T) {
+		require := require.New(t)
+		_, err := getOpts(wrapping.WithConfigMap(map[string]string{
+			"tls_skip_verify": "notabool",
+		}))
+		require.Error(err)
 	})
 }

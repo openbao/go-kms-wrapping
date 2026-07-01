@@ -55,7 +55,7 @@ func newIncertKmsTestWrapper() (*Wrapper, *httptest.Server) {
 	})
 
 	// List vslots. Returns a single vslot with the pre-allocated ID so that
-	// vslotInit matches the configured kms_vslot.
+	// vslotInit matches the configured vslot.
 	mux.HandleFunc("/api/vslots", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"content": []kmssdk.Vslot{
@@ -64,7 +64,7 @@ func newIncertKmsTestWrapper() (*Wrapper, *httptest.Server) {
 		})
 	})
 
-	// Create-key endpoint, used when no kms_key is configured.
+	// Create-key endpoint, used when no key is configured.
 	mux.HandleFunc("/api/vslots/", func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/p/kg") {
 			_ = json.NewEncoder(w).Encode(map[string]uuid.UUID{"id": keyID})
@@ -101,11 +101,11 @@ func newIncertKmsTestWrapper() (*Wrapper, *httptest.Server) {
 
 	wrapper := NewWrapper()
 	_, _ = wrapper.SetConfig(context.Background(), wrapping.WithConfigMap(map[string]string{
-		"kms_url":      srv.URL,
-		"kms_username": incertkmsTestUsername,
-		"kms_password": incertkmsTestPassword,
-		"kms_vslot":    vslotID.String(),
-		"kms_key":      keyID.String(),
+		"url":      srv.URL,
+		"username": incertkmsTestUsername,
+		"password": incertkmsTestPassword,
+		"vslot":    vslotID.String(),
+		"key":      keyID.String(),
 	}))
 
 	return wrapper, srv
