@@ -4,15 +4,19 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 
-	helpers "github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/helpers"
+	helpers "github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/internal/helpers"
 )
 
 // Function thats sends sign request to TSB
-func (c *TSBClient) Sign(label string, password string, payload string, payloadType string, signatureAlgorithm string) (*helpers.SignatureResponse, int, error) {
+func (c *TSBClient) Sign(ctx context.Context, label string, password string, payload string, payloadType string, signatureAlgorithm string) (*helpers.SignatureResponse, int, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	charsPasswordJson, _ := json.Marshal(helpers.StringToCharArray(password))
 	passwordString := ""
 	if len(charsPasswordJson) > 2 {
@@ -20,9 +24,9 @@ func (c *TSBClient) Sign(label string, password string, payload string, payloadT
 
 	}
 	signatureType := ``
-	if signatureAlgorithm == "EDDSA" {
-		signatureType = `,"signatureType":"RAW"`
-	}
+	// if signatureAlgorithm == "EDDSA" || strings.Contains(signatureAlgorithm, "ECDSA") {
+	signatureType = `,"signatureType":"RAW"`
+	// }
 
 	var jsonStr = []byte(`{
 		"signRequest": {
@@ -36,7 +40,7 @@ func (c *TSBClient) Sign(label string, password string, payload string, payloadT
 		}
 	  }`)
 
-	req, err := http.NewRequest("POST", c.HostURL+"/v1/synchronousSign", bytes.NewBuffer(jsonStr))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.HostURL+"/v1/synchronousSign", bytes.NewBuffer(jsonStr))
 	if err != nil {
 		return nil, 500, err
 	}
@@ -53,7 +57,10 @@ func (c *TSBClient) Sign(label string, password string, payload string, payloadT
 }
 
 // Function thats sends asynchronous sign request to TSB
-func (c *TSBClient) AsyncSign(label string, password string, payload string, payloadType string, signatureAlgorithm string, customMetaData map[string]string) (string, int, error) {
+func (c *TSBClient) AsyncSign(ctx context.Context, label string, password string, payload string, payloadType string, signatureAlgorithm string, customMetaData map[string]string) (string, int, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	charsPasswordJson, _ := json.Marshal(helpers.StringToCharArray(password))
 	var additionalMetaDataInfo map[string]string = make(map[string]string)
 
@@ -90,7 +97,7 @@ func (c *TSBClient) AsyncSign(label string, password string, payload string, pay
 		"signRequest": ` + requestJson + `,
 		"requestSignature":` + string(c.GenerateRequestSignature(requestJson)) + `
 	  }`))
-	req, err := http.NewRequest("POST", c.HostURL+"/v1/sign", bytes.NewBuffer(jsonStr))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.HostURL+"/v1/sign", bytes.NewBuffer(jsonStr))
 	if err != nil {
 		return "", 500, err
 	}
@@ -108,7 +115,10 @@ func (c *TSBClient) AsyncSign(label string, password string, payload string, pay
 }
 
 // Function thats sends verify request to TSB
-func (c *TSBClient) Verify(label string, password string, payload string, signatureAlgorithm string, signature string) (bool, int, error) {
+func (c *TSBClient) Verify(ctx context.Context, label string, password string, payload string, signatureAlgorithm string, signature string) (bool, int, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	charsPasswordJson, _ := json.Marshal(helpers.StringToCharArray(password))
 	passwordString := ""
 	if len(charsPasswordJson) > 2 {
@@ -126,7 +136,7 @@ func (c *TSBClient) Verify(label string, password string, payload string, signat
 		}
 	  }`)
 
-	req, err := http.NewRequest("POST", c.HostURL+"/v1/verify", bytes.NewBuffer(jsonStr))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.HostURL+"/v1/verify", bytes.NewBuffer(jsonStr))
 	if err != nil {
 		return false, 500, err
 	}

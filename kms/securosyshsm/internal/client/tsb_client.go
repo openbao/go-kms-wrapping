@@ -225,6 +225,9 @@ func (c *TSBClient) doRequest(req *http.Request, apiKeyName string) ([]byte, int
 
 	res, err := c.HTTPClient.Do(req)
 	if err != nil {
+		if res == nil {
+			return nil, 0, err
+		}
 		return nil, res.StatusCode, err
 	}
 	defer res.Body.Close()

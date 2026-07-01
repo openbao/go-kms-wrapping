@@ -4,11 +4,12 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 
-	helpers "github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/helpers"
+	helpers "github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/internal/helpers"
 )
 
 // Function thats sends update key password request to TSB
@@ -189,7 +190,10 @@ func (c *TSBClient) ExportKey(label string, password string) (map[string]interfa
 }
 
 // Function thats sends get key attribute request to TSB
-func (c *TSBClient) GetKey(label string, password string) (helpers.KeyAttributes, error) {
+func (c *TSBClient) GetKey(ctx context.Context, label string, password string) (helpers.KeyAttributes, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 
 	charsPasswordJson, _ := json.Marshal(helpers.StringToCharArray(password))
 	passwordString := ""
@@ -202,7 +206,7 @@ func (c *TSBClient) GetKey(label string, password string) (helpers.KeyAttributes
 			"label":"` + label + `"		
 		}`)
 
-	req, err := http.NewRequest("POST", c.HostURL+"/v1/key/attributes", bytes.NewBuffer(jsonStr))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.HostURL+"/v1/key/attributes", bytes.NewBuffer(jsonStr))
 	var key helpers.KeyAttributes
 	if err != nil {
 		return key, err

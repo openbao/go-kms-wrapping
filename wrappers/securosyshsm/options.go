@@ -32,21 +32,17 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 		return nil, err
 	}
 
-	// Don't ever return blank options
 	if opts.Options == nil {
 		opts.Options = new(wrapping.Options)
 	}
 
-	// Local options can be provided either via the WithConfigMap field
-	// (for over the plugin barrier or embedding) or via local option functions
-	// (for embedding). First pull from the option.
 	if opts.WithConfigMap != nil {
 		for k, v := range opts.WithConfigMap {
 			switch k {
 			case "key_label":
 				opts.withKeyLabel = v
-			// case "key_password":
-			// 	opts.withKeyPassword = v
+			case "key_password":
+				opts.withKeyPassword = v
 			case "approval_timeout":
 				opts.withApprovalTimeout = v
 			case "auth":
@@ -83,8 +79,6 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 		}
 
 	}
-	// Now run the local options functions. This may overwrite options set by
-	// the options above.
 	for _, o := range localOptions {
 		if o != nil {
 			if err := o(&opts); err != nil {
@@ -103,8 +97,8 @@ type OptionFunc func(*options) error
 type options struct {
 	*wrapping.Options
 
-	withKeyLabel string
-	// withKeyPassword     string
+	withKeyLabel        string
+	withKeyPassword     string
 	withApprovalTimeout string
 	withAuth            string
 	withBearerToken     string
@@ -148,15 +142,15 @@ func WithKeyLabel(with string) wrapping.Option {
 	}
 }
 
-// // WithKeyName provides a way to choose the key name
-// func WithPassword(with string) wrapping.Option {
-// 	return func() interface{} {
-// 		return OptionFunc(func(o *options) error {
-// 			o.withKeyPassword = with
-// 			return nil
-// 		})
-// 	}
-// }
+// WithPassword provides a way to choose the key password
+func WithPassword(with string) wrapping.Option {
+	return func() interface{} {
+		return OptionFunc(func(o *options) error {
+			o.withKeyPassword = with
+			return nil
+		})
+	}
+}
 
 func WithPolicy(with string) wrapping.Option {
 	return func() interface{} {

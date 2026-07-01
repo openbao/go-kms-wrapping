@@ -4,15 +4,20 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 
-	helpers "github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/helpers"
+	helpers "github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/internal/helpers"
 )
 
 // Function thats sends get request to TSB
-func (c *TSBClient) GetRequest(id string) (*helpers.RequestResponse, int, error) {
-	req, err := http.NewRequest("GET", c.HostURL+"/v1/request/"+id, bytes.NewBuffer(nil))
+func (c *TSBClient) GetRequest(ctx context.Context, id string) (*helpers.RequestResponse, int, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", c.HostURL+"/v1/request/"+id, bytes.NewBuffer(nil))
 	if err != nil {
 		return nil, 500, err
 	}

@@ -4,15 +4,19 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
 
-	helpers "github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/helpers"
+	helpers "github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/internal/helpers"
 )
 
 // Function thats sends asynchronous decrypt request to TSB
-func (c *TSBClient) AsyncDecrypt(label string, password string, cipertext string, vector string, cipherAlgorithm string, tagLength int, additionalAuthenticationData string, customMetaData map[string]string) (string, int, error) {
+func (c *TSBClient) AsyncDecrypt(ctx context.Context, label string, password string, cipertext string, vector string, cipherAlgorithm string, tagLength int, additionalAuthenticationData string, customMetaData map[string]string) (string, int, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	charsPasswordJson, _ := json.Marshal(helpers.StringToCharArray(password))
 
 	var additionalMetaDataInfo map[string]string = make(map[string]string)
@@ -59,7 +63,8 @@ func (c *TSBClient) AsyncDecrypt(label string, password string, cipertext string
 		"decryptRequest": ` + helpers.MinifyJson(requestJson) + `,
 		"requestSignature":` + string(c.GenerateRequestSignature(requestJson)) + `
 	  }`))
-	req, err := http.NewRequest("POST", c.HostURL+"/v1/decrypt", bytes.NewBuffer(jsonStr))
+
+	req, err := http.NewRequestWithContext(ctx, "POST", c.HostURL+"/v1/decrypt", bytes.NewBuffer(jsonStr))
 	if err != nil {
 		return "", 500, err
 	}
@@ -78,7 +83,10 @@ func (c *TSBClient) AsyncDecrypt(label string, password string, cipertext string
 }
 
 // Function thats sends decrypt request to TSB
-func (c *TSBClient) Decrypt(label string, password string, cipertext string, vector string, cipherAlgorithm string, tagLength int, additionalAuthenticationData string) (*helpers.DecryptResponse, int, error) {
+func (c *TSBClient) Decrypt(ctx context.Context, label string, password string, cipertext string, vector string, cipherAlgorithm string, tagLength int, additionalAuthenticationData string) (*helpers.DecryptResponse, int, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	charsPasswordJson, _ := json.Marshal(helpers.StringToCharArray(password))
 	vectorString := `"` + vector + `"`
 	if vector == "" {
@@ -109,7 +117,7 @@ func (c *TSBClient) Decrypt(label string, password string, cipertext string, vec
 		  "additionalAuthenticationData":` + additionalAuthenticationDataString + `
 		}
 	  }`)
-	req, err := http.NewRequest("POST", c.HostURL+"/v1/synchronousDecrypt", bytes.NewBuffer(jsonStr))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.HostURL+"/v1/synchronousDecrypt", bytes.NewBuffer(jsonStr))
 	if err != nil {
 		return nil, 500, err
 	}
@@ -127,7 +135,10 @@ func (c *TSBClient) Decrypt(label string, password string, cipertext string, vec
 }
 
 // Function thats send encrypt request to TSB
-func (c *TSBClient) Encrypt(label string, password string, payload string, cipherAlgorithm string, tagLength int, additionalAuthenticationData string) (*helpers.EncryptResponse, int, error) {
+func (c *TSBClient) Encrypt(ctx context.Context, label string, password string, payload string, cipherAlgorithm string, tagLength int, additionalAuthenticationData string) (*helpers.EncryptResponse, int, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	charsPasswordJson, _ := json.Marshal(helpers.StringToCharArray(password))
 	additionalAuthenticationDataString := `"` + additionalAuthenticationData + `"`
 	if additionalAuthenticationData == "" {
@@ -153,7 +164,7 @@ func (c *TSBClient) Encrypt(label string, password string, payload string, ciphe
 		  "additionalAuthenticationData":` + additionalAuthenticationDataString + `
 		}
 	  }`)
-	req, err := http.NewRequest("POST", c.HostURL+"/v1/encrypt", bytes.NewBuffer(jsonStr))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.HostURL+"/v1/encrypt", bytes.NewBuffer(jsonStr))
 	if err != nil {
 		return nil, 500, err
 	}
