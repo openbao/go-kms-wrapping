@@ -13,14 +13,21 @@ import (
 	"crypto/x509"
 	"path"
 	"testing"
-	"time"
 
+	"github.com/openbao/go-kms-wrapping/plugin/v2"
+	"github.com/openbao/go-kms-wrapping/plugin/v2/plugintest"
 	"github.com/openbao/go-kms-wrapping/v2/kms"
 	"github.com/openbao/openbao/api/v2"
 	"github.com/openbao/openbao/sdk/v2/helper/testcluster"
 	"github.com/openbao/openbao/sdk/v2/helper/testcluster/docker"
 	"github.com/stretchr/testify/require"
 )
+
+func TestPlugin(t *testing.T) {
+	plugintest.Server(t, &plugin.ServeOpts{
+		KMSFactoryFunc: New,
+	})
+}
 
 func Test(t *testing.T) {
 	ctx := t.Context()
@@ -42,19 +49,35 @@ func Test(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	k := New()
-	t.Cleanup(func() {
-		require.NoError(t, k.Close(ctx))
-	})
-
-	require.NoError(t, k.Open(ctx, &kms.OpenOptions{
+	opts := &kms.OpenOptions{
 		ConfigMap: kms.ConfigMap{
 			"token":       client.Token(),
 			"address":     client.Address(),
 			"mount_path":  "transit",
 			"tls_ca_cert": string(cluster.CACertPEM),
 		},
-	}))
+	}
+
+	t.Run("Builtin", func(t *testing.T) {
+		t.Parallel()
+		test(t, New(), opts)
+	})
+
+	t.Run("Plugin", func(t *testing.T) {
+		t.Parallel()
+		raw, err := plugintest.Client(t, "TestPlugin").Dispense("kms")
+		require.NoError(t, err)
+		test(t, raw.(kms.KMS), opts)
+	})
+}
+
+func test(t *testing.T, k kms.KMS, opts *kms.OpenOptions) {
+	ctx := t.Context()
+
+	require.NoError(t, k.Open(ctx, opts))
+	defer func() {
+		require.NoError(t, k.Close(ctx))
+	}()
 
 	t.Run("Encrypt+Decrypt", func(t *testing.T) {
 		input, aad := []byte("foobar"), []byte("baz")
@@ -81,7 +104,8 @@ func Test(t *testing.T) {
 		} {
 			t.Run(name, func(t *testing.T) {
 				key, err := k.GetKey(ctx, &kms.KeyOptions{
-					ConfigMap: kms.ConfigMap{"name": name}})
+					ConfigMap: kms.ConfigMap{"name": name},
+				})
 				require.NoError(t, err)
 				t.Run("aad", func(t *testing.T) { roundtrip(t, key, input, aad) })
 				t.Run("no-aad", func(t *testing.T) { roundtrip(t, key, input, nil) })
@@ -90,7 +114,8 @@ func Test(t *testing.T) {
 
 		t.Run("rsa-4096", func(t *testing.T) {
 			key, err := k.GetKey(ctx, &kms.KeyOptions{
-				ConfigMap: kms.ConfigMap{"name": "rsa-4096"}})
+				ConfigMap: kms.ConfigMap{"name": "rsa-4096"},
+			})
 			require.NoError(t, err)
 			roundtrip(t, key, input, nil)
 		})
@@ -138,7 +163,8 @@ func Test(t *testing.T) {
 
 		t.Run("rsa-4096", func(t *testing.T) {
 			key, err := k.GetKey(ctx, &kms.KeyOptions{
-				ConfigMap: kms.ConfigMap{"name": "rsa-4096"}})
+				ConfigMap: kms.ConfigMap{"name": "rsa-4096"},
+			})
 			require.NoError(t, err)
 			roundtrip(t, key, &rsa.PSSOptions{
 				SaltLength: rsa.PSSSaltLengthAuto,
@@ -153,7 +179,8 @@ func Test(t *testing.T) {
 		} {
 			t.Run(name, func(t *testing.T) {
 				key, err := k.GetKey(ctx, &kms.KeyOptions{
-					ConfigMap: kms.ConfigMap{"name": name}})
+					ConfigMap: kms.ConfigMap{"name": name},
+				})
 				require.NoError(t, err)
 				roundtrip(t, key, hash)
 			})
@@ -161,7 +188,8 @@ func Test(t *testing.T) {
 
 		t.Run("ed25519", func(t *testing.T) {
 			key, err := k.GetKey(ctx, &kms.KeyOptions{
-				ConfigMap: kms.ConfigMap{"name": "ed25519"}})
+				ConfigMap: kms.ConfigMap{"name": "ed25519"},
+			})
 			require.NoError(t, err)
 			opts := &kms.SignOptions{
 				Data:       []byte("foo"),
@@ -183,7 +211,9 @@ func Test(t *testing.T) {
 				ConfigMap: kms.ConfigMap{
 					"name":               "ecdsa-p256",
 					"disable_prehashing": true,
-				}})
+				},
+			})
+			require.NoError(t, err)
 			h := crypto.SHA256.New()
 			_, _ = h.Write([]byte("foo"))
 			digest := h.Sum(nil)
@@ -192,7 +222,7 @@ func Test(t *testing.T) {
 				Prehashed:  true,
 				SignerOpts: crypto.SHA256,
 			})
-			require.ErrorIs(t, err, ErrPrehashingDisabled)
+			require.ErrorContains(t, err, ErrPrehashingDisabled.Error())
 		})
 	})
 
@@ -207,7 +237,8 @@ func Test(t *testing.T) {
 		for name, want := range tests {
 			t.Run(name, func(t *testing.T) {
 				key, err := k.GetKey(ctx, &kms.KeyOptions{
-					ConfigMap: kms.ConfigMap{"name": name}})
+					ConfigMap: kms.ConfigMap{"name": name},
+				})
 				require.NoError(t, err)
 				pub, err := key.ExportPublic(ctx)
 				require.NoError(t, err)
@@ -219,7 +250,8 @@ func Test(t *testing.T) {
 		// part.
 		t.Run("aes256-gcm96", func(t *testing.T) {
 			key, err := k.GetKey(ctx, &kms.KeyOptions{
-				ConfigMap: kms.ConfigMap{"name": "aes256-gcm96"}})
+				ConfigMap: kms.ConfigMap{"name": "aes256-gcm96"},
+			})
 			require.NoError(t, err)
 			_, err = key.ExportPublic(ctx)
 			require.Error(t, err)
@@ -237,7 +269,8 @@ func Test(t *testing.T) {
 		for name, algo := range tests {
 			t.Run(name, func(t *testing.T) {
 				key, err := k.GetKey(ctx, &kms.KeyOptions{
-					ConfigMap: kms.ConfigMap{"name": name}})
+					ConfigMap: kms.ConfigMap{"name": name},
+				})
 				require.NoError(t, err)
 				signer, err := kms.NewSigner(ctx, key)
 				require.NoError(t, err)
@@ -260,21 +293,30 @@ func Test(t *testing.T) {
 	})
 }
 
+// inmemStorage speeds up tests by overriding the default raft storage used by
+// NewTestDockerCluster with the inmem backend. This avoids needing to wait for
+// a leader at startup (even with a single node), significantly reducing test
+// time.
+type inmemStorage struct{}
+
+// This implements the testcluster.ClusterStorage interface.
+func (inmemStorage) Start(context.Context, *testcluster.ClusterOptions) error { return nil }
+func (inmemStorage) Cleanup() error                                           { return nil }
+func (inmemStorage) Opts() map[string]any                                     { return make(map[string]any) }
+func (inmemStorage) Type() string                                             { return "inmem" }
+
 // setupTransitEngine sets up an OpenBao instance in Docker with a Transit
 // engine mounted in the root namespace.
 func setupTransitEngine(t *testing.T) (*docker.DockerCluster, *api.Client) {
 	t.Helper()
 
 	opts := docker.DefaultOptions(t)
-	opts.ClusterOptions.NumCores = 1
+	opts.NumCores = 1
+	opts.Storage = inmemStorage{}
+	opts.HADisabled = true
 	cluster := docker.NewTestDockerCluster(t, opts)
 
-	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
-	defer cancel()
-	active, err := testcluster.WaitForActiveNode(ctx, cluster)
-	require.NoError(t, err)
-
-	client := cluster.ClusterNodes[active].APIClient()
+	client := cluster.ClusterNodes[0].APIClient()
 	require.NoError(t, client.Sys().Mount("transit", &api.MountInput{
 		Type: "transit",
 	}))

@@ -41,15 +41,8 @@ type transitKMS struct {
 	lifetimeWatcher *api.LifetimeWatcher
 }
 
-// LoginOptions are provider-specific login options for the Transit provider.
-// Currently, this is only used to pass the TLSConfig of a testcluster to the
-// API client in tests.
-type LoginOptions struct {
-	TLSConfig *api.TLSConfig
-}
-
 func (k *transitKMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
-	type config struct {
+	var cfg struct {
 		Address        string `mapstructure:"address"`
 		Token          string `mapstructure:"token"`
 		Namespace      string `mapstructure:"namespace"`
@@ -63,8 +56,6 @@ func (k *transitKMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 		// This is missing client cert configuration, but that is blocked on
 		// https://github.com/openbao/openbao/issues/2762.
 	}
-
-	var cfg config
 	if err := mapstructure.WeakDecode(opts.ConfigMap, &cfg); err != nil {
 		return err
 	}
@@ -156,12 +147,10 @@ func (k *transitKMS) Close(context.Context) error {
 }
 
 func (k *transitKMS) GetKey(_ context.Context, opts *kms.KeyOptions) (kms.Key, error) {
-	type config struct {
+	var cfg struct {
 		Name              string `mapstructure:"name"`
 		DisablePrehashing bool   `mapstructure:"disable_prehashing"`
 	}
-
-	var cfg config
 	if err := mapstructure.WeakDecode(opts.ConfigMap, &cfg); err != nil {
 		return nil, err
 	}
@@ -199,7 +188,8 @@ func (k *transitKey) Encrypt(ctx context.Context, opts *kms.CipherOptions) ([]by
 	}
 
 	resp, err := k.client.Logical().WriteWithContext(
-		ctx, path.Join(k.mount, "encrypt", k.name), data)
+		ctx, path.Join(k.mount, "encrypt", k.name), data,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -232,7 +222,8 @@ func (k *transitKey) Decrypt(ctx context.Context, opts *kms.CipherOptions) ([]by
 	}
 
 	resp, err := k.client.Logical().WriteWithContext(
-		ctx, path.Join(k.mount, "decrypt", k.name), data)
+		ctx, path.Join(k.mount, "decrypt", k.name), data,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -307,7 +298,8 @@ func (k *transitKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte, e
 	}
 
 	resp, err := k.client.Logical().WriteWithContext(
-		ctx, path.Join(k.mount, "sign", k.name), data)
+		ctx, path.Join(k.mount, "sign", k.name), data,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -381,7 +373,8 @@ func (k *transitKey) Verify(ctx context.Context, opts *kms.VerifyOptions) error 
 	}
 
 	resp, err := k.client.Logical().WriteWithContext(
-		ctx, path.Join(k.mount, "verify", k.name), data)
+		ctx, path.Join(k.mount, "verify", k.name), data,
+	)
 	if err != nil {
 		return err
 	}
@@ -399,7 +392,8 @@ func (k *transitKey) Verify(ctx context.Context, opts *kms.VerifyOptions) error 
 // See: https://openbao.org/api-docs/secret/transit/#export-key
 func (k *transitKey) ExportPublic(ctx context.Context) (crypto.PublicKey, error) {
 	resp, err := k.client.Logical().ReadWithContext(
-		ctx, path.Join(k.mount, "export/public-key", k.name, "latest"))
+		ctx, path.Join(k.mount, "export/public-key", k.name, "latest"),
+	)
 	if err != nil {
 		return nil, err
 	}

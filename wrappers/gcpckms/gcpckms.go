@@ -16,6 +16,8 @@ import (
 	"google.golang.org/api/option"
 )
 
+const Type wrapping.WrapperType = "gcpckms"
+
 const (
 	// General GCP values, follows TF naming conventions
 	EnvGcpCkmsWrapperCredsPath = "GOOGLE_CREDENTIALS"
@@ -197,7 +199,7 @@ func (s *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 
 // Type returns the type for this particular wrapper implementation
 func (s *Wrapper) Type(_ context.Context) (wrapping.WrapperType, error) {
-	return wrapping.WrapperTypeGcpCkms, nil
+	return Type, nil
 }
 
 // KeyId returns the last known CryptoKeyVersion which is determined when the
@@ -311,7 +313,8 @@ func (s *Wrapper) Client() *cloudkms.KeyManagementClient {
 
 // createClient returns a configured GCP KMS client.
 func (s *Wrapper) createClient() (*cloudkms.KeyManagementClient, error) {
-	client, err := cloudkms.NewKeyManagementClient(context.Background(),
+	client, err := cloudkms.NewKeyManagementClient(
+		context.Background(),
 		option.WithCredentialsFile(s.credsPath),
 		option.WithUserAgent(s.userAgent),
 	)

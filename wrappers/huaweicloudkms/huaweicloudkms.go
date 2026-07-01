@@ -18,6 +18,8 @@ import (
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
 
+const Type wrapping.WrapperType = "huaweicloudkms"
+
 // These constants contain the accepted env vars; the Vault one is for backwards compat
 const (
 	EnvHuaweiCloudKmsWrapperKeyId = "HUAWEICLOUDKMS_WRAPPER_KEY_ID"
@@ -59,7 +61,8 @@ func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 	keyId, err := getConfig(
 		"kms_key_id",
 		os.Getenv(EnvHuaweiCloudKmsWrapperKeyId),
-		opts.WithKeyId)
+		opts.WithKeyId,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +98,7 @@ func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 
 // Type returns the type for this particular wrapper implementation
 func (k *Wrapper) Type(_ context.Context) (wrapping.WrapperType, error) {
-	return wrapping.WrapperTypeHuaweiCloudKms, nil
+	return Type, nil
 }
 
 // KeyId returns the last known key id
@@ -286,7 +289,8 @@ func (c *kmsClientImpl) encrypt(keyID, plainText string) (encryptResponse, error
 		&golangsdk.RequestOpts{
 			OkCodes:     []int{200},
 			MoreHeaders: map[string]string{"Content-Type": "application/json"},
-		})
+		},
+	)
 
 	resp := encryptResponse{}
 	err := r.ExtractInto(&resp)
@@ -306,7 +310,8 @@ func (c *kmsClientImpl) decrypt(cipherText string) (string, error) {
 		&golangsdk.RequestOpts{
 			OkCodes:     []int{200},
 			MoreHeaders: map[string]string{"Content-Type": "application/json"},
-		})
+		},
+	)
 
 	var resp struct {
 		PlainText string `json:"plain_text"`

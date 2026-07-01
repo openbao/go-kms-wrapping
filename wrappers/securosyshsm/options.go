@@ -3,7 +3,6 @@
 package securosyshsm
 
 import (
-	"github.com/hashicorp/go-hclog"
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
 
@@ -123,7 +122,6 @@ type options struct {
 	withPolicyRuleModify   string
 	withApplicationKeyPair string
 	withApiKeys            string
-	withLogger             hclog.Logger
 }
 
 func getDefaultOptions() options {
@@ -290,16 +288,6 @@ func WithApplicationKeyPair(with string) wrapping.Option {
 	return func() interface{} {
 		return OptionFunc(func(o *options) error {
 			o.withApplicationKeyPair = with
-			return nil
-		})
-	}
-}
-
-// WithLogger provides a way to pass in a logger
-func WithLogger(with hclog.Logger) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withLogger = with
 			return nil
 		})
 	}

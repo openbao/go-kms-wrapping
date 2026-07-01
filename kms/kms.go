@@ -155,11 +155,16 @@ type OpenOptions struct {
 type KeyOptions struct {
 	// ConfigMap is the ConfigMap that will configure the Key. Configuration is
 	// provider-specific, but common categories of information passed here are:
+	//
 	//  - A Key name or ID to uniquely identify a key to use.
 	//  - Per-key authentication parameters.
 	//  - An algorithm that this key must be enforced to use.
 	//  - The key type to avoid +1 key type lookup calls if required to set up
 	//    calls for key operations.
+	//
+	// When not enforced through an explicit parameter, e.g., "mechanism", the
+	// implementation may define a default algorithm to use for cryptographic
+	// operations, potentially dependent on the key type.
 	ConfigMap ConfigMap
 }
 
@@ -264,9 +269,11 @@ var _ KMS = UnimplementedKMS{}
 func (UnimplementedKMS) Open(context.Context, *OpenOptions) error {
 	return ErrNotImplemented
 }
+
 func (UnimplementedKMS) GetKey(context.Context, *KeyOptions) (Key, error) {
 	return nil, ErrNotImplemented
 }
+
 func (UnimplementedKMS) Close(context.Context) error {
 	return nil
 }
@@ -282,18 +289,23 @@ var _ Key = UnimplementedKey{}
 func (UnimplementedKey) Encrypt(context.Context, *CipherOptions) ([]byte, error) {
 	return nil, ErrNotImplemented
 }
+
 func (UnimplementedKey) Decrypt(context.Context, *CipherOptions) ([]byte, error) {
 	return nil, ErrNotImplemented
 }
+
 func (UnimplementedKey) Sign(context.Context, *SignOptions) ([]byte, error) {
 	return nil, ErrNotImplemented
 }
+
 func (UnimplementedKey) Verify(context.Context, *VerifyOptions) error {
 	return ErrNotImplemented
 }
+
 func (UnimplementedKey) ExportPublic(context.Context) (crypto.PublicKey, error) {
 	return nil, ErrNotImplemented
 }
+
 func (UnimplementedKey) Close(context.Context) error {
 	return nil
 }

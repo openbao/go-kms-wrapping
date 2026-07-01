@@ -5,8 +5,19 @@ package wrapping
 
 import (
 	"errors"
+
+	log "github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-secure-stdlib/parseutil"
 )
+
+// Options embeds RPCOptions and contains additional fields that are not passed
+// across RPC boundaries.
+type Options struct {
+	RPCOptions
+
+	// A logger to provide to the wrapper.
+	WithLogger log.Logger
+}
 
 // GetOpts iterates the inbound Options and returns a struct
 func GetOpts(opt ...Option) (*Options, error) {
@@ -34,7 +45,7 @@ func GetOpts(opt ...Option) (*Options, error) {
 // Option - a type that wraps an interface for compile-time safety but can
 // contain an option for this package or for wrappers implementing this
 // interface.
-type Option func() interface{}
+type Option func() any
 
 // OptionFunc - a type for funcs that operate on the shared Options struct. The
 // options below explicitly wrap this so that we can switch on it when parsing
@@ -47,7 +58,7 @@ func getDefaultOptions() *Options {
 
 // WithAad provides optional additional authenticated data
 func WithAad(with []byte) Option {
-	return func() interface{} {
+	return func() any {
 		return OptionFunc(func(o *Options) error {
 			o.WithAad = with
 			return nil
@@ -57,7 +68,7 @@ func WithAad(with []byte) Option {
 
 // WithKeyId provides a common way to pass in a key identifier
 func WithKeyId(with string) Option {
-	return func() interface{} {
+	return func() any {
 		return OptionFunc(func(o *Options) error {
 			o.WithKeyId = with
 			return nil
@@ -68,7 +79,7 @@ func WithKeyId(with string) Option {
 // WithConfigMap is an option accepted by wrappers at configuration time
 // and/or in other function calls to control wrapper-specific behavior.
 func WithConfigMap(with map[string]string) Option {
-	return func() interface{} {
+	return func() any {
 		return OptionFunc(func(o *Options) error {
 			o.WithConfigMap = with
 			return nil
@@ -78,9 +89,19 @@ func WithConfigMap(with map[string]string) Option {
 
 // WithDisallowEnvVars provides a common way to configure ignoring environment variables
 func WithDisallowEnvVars(disallowEnvVars bool) Option {
-	return func() interface{} {
+	return func() any {
 		return OptionFunc(func(o *Options) error {
 			o.WithDisallowEnvVars = disallowEnvVars
+			return nil
+		})
+	}
+}
+
+// WithLogger provides a common way to pass a logger.
+func WithLogger(logger log.Logger) Option {
+	return func() any {
+		return OptionFunc(func(o *Options) error {
+			o.WithLogger = logger
 			return nil
 		})
 	}
@@ -93,7 +114,7 @@ func WithDisallowEnvVars(disallowEnvVars bool) Option {
 // If any passed pointer is nil it will be ignored.
 func ParsePaths(fields ...*string) error {
 	newVals := make([]string, len(fields))
-	for i := 0; i < len(fields); i++ {
+	for i := range fields {
 		if fields[i] != nil {
 			if newVal, err := parseutil.ParsePath(*fields[i], parseutil.WithNoTrimSpaces(true), parseutil.WithErrorOnMissingEnv(true)); err != nil && !errors.Is(err, parseutil.ErrNotAUrl) {
 				return err
@@ -102,7 +123,7 @@ func ParsePaths(fields ...*string) error {
 			}
 		}
 	}
-	for i := 0; i < len(fields); i++ {
+	for i := range fields {
 		if fields[i] != nil {
 			*fields[i] = newVals[i]
 		}

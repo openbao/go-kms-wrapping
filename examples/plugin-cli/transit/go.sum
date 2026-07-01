@@ -110,8 +110,8 @@ github.com/moby/sys/userns v0.1.0 h1:tVLXkFOxVu9A64/yh59slHVv9ahO9UIev4JZusOLG/g
 github.com/moby/sys/userns v0.1.0/go.mod h1:IHUYgu/kao6N8YZlp9Cf444ySSvCmDlmzUcYfDHOl28=
 github.com/oklog/run v1.2.0 h1:O8x3yXwah4A73hJdlrwo/2X6J62gE5qTMusH0dvz60E=
 github.com/oklog/run v1.2.0/go.mod h1:mgDbKRSwPhJfesJ4PntqFUbKQRZ50NgmZTSPlFA0YFk=
-github.com/openbao/go-kms-wrapping/v2 v2.6.0 h1:W8QuKJc6mMo+HNrs9PfkiI/vh8a6LdVLEX5JqXSRFE0=
-github.com/openbao/go-kms-wrapping/v2 v2.6.0/go.mod h1:xoUdq1btm4MNgwBpMkVLvXxuvnH4gGzODozWGFpft8w=
+github.com/openbao/go-kms-wrapping/v2 v2.8.0 h1:9gXkCmcMadJO2Ozf9TNTIInSqdOwAD6k3HhHMhIqzrs=
+github.com/openbao/go-kms-wrapping/v2 v2.8.0/go.mod h1:KyL1nfZM8SzLgMchvFU2F5jS/XlauD3TRCjmILLErh4=
 github.com/openbao/openbao/api/v2 v2.5.1 h1:Br79D6L20SbAa5P7xqENxmvv8LyI4HoKosPy7klhn4o=
 github.com/openbao/openbao/api/v2 v2.5.1/go.mod h1:Dh5un77tqGgMbmlVEqjqN+8/dMyUohnkaQVg/wXW0Ig=
 github.com/openbao/openbao/sdk/v2 v2.5.1 h1:XUOsAh9/gKfTkoergOLQPdXh9jma5N9nvS6GvjqIwzk=

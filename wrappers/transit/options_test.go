@@ -6,7 +6,6 @@ package transit
 import (
 	"testing"
 
-	"github.com/hashicorp/go-hclog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -203,25 +202,6 @@ func Test_GetOpts(t *testing.T) {
 		opts, err = getOpts(WithToken(with))
 		require.NoError(err)
 		testOpts.withToken = with
-		assert.Equal(opts, testOpts)
-	})
-	t.Run("WithLogger", func(t *testing.T) {
-		assert, require := assert.New(t), require.New(t)
-		// test default of 0
-		opts, err := getOpts()
-		require.NoError(err)
-		testOpts, err := getOpts()
-		require.NoError(err)
-		testOpts.withTlsServerName = ""
-		assert.Equal(opts, testOpts)
-
-		with := hclog.New(&hclog.LoggerOptions{
-			Name:  "test-logger",
-			Level: hclog.Error,
-		})
-		opts, err = getOpts(WithLogger(with))
-		require.NoError(err)
-		testOpts.withLogger = with
 		assert.Equal(opts, testOpts)
 	})
 }

@@ -23,6 +23,8 @@ import (
 	"github.com/ovh/kmip-go/ttlv"
 )
 
+const Type wrapping.WrapperType = "kmip"
+
 // These constants contain the accepted env vars; the Vault one is for backwards compat
 const (
 	EnvKmipWrapperKeyId   = "BAO_KMIP_WRAPPER_KEY_ID"
@@ -274,7 +276,7 @@ func (k *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 
 // Type returns the type for this particular wrapper implementation
 func (k *Wrapper) Type(_ context.Context) (wrapping.WrapperType, error) {
-	return wrapping.WrapperTypeKmip, nil
+	return Type, nil
 }
 
 // KeyId returns the last known key id
@@ -463,7 +465,8 @@ func (kms *Wrapper) verifyKey(ctx context.Context, client *kmipclient.Client) er
 //
 // The public key id is returned when keyId matches a private key, otherwise the returned public key id is empty.
 func verifyKeyAttributes(ctx context.Context, client *kmipclient.Client, keyId string, alg kmip.CryptographicAlgorithm, expectedObjectType kmip.ObjectType) (string, error) {
-	resp, err := client.GetAttributes(keyId,
+	resp, err := client.GetAttributes(
+		keyId,
 		kmip.AttributeNameObjectType,
 		kmip.AttributeNameCryptographicAlgorithm,
 		kmip.AttributeNameCryptographicUsageMask,

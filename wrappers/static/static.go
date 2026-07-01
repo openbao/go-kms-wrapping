@@ -15,9 +15,10 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/hashicorp/go-hclog"
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
+
+const Type wrapping.WrapperType = "static"
 
 const (
 	EnvBaoCurrentKeyValueName       = "BAO_STATIC_SEAL_CURRENT_KEY"
@@ -29,7 +30,6 @@ const (
 // Wrapper is a wrapper that leverages Vault's Transit secret
 // engine
 type Wrapper struct {
-	logger        hclog.Logger
 	previousKeyId string
 	previousKey   []byte
 
@@ -51,8 +51,6 @@ func (s *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 	if err != nil {
 		return nil, err
 	}
-
-	s.logger = opts.withLogger
 
 	// Load keys, identifiers from environments or options.
 	currentKey := opts.withCurrentKey
@@ -175,7 +173,7 @@ func (s *Wrapper) Finalize(_ context.Context) error {
 
 // Type returns the type for this particular Wrapper implementation
 func (s *Wrapper) Type(_ context.Context) (wrapping.WrapperType, error) {
-	return wrapping.WrapperTypeStatic, nil
+	return Type, nil
 }
 
 // KeyId returns the last known key id

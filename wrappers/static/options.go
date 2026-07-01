@@ -5,8 +5,6 @@
 package static
 
 import (
-	"github.com/hashicorp/go-hclog"
-
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
 
@@ -87,8 +85,6 @@ type options struct {
 	withPreviousKeyId string
 	withCurrentKey    string
 	withCurrentKeyId  string
-
-	withLogger hclog.Logger
 }
 
 func getDefaultOptions() options {

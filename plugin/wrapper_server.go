@@ -5,25 +5,36 @@ package plugin
 
 import (
 	"context"
-	"errors"
 	"sync"
 
+	log "github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/go-plugin"
 	"github.com/hashicorp/go-uuid"
 	"github.com/openbao/go-kms-wrapping/plugin/v2/pb"
-	"github.com/openbao/go-kms-wrapping/v2"
+	wrapping "github.com/openbao/go-kms-wrapping/v2"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
-
-// ErrNoInstance is returned when an RPC is called on a remote object that
-// doesn't exist.
-var ErrNoInstance = errors.New("instance not found")
 
 type gRPCWrapperServer struct {
 	pb.UnimplementedWrapperServer
+
+	logger log.Logger
 
 	instances     map[string]wrapping.Wrapper
 	instancesLock sync.Mutex
 
 	factory func() wrapping.Wrapper
+}
+
+func (wp *gRPCWrapperPlugin) GRPCServer(broker *plugin.GRPCBroker, s *grpc.Server) error {
+	pb.RegisterWrapperServer(s, &gRPCWrapperServer{
+		logger:    wp.logger,
+		factory:   wp.factory,
+		instances: make(map[string]wrapping.Wrapper),
+	})
+	return nil
 }
 
 func (s *gRPCWrapperServer) get(id string) (wrapping.Wrapper, error) {
@@ -34,18 +45,13 @@ func (s *gRPCWrapperServer) get(id string) (wrapping.Wrapper, error) {
 		return wrapper, nil
 	}
 
-	return nil, ErrNoInstance
+	return nil, status.Error(codes.NotFound, ErrNoInstance.Error())
 }
 
 func (s *gRPCWrapperServer) SetConfig(ctx context.Context, req *pb.SetConfigRequest) (*pb.SetConfigResponse, error) {
-	id, err := uuid.GenerateUUID()
-	if err != nil {
-		return nil, err
-	}
-
 	opts := req.Options
 	if opts == nil {
-		opts = new(wrapping.Options)
+		opts = new(wrapping.RPCOptions)
 	}
 
 	// SetConfig drives initial wrapper construction.
@@ -56,7 +62,13 @@ func (s *gRPCWrapperServer) SetConfig(ctx context.Context, req *pb.SetConfigRequ
 		wrapping.WithKeyId(opts.WithKeyId),
 		wrapping.WithConfigMap(opts.WithConfigMap),
 		wrapping.WithDisallowEnvVars(opts.WithDisallowEnvVars),
+		wrapping.WithLogger(s.logger),
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	id, err := uuid.GenerateUUID()
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +111,7 @@ func (s *gRPCWrapperServer) Encrypt(ctx context.Context, req *pb.EncryptRequest)
 	}
 	opts := req.Options
 	if opts == nil {
-		opts = new(wrapping.Options)
+		opts = new(wrapping.RPCOptions)
 	}
 	ct, err := wrapper.Encrypt(
 		ctx,
@@ -120,7 +132,7 @@ func (s *gRPCWrapperServer) Decrypt(ctx context.Context, req *pb.DecryptRequest)
 	}
 	opts := req.Options
 	if opts == nil {
-		opts = new(wrapping.Options)
+		opts = new(wrapping.RPCOptions)
 	}
 	pt, err := wrapper.Decrypt(
 		ctx,
@@ -154,7 +166,7 @@ func (s *gRPCWrapperServer) Finalize(ctx context.Context, req *pb.FinalizeReques
 	wrapper, ok := s.instances[req.WrapperId]
 	if !ok {
 		s.instancesLock.Unlock()
-		return nil, ErrNoInstance
+		return nil, status.Error(codes.NotFound, ErrNoInstance.Error())
 	}
 
 	// Remove the instance:
