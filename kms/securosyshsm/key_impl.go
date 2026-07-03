@@ -30,8 +30,8 @@ var _ kms.Key = (*securosysKey)(nil)
 var ErrApprovalTimeout = errors.New("approval timeout exceeded")
 var ErrKMSClosed = errors.New("securosys hsm kms closed")
 
-const defaultApprovalTimeout = 60 * time.Second
-const defaultRequestPollInterval = 1 * time.Second
+const defaultApprovalTimeout = 10 * time.Minute
+const defaultRequestPollInterval = 5 * time.Second
 
 // securosysKey implements kms.Key using a Securosys HSM key.
 type securosysKey struct {
