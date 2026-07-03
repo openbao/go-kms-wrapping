@@ -33,7 +33,7 @@ func (config *Configurations) checkConfigFile() bool {
 	}
 	if config.Settings.ApprovalTimeout == 0 {
 		valid = false
-		errors = append(errors, "approval_timeout must be bigger then 0 and lower then VAULT_CLIENT_TIMEOUT. Default is 60 (seconds)\nYou can override this value by setting environment variable VAULT_CLIENT_TIMEOUT")
+		errors = append(errors, "approval_timeout must be bigger then 0 and lower then VAULT_CLIENT_TIMEOUT. Default is 600 (seconds)\nYou can override this value by setting environment variable VAULT_CLIENT_TIMEOUT")
 	}
 	if config.Settings.ApprovalTimeout <= config.Settings.CheckEvery {
 		valid = false

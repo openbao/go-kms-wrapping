@@ -138,7 +138,7 @@ func buildWrapperConfigurations(logger hclog.Logger, opts *options) (*Configurat
 	}
 
 	checkEvery := parsePositiveInt(opts.withCheckEvery, 5)
-	approvalTimeout := parsePositiveInt(opts.withApprovalTimeout, 60)
+	approvalTimeout := parsePositiveInt(opts.withApprovalTimeout, 600)
 
 	var keyPair KeyPair
 	if opts.withApplicationKeyPair != "" {
