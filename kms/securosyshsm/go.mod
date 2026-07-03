@@ -4,7 +4,10 @@ replace github.com/openbao/go-kms-wrapping/v2 => ../../
 
 go 1.25.0
 
-require github.com/openbao/go-kms-wrapping/v2 v2.5.0
+require (
+	github.com/openbao/go-kms-wrapping/v2 v2.5.0
+	github.com/securosys-com/tsb-client-go v1.0.0
+)
 
 require (
 	github.com/fatih/color v1.13.0 // indirect

@@ -92,7 +92,7 @@ func newSecurosysHSMClient(ctx context.Context, logger hclog.Logger, opts *optio
 
 	provider := securosysKMSConfigMap(wrapperConfig)
 	providerKMS := securosyskms.New()
-	if err := providerKMS.Open(ctx, &kms.OpenOptions{ConfigMap: provider}); err != nil {
+	if err := providerKMS.Open(ctx, &kms.OpenOptions{Logger: logger, ConfigMap: provider}); err != nil {
 		return nil, nil, err
 	}
 
@@ -247,6 +247,8 @@ func securosysKMSConfigMap(config *Configurations) kms.ConfigMap {
 		"bearertoken":        config.Settings.BearerToken,
 		"certpath":           config.Settings.CertPath,
 		"keypath":            config.Settings.KeyPath,
+		"check_every":        config.Settings.CheckEvery,
+		"approval_timeout":   config.Settings.ApprovalTimeout,
 		"applicationKeyPair": string(applicationKeyPair),
 		"apiKeys":            string(apiKeys),
 	}
