@@ -14,12 +14,14 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"os"
+	"os/signal"
 	"time"
 
 	"github.com/hashicorp/go-hclog"
-	"github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/internal/client"
-	"github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/internal/helpers"
 	kms "github.com/openbao/go-kms-wrapping/v2/kms"
+	client "github.com/securosys-com/tsb-client-go"
+	"github.com/securosys-com/tsb-client-go/helpers"
 )
 
 // Ensure securosysKey implements kms.Key
@@ -39,6 +41,8 @@ type securosysKey struct {
 	password        string
 	cipherAlgorithm string
 	logger          hclog.Logger
+	approvalTimeout time.Duration
+	pollInterval    time.Duration
 	closeCtx        context.Context
 }
 
@@ -72,7 +76,7 @@ func (k *securosysKey) Encrypt(ctx context.Context, opts *kms.CipherOptions) ([]
 		k.keyAttrs.Label,
 		k.password,
 		base64.StdEncoding.EncodeToString(opts.Data),
-		cipherAlgorithm,
+		client.CipherAlgorithm(cipherAlgorithm),
 		tagLength,
 		aad,
 	)
@@ -169,7 +173,7 @@ func (k *securosysKey) decryptPayloadSync(ctx context.Context, encryptedPayload,
 		k.password,
 		encryptedPayload,
 		initVector,
-		cipherAlgorithm,
+		client.CipherAlgorithm(cipherAlgorithm),
 		tagLength,
 		aad,
 	)
@@ -192,7 +196,7 @@ func (k *securosysKey) decryptPayloadAsync(ctx context.Context, encryptedPayload
 		k.password,
 		encryptedPayload,
 		initVector,
-		cipherAlgorithm,
+		client.CipherAlgorithm(cipherAlgorithm),
 		tagLength,
 		aad,
 		map[string]string{},
@@ -246,7 +250,8 @@ func (k *securosysKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte,
 		k.password,
 		inputData,
 		"UNSPECIFIED",
-		sigAlgorithm,
+		client.SignatureAlgorithm(sigAlgorithm),
+		signatureTypeForPublicKey(pub),
 		map[string]string{},
 	)
 	if err != nil {
@@ -295,7 +300,7 @@ func (k *securosysKey) Verify(ctx context.Context, opts *kms.VerifyOptions) erro
 		k.keyAttrs.Label,
 		k.password,
 		inputData,
-		sigAlgorithm,
+		client.SignatureAlgorithm(sigAlgorithm),
 		base64.StdEncoding.EncodeToString(opts.Signature),
 	)
 	if err != nil {
@@ -352,20 +357,29 @@ func (k *securosysKey) waitForRequest(ctx context.Context, requestID string) (*h
 
 	logger := k.logger
 	waitStarted := time.Now()
+	approvalTimeout := k.approvalTimeout
+	if approvalTimeout <= 0 {
+		approvalTimeout = defaultApprovalTimeout
+	}
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, defaultApprovalTimeout)
+		ctx, cancel = context.WithTimeout(ctx, approvalTimeout)
 		defer cancel()
 	}
+	ctx, stopSignalNotify := signal.NotifyContext(ctx, os.Interrupt)
+	defer stopSignalNotify()
 	ctx, cancelOnClose := k.contextWithKMSClose(ctx)
 	defer cancelOnClose()
 
-	pollInterval := defaultRequestPollInterval
+	pollInterval := k.pollInterval
+	if pollInterval <= 0 {
+		pollInterval = defaultRequestPollInterval
+	}
 	if logger != nil {
 		if deadline, ok := ctx.Deadline(); ok {
-			logger.Info("waiting for securosys async request approval", "request_id", requestID, "poll_interval", pollInterval.String(), "timeout_in", time.Until(deadline).Round(time.Second).String())
+			logger.Info("Waiting for approvals", "request_id", requestID, "poll_interval", pollInterval.String(), "timeout_in", time.Until(deadline).Round(time.Second).String())
 		} else {
-			logger.Info("waiting for securosys async request approval", "request_id", requestID, "poll_interval", pollInterval.String())
+			logger.Info("Waiting for approvals", "request_id", requestID, "poll_interval", pollInterval.String())
 		}
 	}
 
@@ -373,6 +387,15 @@ func (k *securosysKey) waitForRequest(ctx context.Context, requestID string) (*h
 	defer ticker.Stop()
 
 	for {
+		select {
+		case <-ctx.Done():
+			if logger != nil {
+				logger.Warn("securosys async request wait stopped", "request_id", requestID, "elapsed", time.Since(waitStarted).Round(time.Second).String(), "error", ctx.Err())
+			}
+			return nil, k.waitForRequestStopError(ctx, requestID)
+		default:
+		}
+
 		request, _, err := k.client.GetRequest(ctx, requestID)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -386,14 +409,21 @@ func (k *securosysKey) waitForRequest(ctx context.Context, requestID string) (*h
 			}
 			return nil, err
 		}
-		if logger != nil {
-			logger.Info("polled securosys async request", "request_id", requestID, "status", request.Status, "elapsed", time.Since(waitStarted).Round(time.Second).String())
-		}
 		if request.Status != "PENDING" && request.Status != "APPROVED" {
 			if logger != nil {
-				logger.Info("securosys async request completed", "request_id", requestID, "status", request.Status, "elapsed", time.Since(waitStarted).Round(time.Second).String())
+				logger.Info("Securosys approval request completed", "request_id", requestID, "status", request.Status, "elapsed", time.Since(waitStarted).Round(time.Second).String())
 			}
 			return request, nil
+		}
+		if logger != nil {
+			logger.Debug("Securosys approval request still pending",
+				"request_id", requestID,
+				"status", request.Status,
+				"elapsed", time.Since(waitStarted).Round(time.Second).String(),
+				"approved_by", request.ApprovedBy,
+				"not_yet_approved_by", request.NotYetApprovedBy,
+				"rejected_by", request.RejectedBy,
+			)
 		}
 
 		select {
@@ -480,7 +510,10 @@ func containsString(items []string, target string) bool {
 // mapRSAAlgorithm maps Go RSA signing options to Securosys HSM algorithm names.
 func mapRSAAlgorithm(hash crypto.Hash, prehashed, pss bool) (string, error) {
 	if hash == crypto.Hash(0) {
-		if prehashed && !pss {
+		if prehashed && pss {
+			return "NONE_WITH_RSA_PSS", nil
+		}
+		if prehashed {
 			return "NONE_WITH_RSA", nil
 		}
 		if pss {
@@ -497,6 +530,9 @@ func mapRSAAlgorithm(hash crypto.Hash, prehashed, pss bool) (string, error) {
 		if pss {
 			return "SHA256_WITH_RSA_PSS", nil
 		}
+		if prehashed {
+			return "NONESHA256_WITH_RSA", nil
+		}
 		return "SHA256_WITH_RSA", nil
 	case crypto.SHA384:
 		if prehashed && pss {
@@ -505,6 +541,9 @@ func mapRSAAlgorithm(hash crypto.Hash, prehashed, pss bool) (string, error) {
 		if pss {
 			return "SHA384_WITH_RSA_PSS", nil
 		}
+		if prehashed {
+			return "NONESHA384_WITH_RSA", nil
+		}
 		return "SHA384_WITH_RSA", nil
 	case crypto.SHA512:
 		if prehashed && pss {
@@ -512,6 +551,9 @@ func mapRSAAlgorithm(hash crypto.Hash, prehashed, pss bool) (string, error) {
 		}
 		if pss {
 			return "SHA512_WITH_RSA_PSS", nil
+		}
+		if prehashed {
+			return "NONESHA512_WITH_RSA", nil
 		}
 		return "SHA512_WITH_RSA", nil
 	default:
@@ -580,6 +622,15 @@ func mapSignAlgorithmFromOpts(opts *kms.SignOptions, pub crypto.PublicKey) (stri
 
 	default:
 		return "", fmt.Errorf("unsupported key type: %T", pub)
+	}
+}
+
+func signatureTypeForPublicKey(pub crypto.PublicKey) client.SignatureType {
+	switch pub.(type) {
+	case ed25519.PublicKey:
+		return client.SignatureTypeRAW
+	default:
+		return client.SignatureTypeDER
 	}
 }
 

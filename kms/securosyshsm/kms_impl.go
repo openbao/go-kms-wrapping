@@ -6,13 +6,16 @@ package securosyshsm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/hashicorp/go-hclog"
-	"github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/internal/client"
-	"github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2/internal/helpers"
 	kms "github.com/openbao/go-kms-wrapping/v2/kms"
+	"github.com/securosys-com/tsb-client-go"
+	"github.com/securosys-com/tsb-client-go/helpers"
 )
 
 // Ensure securosysKMS implements kms.KMS
@@ -26,8 +29,10 @@ type securosysKMS struct {
 	logger  hclog.Logger
 	logFile *os.File
 
-	closeCtx    context.Context
-	closeCancel context.CancelFunc
+	approvalTimeout time.Duration
+	pollInterval    time.Duration
+	closeCtx        context.Context
+	closeCancel     context.CancelFunc
 }
 
 // New returns a new KMS that uses the Securosys HSM.
@@ -41,12 +46,15 @@ func (k *securosysKMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 		return errors.New("config map is required")
 	}
 
-	var config helpers.SecurosysConfig
+	var config openConfig
 	if err := decodeConfig(opts.ConfigMap, &config); err != nil {
 		return err
 	}
+	if err := validateOpenConfig(&config.SecurosysConfig); err != nil {
+		return err
+	}
 
-	c, err := client.NewClient(&config)
+	c, err := client.NewClient(&config.SecurosysConfig)
 	if err != nil {
 		return err
 	}
@@ -57,15 +65,17 @@ func (k *securosysKMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 		return err
 	}
 	if status != 200 {
-		return errors.New(connection)
+		return connectionCheckError(status, connection)
 	}
 
-	var logger hclog.Logger
+	logger := opts.Logger
 	var logFile *os.File
 	closeCtx, closeCancel := context.WithCancel(context.Background())
 	k.client = c
 	k.logger = logger
 	k.logFile = logFile
+	k.approvalTimeout = secondsDuration(config.ApprovalTimeout, defaultApprovalTimeout)
+	k.pollInterval = secondsDuration(config.CheckEvery, defaultRequestPollInterval)
 	k.closeCtx = closeCtx
 	k.closeCancel = closeCancel
 	if k.logger != nil {
@@ -112,6 +122,8 @@ func (k *securosysKMS) GetKey(ctx context.Context, opts *kms.KeyOptions) (kms.Ke
 		password:        config.Password,
 		cipherAlgorithm: config.CipherAlgorithm,
 		logger:          k.logger,
+		approvalTimeout: k.approvalTimeout,
+		pollInterval:    k.pollInterval,
 		closeCtx:        k.closeCtx,
 	}, nil
 }
@@ -135,6 +147,8 @@ func (k *securosysKMS) Close(ctx context.Context) error {
 	k.client = nil
 	k.logger = nil
 	k.logFile = nil
+	k.approvalTimeout = 0
+	k.pollInterval = 0
 	k.closeCtx = nil
 	k.closeCancel = nil
 	return nil
@@ -146,6 +160,74 @@ type keyConfig struct {
 	Name            string `mapstructure:"name"`
 	Password        string `mapstructure:"password"`
 	CipherAlgorithm string `mapstructure:"cipher_algorithm"`
+}
+
+type openConfig struct {
+	helpers.SecurosysConfig `mapstructure:",squash"`
+	CheckEvery              int `mapstructure:"check_every"`
+	ApprovalTimeout         int `mapstructure:"approval_timeout"`
+}
+
+func connectionCheckError(status int, connection string) error {
+	const message = "Unable to connect. Please check current config setting"
+
+	connection = strings.TrimSpace(connection)
+	if connection == "" {
+		return fmt.Errorf("%s (status %d)", message, status)
+	}
+	return fmt.Errorf("%s (status %d): %s", message, status, connection)
+}
+
+func secondsDuration(seconds int, fallback time.Duration) time.Duration {
+	if seconds <= 0 {
+		return fallback
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+func validateOpenConfig(config *helpers.SecurosysConfig) error {
+	if config == nil {
+		return errors.New("config is required")
+	}
+
+	config.RestApi = strings.TrimSpace(config.RestApi)
+	config.Auth = strings.TrimSpace(strings.ToUpper(config.Auth))
+	config.BearerToken = strings.TrimSpace(config.BearerToken)
+	config.CertPath = strings.TrimSpace(config.CertPath)
+	config.KeyPath = strings.TrimSpace(config.KeyPath)
+
+	if config.RestApi == "" {
+		return errors.New("restapi is required")
+	}
+	if config.Auth == "" {
+		return errors.New("auth is required")
+	}
+
+	switch config.Auth {
+	case "NONE":
+		return nil
+	case "TOKEN":
+		if config.BearerToken == "" {
+			return errors.New("bearertoken is required when auth is TOKEN")
+		}
+		return nil
+	case "CERT":
+		if config.CertPath == "" {
+			return errors.New("certpath is required when auth is CERT")
+		}
+		if config.KeyPath == "" {
+			return errors.New("keypath is required when auth is CERT")
+		}
+		if _, err := os.Stat(config.CertPath); err != nil {
+			return fmt.Errorf("certpath is invalid: %w", err)
+		}
+		if _, err := os.Stat(config.KeyPath); err != nil {
+			return fmt.Errorf("keypath is invalid: %w", err)
+		}
+		return nil
+	default:
+		return errors.New("auth must be one of [TOKEN,CERT,NONE]")
+	}
 }
 
 // decodeConfig decodes a ConfigMap into the given struct using mapstructure.
