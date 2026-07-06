@@ -38,10 +38,10 @@ func TestSecurosysHSMWrapper_Lifecycle(t *testing.T) {
 	testEncryptionRoundTrip(t, s, wrapping.WithConfigMap(config))
 }
 
-// TestGetOptsAppliesLocalOptionsWithoutConfigMap verifies local option
-// functions still work when no plugin-style config map is provided.
-func TestGetOptsAppliesLocalOptionsWithoutConfigMap(t *testing.T) {
-	opts, err := getOpts(WithCheckEvery("10"))
+func TestGetOptsAppliesConfigMap(t *testing.T) {
+	opts, err := getOpts(wrapping.WithConfigMap(map[string]string{
+		"check_every": "10",
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}

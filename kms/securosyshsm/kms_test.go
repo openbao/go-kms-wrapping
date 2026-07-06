@@ -53,9 +53,9 @@ func openTestKMS(t *testing.T) kms.KMS {
 	kmsInstance := New()
 	err := kmsInstance.Open(t.Context(), &kms.OpenOptions{
 		ConfigMap: kms.ConfigMap{
-			"restapi":     restAPI,
-			"auth":        "TOKEN",
-			"bearertoken": bearerToken,
+			"rest_api":     restAPI,
+			"auth":         "TOKEN",
+			"bearer_token": bearerToken,
 		},
 	})
 	if err != nil {
@@ -200,9 +200,9 @@ func TestKMS(t *testing.T) {
 
 	err := kmsInstance.Open(ctx, &kms.OpenOptions{
 		ConfigMap: kms.ConfigMap{
-			"restapi":     restAPI,
-			"auth":        "TOKEN",
-			"bearertoken": bearerToken,
+			"rest_api":     restAPI,
+			"auth":         "TOKEN",
+			"bearer_token": bearerToken,
 		},
 	})
 	if err != nil {

@@ -3,6 +3,8 @@
 package securosyshsm
 
 import (
+	"github.com/go-viper/mapstructure/v2"
+	"github.com/hashicorp/go-hclog"
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
 
@@ -37,47 +39,22 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 	}
 
 	if opts.WithConfigMap != nil {
-		for k, v := range opts.WithConfigMap {
-			switch k {
-			case "key_label":
-				opts.withKeyLabel = v
-			case "key_password":
-				opts.withKeyPassword = v
-			case "approval_timeout":
-				opts.withApprovalTimeout = v
-			case "auth":
-				opts.withAuth = v
-			case "bearer_token":
-				opts.withBearerToken = v
-			case "cert_path":
-				opts.withCertPath = v
-			case "key_path":
-				opts.withKeyPath = v
-			case "check_every":
-				opts.withCheckEvery = v
-			case "tsb_api_endpoint":
-				opts.withTSBApiEndpoint = v
-			case "policy":
-				opts.withPolicy = v
-			case "policy_rule_use":
-				opts.withPolicyRuleUse = v
-			case "policy_rule_block":
-				opts.withPolicyRuleBlock = v
-			case "policy_rule_unblock":
-				opts.withPolicyRuleUnBlock = v
-			case "policy_rule_modify":
-				opts.withPolicyRuleModify = v
-			case "full_policy":
-				opts.withFullPolicy = v
-			case "full_policy_file":
-				opts.withFullPolicyFile = v
-			case "application_key_pair":
-				opts.withApplicationKeyPair = v
-			case "api_keys":
-				opts.withApiKeys = v
-			}
+		var config configMapOptions
+		if err := mapstructure.WeakDecode(opts.WithConfigMap, &config); err != nil {
+			return nil, err
 		}
 
+		opts.withKeyLabel = config.KeyLabel
+		opts.withKeyPassword = config.KeyPassword
+		opts.withApprovalTimeout = config.ApprovalTimeout
+		opts.withAuth = config.Auth
+		opts.withBearerToken = config.BearerToken
+		opts.withCertPath = config.CertPath
+		opts.withKeyPath = config.KeyPath
+		opts.withCheckEvery = config.CheckEvery
+		opts.withTSBApiEndpoint = config.TSBApiEndpoint
+		opts.withApplicationKeyPair = config.ApplicationKeyPair
+		opts.withApiKeys = config.ApiKeys
 	}
 	for _, o := range localOptions {
 		if o != nil {
@@ -93,6 +70,20 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 // OptionFunc holds a function with local options
 type OptionFunc func(*options) error
 
+type configMapOptions struct {
+	KeyLabel           string `mapstructure:"key_label"`
+	KeyPassword        string `mapstructure:"key_password"`
+	ApprovalTimeout    string `mapstructure:"approval_timeout"`
+	Auth               string `mapstructure:"auth"`
+	BearerToken        string `mapstructure:"bearer_token"`
+	CertPath           string `mapstructure:"cert_path"`
+	KeyPath            string `mapstructure:"key_path"`
+	CheckEvery         string `mapstructure:"check_every"`
+	TSBApiEndpoint     string `mapstructure:"tsb_api_endpoint"`
+	ApplicationKeyPair string `mapstructure:"application_key_pair"`
+	ApiKeys            string `mapstructure:"api_keys"`
+}
+
 // options = how options are represented
 type options struct {
 	*wrapping.Options
@@ -106,183 +97,12 @@ type options struct {
 	withTSBApiEndpoint  string
 	withCertPath        string
 	withKeyPath         string
-	withPolicy          string
-	withFullPolicy      string
-	withFullPolicyFile  string
 
-	withPolicyRuleUse      string
-	withPolicyRuleBlock    string
-	withPolicyRuleUnBlock  string
-	withPolicyRuleModify   string
 	withApplicationKeyPair string
 	withApiKeys            string
+	withLogger             hclog.Logger
 }
 
 func getDefaultOptions() options {
 	return options{}
-}
-
-// WithMountPath provides a way to choose the mount path
-func WithApprovalTimeout(with string) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withApprovalTimeout = with
-			return nil
-		})
-	}
-}
-
-// WithKeyName provides a way to choose the key name
-func WithKeyLabel(with string) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withKeyLabel = with
-			return nil
-		})
-	}
-}
-
-// WithPassword provides a way to choose the key password
-func WithPassword(with string) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withKeyPassword = with
-			return nil
-		})
-	}
-}
-
-func WithPolicy(with string) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withPolicy = with
-			return nil
-		})
-	}
-}
-
-func WithFullPolicy(with string) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withFullPolicy = with
-			return nil
-		})
-	}
-}
-
-func WithFullPolicyFile(with string) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withFullPolicyFile = with
-			return nil
-		})
-	}
-}
-
-func WithPolicyRuleUse(with string) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withPolicyRuleUse = with
-			return nil
-		})
-	}
-}
-
-func WithPolicyRuleBlock(with string) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withPolicyRuleBlock = with
-			return nil
-		})
-	}
-}
-
-func WithPolicyRuleUnBlock(with string) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withPolicyRuleUnBlock = with
-			return nil
-		})
-	}
-}
-
-func WithPolicyRuleModify(with string) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withPolicyRuleModify = with
-			return nil
-		})
-	}
-}
-
-// WithDisableRenewal provides a way to disable renewal
-func WithAuth(with string) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withAuth = with
-			return nil
-		})
-	}
-}
-
-// WithNamespace provides a way to choose the namespace
-func WithBearerToken(with string) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withBearerToken = with
-			return nil
-		})
-	}
-}
-func WithCertPath(with string) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withCertPath = with
-			return nil
-		})
-	}
-}
-func WithKeyPath(with string) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withKeyPath = with
-			return nil
-		})
-	}
-}
-
-// WithAddress provides a way to choose the address
-func WithCheckEvery(with string) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withCheckEvery = with
-			return nil
-		})
-	}
-}
-
-func WithTSBApiEndpoint(with string) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withTSBApiEndpoint = with
-			return nil
-		})
-	}
-}
-func WithApiKeys(with string) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withApiKeys = with
-			return nil
-		})
-	}
-}
-
-func WithApplicationKeyPair(with string) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withApplicationKeyPair = with
-			return nil
-		})
-	}
 }
