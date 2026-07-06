@@ -197,7 +197,7 @@ func validateOpenConfig(config *helpers.SecurosysConfig) error {
 	config.KeyPath = strings.TrimSpace(config.KeyPath)
 
 	if config.RestApi == "" {
-		return errors.New("restapi is required")
+		return errors.New("rest_api is required")
 	}
 	if config.Auth == "" {
 		return errors.New("auth is required")
@@ -208,21 +208,21 @@ func validateOpenConfig(config *helpers.SecurosysConfig) error {
 		return nil
 	case "TOKEN":
 		if config.BearerToken == "" {
-			return errors.New("bearertoken is required when auth is TOKEN")
+			return errors.New("bearer_token is required when auth is TOKEN")
 		}
 		return nil
 	case "CERT":
 		if config.CertPath == "" {
-			return errors.New("certpath is required when auth is CERT")
+			return errors.New("cert_path is required when auth is CERT")
 		}
 		if config.KeyPath == "" {
-			return errors.New("keypath is required when auth is CERT")
+			return errors.New("key_path is required when auth is CERT")
 		}
 		if _, err := os.Stat(config.CertPath); err != nil {
-			return fmt.Errorf("certpath is invalid: %w", err)
+			return fmt.Errorf("cert_path is invalid: %w", err)
 		}
 		if _, err := os.Stat(config.KeyPath); err != nil {
-			return fmt.Errorf("keypath is invalid: %w", err)
+			return fmt.Errorf("key_path is invalid: %w", err)
 		}
 		return nil
 	default:

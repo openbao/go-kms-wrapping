@@ -8,9 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strconv"
-	"strings"
 
 	"github.com/hashicorp/go-hclog"
 	securosyskms "github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2"
@@ -80,7 +78,7 @@ func newSecurosysHSMClient(ctx context.Context, logger hclog.Logger, opts *optio
 		return nil, nil, fmt.Errorf("tsb_api_endpoint is required")
 	}
 
-	wrapperConfig, err := buildWrapperConfigurations(logger, opts)
+	wrapperConfig, err := buildWrapperConfigurations(opts)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -129,13 +127,8 @@ func newSecurosysHSMClient(ctx context.Context, logger hclog.Logger, opts *optio
 
 // buildWrapperConfigurations converts wrapper options into the legacy
 // Configurations structure still used for validation and metadata.
-func buildWrapperConfigurations(logger hclog.Logger, opts *options) (*Configurations, error) {
+func buildWrapperConfigurations(opts *options) (*Configurations, error) {
 	wrapperConfig := new(Configurations)
-
-	policy, err := parsePolicy(logger, opts)
-	if err != nil {
-		return nil, err
-	}
 
 	checkEvery := parsePositiveInt(opts.withCheckEvery, 5)
 	approvalTimeout := parsePositiveInt(opts.withApprovalTimeout, 600)
@@ -154,7 +147,6 @@ func buildWrapperConfigurations(logger hclog.Logger, opts *options) (*Configurat
 		}
 	}
 
-	wrapperConfig.Policy = policy
 	wrapperConfig.Settings.RestApi = opts.withTSBApiEndpoint
 	wrapperConfig.Settings.Auth = opts.withAuth
 	wrapperConfig.Settings.BearerToken = opts.withBearerToken
@@ -168,58 +160,6 @@ func buildWrapperConfigurations(logger hclog.Logger, opts *options) (*Configurat
 	wrapperConfig.Key.RSAPassword = opts.withKeyPassword
 
 	return wrapperConfig, nil
-}
-
-// parsePolicy accepts all supported policy input forms and stores them as raw
-// JSON.
-func parsePolicy(logger hclog.Logger, opts *options) (json.RawMessage, error) {
-	switch {
-	case opts.withPolicy != "":
-		return normalizePolicyJSON(strings.ReplaceAll(opts.withPolicy, "\n", ""))
-	case opts.withPolicyRuleUse != "" || opts.withPolicyRuleBlock != "" || opts.withPolicyRuleUnBlock != "" || opts.withPolicyRuleModify != "":
-		policyPart := make(map[string]map[string]string)
-		for name, value := range map[string]string{
-			"use":     opts.withPolicyRuleUse,
-			"block":   opts.withPolicyRuleBlock,
-			"unblock": opts.withPolicyRuleUnBlock,
-			"modify":  opts.withPolicyRuleModify,
-		} {
-			if value == "" {
-				continue
-			}
-			var part map[string]string
-			if err := json.Unmarshal([]byte(strings.ReplaceAll(value, "\n", "")), &part); err != nil {
-				if logger != nil {
-					logger.Error(fmt.Sprintf("Rule %q is not valid: %s", name, err))
-				}
-				return nil, fmt.Errorf("policy rule %q is invalid: %w", name, err)
-			}
-			policyPart[name] = part
-		}
-		policyBytes, err := json.Marshal(policyPart)
-		if err != nil {
-			return nil, err
-		}
-		return json.RawMessage(policyBytes), nil
-	case opts.withFullPolicy != "":
-		return normalizePolicyJSON(opts.withFullPolicy)
-	case opts.withFullPolicyFile != "":
-		data, err := os.ReadFile(opts.withFullPolicyFile)
-		if err != nil {
-			return nil, err
-		}
-		return normalizePolicyJSON(string(data))
-	default:
-		return json.RawMessage("{}"), nil
-	}
-}
-
-func normalizePolicyJSON(policy string) (json.RawMessage, error) {
-	var raw json.RawMessage
-	if err := json.Unmarshal([]byte(policy), &raw); err != nil {
-		return nil, err
-	}
-	return raw, nil
 }
 
 // parsePositiveInt returns defaultValue when value is empty, invalid, or not
@@ -242,15 +182,15 @@ func securosysKMSConfigMap(config *Configurations) kms.ConfigMap {
 	apiKeys, _ := json.Marshal(config.Settings.ApiKeys)
 
 	return kms.ConfigMap{
-		"restapi":            config.Settings.RestApi,
-		"auth":               config.Settings.Auth,
-		"bearertoken":        config.Settings.BearerToken,
-		"certpath":           config.Settings.CertPath,
-		"keypath":            config.Settings.KeyPath,
-		"check_every":        config.Settings.CheckEvery,
-		"approval_timeout":   config.Settings.ApprovalTimeout,
-		"applicationKeyPair": string(applicationKeyPair),
-		"apiKeys":            string(apiKeys),
+		"rest_api":             config.Settings.RestApi,
+		"auth":                 config.Settings.Auth,
+		"bearer_token":         config.Settings.BearerToken,
+		"cert_path":            config.Settings.CertPath,
+		"key_path":             config.Settings.KeyPath,
+		"check_every":          config.Settings.CheckEvery,
+		"approval_timeout":     config.Settings.ApprovalTimeout,
+		"application_key_pair": string(applicationKeyPair),
+		"api_keys":             string(apiKeys),
 	}
 }
 
