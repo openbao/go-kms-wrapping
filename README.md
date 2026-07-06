@@ -46,6 +46,7 @@ as they may have been used for past encryption operations.
   * * Huawei Cloud KMS (uses envelopes)
   * * OCI KMS (uses envelopes)
   * * OVHcloud KMS (uses envelopes)
+  * * STACKIT KMS (uses envelopes)
   * * Tencent Cloud KMS (uses envelopes)
   * * Vault Transit mount
   * * Securosys HSM
