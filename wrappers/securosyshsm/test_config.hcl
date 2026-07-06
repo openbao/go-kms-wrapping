@@ -18,8 +18,4 @@ seal "securosys-hsm" {
   key_password = ""
   check_every = 5
   approval_timeout = 3000
-  policy = <<EOF
-  { 
-  }
-  EOF
 }
