@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"sync/atomic"
 
@@ -47,14 +46,7 @@ func (s *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 		return nil, err
 	}
 
-	s.logger = opts.withLogger
-	if s.logger == nil {
-		s.logger = hclog.New(&hclog.LoggerOptions{
-			Name:   "securosys-hsm-seal",
-			Level:  hclog.Info,
-			Output: os.Stderr,
-		})
-	}
+	s.logger = opts.WithLogger
 
 	client, wrapConfig, err := newSecurosysHSMClient(ctx, s.logger, opts)
 	if err != nil {
