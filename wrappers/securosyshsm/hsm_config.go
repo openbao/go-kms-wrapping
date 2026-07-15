@@ -16,12 +16,8 @@ const (
 )
 
 var logger hclog.Logger = hclog.New(&hclog.LoggerOptions{
-	Name: fmt.Sprintf("securosys-hsm-seal")})
-
-var Logs Logging
-
-// Variable that stores entire configuration from yaml file
-var configuration *Configurations
+	Name: fmt.Sprintf("securosys-hsm-seal"),
+})
 
 // This function validating a config_hsm.yml file
 func (config *Configurations) checkConfigFile() bool {

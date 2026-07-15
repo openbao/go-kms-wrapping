@@ -13,18 +13,11 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 	// First, separate out options into local and global
 	opts := getDefaultOptions()
 	var wrappingOptions []wrapping.Option
-	var localOptions []OptionFunc
 	for _, o := range opt {
 		if o == nil {
 			continue
 		}
-		iface := o()
-		switch to := iface.(type) {
-		case wrapping.OptionFunc:
-			wrappingOptions = append(wrappingOptions, o)
-		case OptionFunc:
-			localOptions = append(localOptions, to)
-		}
+		wrappingOptions = append(wrappingOptions, o)
 	}
 
 	// Parse the global options
@@ -55,13 +48,6 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 		opts.withTSBApiEndpoint = config.TSBApiEndpoint
 		opts.withApplicationKeyPair = config.ApplicationKeyPair
 		opts.withApiKeys = config.ApiKeys
-	}
-	for _, o := range localOptions {
-		if o != nil {
-			if err := o(&opts); err != nil {
-				return nil, err
-			}
-		}
 	}
 
 	return &opts, nil

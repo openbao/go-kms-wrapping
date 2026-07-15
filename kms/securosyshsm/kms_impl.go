@@ -18,16 +18,12 @@ import (
 	"github.com/securosys-com/tsb-client-go/helpers"
 )
 
-// Ensure securosysKMS implements kms.KMS
-var _ kms.KMS = (*securosysKMS)(nil)
-
 // securosysKMS implements kms.KMS using the Securosys HSM.
 type securosysKMS struct {
 	kms.UnimplementedKMS
 
-	client  *client.SecurosysClient
-	logger  hclog.Logger
-	logFile *os.File
+	client *client.SecurosysClient
+	logger hclog.Logger
 
 	approvalTimeout time.Duration
 	pollInterval    time.Duration
@@ -37,7 +33,7 @@ type securosysKMS struct {
 
 // New returns a new KMS that uses the Securosys HSM.
 func New() kms.KMS {
-	return &securosysKMS{}
+	return &securosysKMS{logger: hclog.NewNullLogger()}
 }
 
 // Open configures this KMS and acquires any necessary resources.
@@ -69,18 +65,17 @@ func (k *securosysKMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 	}
 
 	logger := opts.Logger
-	var logFile *os.File
+	if logger == nil {
+		logger = hclog.NewNullLogger()
+	}
 	closeCtx, closeCancel := context.WithCancel(context.Background())
 	k.client = c
 	k.logger = logger
-	k.logFile = logFile
 	k.approvalTimeout = secondsDuration(config.ApprovalTimeout, defaultApprovalTimeout)
 	k.pollInterval = secondsDuration(config.CheckEvery, defaultRequestPollInterval)
 	k.closeCtx = closeCtx
 	k.closeCancel = closeCancel
-	if k.logger != nil {
-		k.logger.Debug("opened securosys hsm kms", "status", status)
-	}
+	k.logger.Debug("opened securosys hsm kms", "status", status)
 	return nil
 }
 
@@ -100,21 +95,15 @@ func (k *securosysKMS) GetKey(ctx context.Context, opts *kms.KeyOptions) (kms.Ke
 	if config.Name == "" {
 		return nil, errors.New("key name is required")
 	}
-	if k.logger != nil {
-		k.logger.Debug("resolving securosys hsm key", "key_label", config.Name)
-	}
+	k.logger.Debug("resolving securosys hsm key", "key_label", config.Name)
 
 	// Get key from client
 	keyAttrs, err := k.client.GetKey(ctx, config.Name, config.Password)
 	if err != nil {
-		if k.logger != nil {
-			k.logger.Debug("failed to resolve securosys hsm key", "key_label", config.Name, "error", err)
-		}
+		k.logger.Debug("failed to resolve securosys hsm key", "key_label", config.Name, "error", err)
 		return nil, err
 	}
-	if k.logger != nil {
-		k.logger.Debug("resolved securosys hsm key", "key_label", config.Name)
-	}
+	k.logger.Debug("resolved securosys hsm key", "key_label", config.Name)
 
 	return &securosysKey{
 		client:          k.client,
@@ -136,17 +125,9 @@ func (k *securosysKMS) Close(ctx context.Context) error {
 	if k.client != nil && k.client.HTTPClient != nil {
 		k.client.HTTPClient.CloseIdleConnections()
 	}
-	if k.logger != nil {
-		k.logger.Debug("closed securosys hsm kms")
-	}
-	if k.logFile != nil {
-		if err := k.logFile.Close(); err != nil {
-			return err
-		}
-	}
+	k.logger.Debug("closed securosys hsm kms")
 	k.client = nil
-	k.logger = nil
-	k.logFile = nil
+	k.logger = hclog.NewNullLogger()
 	k.approvalTimeout = 0
 	k.pollInterval = 0
 	k.closeCtx = nil
