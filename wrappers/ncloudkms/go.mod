@@ -20,5 +20,3 @@ require (
 	golang.org/x/sys v0.46.0 // indirect
 	google.golang.org/protobuf v1.36.4 // indirect
 )
-
-retract [v2.0.0, v2.0.10]

@@ -108,9 +108,7 @@ func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 		return nil, fmt.Errorf("access key and secret key are required (env %s/%s or config) for ncloud kms wrapper configuration", EnvNcpAccessKey, EnvNcpSecretKey)
 	}
 
-	if k.client == nil {
-		k.client = newKMSClient(domain, accessKey, secretKey)
-	}
+	k.client = newKMSClient(domain, accessKey, secretKey)
 
 	// Store the current key tag.
 	k.currentKeyTag.Store(k.keyTag)
@@ -171,8 +169,19 @@ func (k *Wrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, opt ...wra
 	if in == nil {
 		return nil, fmt.Errorf("given input for decryption is nil")
 	}
+	if in.KeyInfo == nil {
+		return nil, fmt.Errorf("given input for decryption is missing key info")
+	}
 
-	plaintextB64, err := k.client.decrypt(ctx, k.keyTag, string(in.KeyInfo.WrappedKey))
+	// Prefer the key tag recorded at encryption time so the blob decrypts with
+	// the key that wrapped it; fall back to the configured key tag for inputs
+	// that don't carry one.
+	keyTag := in.KeyInfo.KeyId
+	if keyTag == "" {
+		keyTag = k.keyTag
+	}
+
+	plaintextB64, err := k.client.decrypt(ctx, keyTag, string(in.KeyInfo.WrappedKey))
 	if err != nil {
 		return nil, fmt.Errorf("error decrypting data encryption key: %w", err)
 	}
@@ -207,9 +216,6 @@ type kmsClient struct {
 }
 
 func newKMSClient(domain, accessKey, secretKey string) *kmsClient {
-	if domain == "" {
-		domain = defaultDomain
-	}
 	return &kmsClient{
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 		domain:     domain,

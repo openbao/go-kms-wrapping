@@ -49,7 +49,7 @@ func TestCreateNaverSignature(t *testing.T) {
 	}
 }
 
-// TestSetConfig exercises the credential/key-id resolution and metadata output
+// TestSetConfig exercises the credential/key-tag resolution and metadata output
 // without touching the network. Env vars are disallowed so the host
 // environment cannot influence the result.
 func TestSetConfig(t *testing.T) {
@@ -123,6 +123,18 @@ func TestSetConfig(t *testing.T) {
 			t.Errorf("domain = %q, want kms.example.com", cfg.Metadata["domain"])
 		}
 	})
+}
+
+// TestDecryptInvalidInput covers the nil-input guards, which need no network.
+func TestDecryptInvalidInput(t *testing.T) {
+	w := NewWrapper()
+
+	if _, err := w.Decrypt(context.Background(), nil); err == nil {
+		t.Fatal("expected error for nil input")
+	}
+	if _, err := w.Decrypt(context.Background(), &wrapping.BlobInfo{}); err == nil {
+		t.Fatal("expected error for missing key info")
+	}
 }
 
 func TestType(t *testing.T) {
