@@ -41,7 +41,7 @@ require (
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/posener/complete v1.1.1 // indirect
 	github.com/ryanuber/go-glob v1.0.0 // indirect
-	github.com/securosys-com/tsb-client-go v1.0.1 // indirect
+	github.com/securosys-com/tsb-client-go v1.1.0 // indirect
 	github.com/shopspring/decimal v1.2.0 // indirect
 	github.com/spf13/cast v1.3.1 // indirect
 	golang.org/x/crypto v0.42.0 // indirect

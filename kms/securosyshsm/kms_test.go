@@ -4,6 +4,7 @@ package securosyshsm
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/openbao/go-kms-wrapping/v2/kms"
@@ -11,18 +12,22 @@ import (
 )
 
 // KMS configuration environment variables
-var SECUROSYS_HSM_RESTAPI_ENV_VAR = "SECUROSYS_HSM_RESTAPI"
-var SECUROSYS_BEARER_TOKEN_ENV_VAR = "SECUROSYS_BEARER_TOKEN"
+var (
+	SECUROSYS_HSM_RESTAPI_ENV_VAR  = "SECUROSYS_HSM_RESTAPI"
+	SECUROSYS_BEARER_TOKEN_ENV_VAR = "SECUROSYS_BEARER_TOKEN"
+)
 
 // Test keys names
-var AES_KEY_NAME = "openbao_test_aes_key"
-var RSA_KEY_NAME = "openbao_test_rsa_key"
-var EC_KEY_NAME = "openbao_test_ec_key"
-var ED_KEY_NAME = "openbao_test_ed_key"
+var (
+	AES_KEY_NAME = "openbao_test_aes_key"
+	RSA_KEY_NAME = "openbao_test_rsa_key"
+	EC_KEY_NAME  = "openbao_test_ec_key"
+	ED_KEY_NAME  = "openbao_test_ed_key"
+)
 
 func getTestClient(t *testing.T) *client.TSBClient {
-	restAPI := os.Getenv(SECUROSYS_HSM_RESTAPI_ENV_VAR)
-	bearerToken := os.Getenv(SECUROSYS_BEARER_TOKEN_ENV_VAR)
+	restAPI := testEnv(SECUROSYS_HSM_RESTAPI_ENV_VAR)
+	bearerToken := testEnv(SECUROSYS_BEARER_TOKEN_ENV_VAR)
 
 	if restAPI == "" || bearerToken == "" {
 		t.Skip("SECUROSYS_HSM_RESTAPI or SECUROSYS_BEARER_TOKEN not set, skipping test")
@@ -44,8 +49,8 @@ func getTestClient(t *testing.T) *client.TSBClient {
 func openTestKMS(t *testing.T) kms.KMS {
 	t.Helper()
 
-	restAPI := os.Getenv(SECUROSYS_HSM_RESTAPI_ENV_VAR)
-	bearerToken := os.Getenv(SECUROSYS_BEARER_TOKEN_ENV_VAR)
+	restAPI := testEnv(SECUROSYS_HSM_RESTAPI_ENV_VAR)
+	bearerToken := testEnv(SECUROSYS_BEARER_TOKEN_ENV_VAR)
 	if restAPI == "" || bearerToken == "" {
 		t.Skip("SECUROSYS_HSM_RESTAPI or SECUROSYS_BEARER_TOKEN not set, skipping test")
 	}
@@ -106,14 +111,14 @@ func createTestKey(t *testing.T, keyName, keyType string, keySize int) func() {
 	}
 
 	// Create the key
-	_, err := tsbClient.CreateOrUpdateKey(keyName, "", attrs, keyType, size, nil, "", false)
+	_, err := tsbClient.CreateOrUpdateKey(t.Context(), keyName, "", attrs, keyType, size, nil, "", false)
 	if err != nil {
 		t.Logf("Key creation warning (may already exist): %v", err)
 	}
 
 	// Return cleanup function
 	return func() {
-		err := tsbClient.RemoveKey(keyName)
+		err := tsbClient.RemoveKey(t.Context(), keyName)
 		if err != nil {
 			t.Logf("Key cleanup warning: %v", err)
 		}
@@ -158,7 +163,7 @@ func setupTestKeys(t *testing.T) {
 			size = float64(cfg.size)
 		}
 
-		_, err := tsbClient.CreateOrUpdateKey(cfg.name, "", attrs, cfg.keyType, size, nil, cfg.curveOid, false)
+		_, err := tsbClient.CreateOrUpdateKey(t.Context(), cfg.name, "", attrs, cfg.keyType, size, nil, cfg.curveOid, false)
 		if err != nil {
 			t.Logf("Key creation warning for %s: %v", cfg.name, err)
 		}
@@ -174,7 +179,7 @@ func cleanupTestKeys(t *testing.T) {
 	keyNames := []string{AES_KEY_NAME, RSA_KEY_NAME, EC_KEY_NAME, ED_KEY_NAME}
 
 	for _, keyName := range keyNames {
-		err := tsbClient.RemoveKey(keyName)
+		err := tsbClient.RemoveKey(t.Context(), keyName)
 		if err != nil {
 			t.Logf("Key cleanup warning for %s: %v", keyName, err)
 		}
@@ -189,8 +194,8 @@ func TestKMS(t *testing.T) {
 	defer cleanupTestKeys(t)
 
 	// Get configuration from environment variables
-	restAPI := os.Getenv(SECUROSYS_HSM_RESTAPI_ENV_VAR)
-	bearerToken := os.Getenv(SECUROSYS_BEARER_TOKEN_ENV_VAR)
+	restAPI := testEnv(SECUROSYS_HSM_RESTAPI_ENV_VAR)
+	bearerToken := testEnv(SECUROSYS_BEARER_TOKEN_ENV_VAR)
 
 	if restAPI == "" || bearerToken == "" {
 		t.Skip("SECUROSYS_HSM_RESTAPI or SECUROSYS_BEARER_TOKEN not set, skipping test")
@@ -244,4 +249,8 @@ func TestKMS(t *testing.T) {
 	}
 
 	t.Log("Encrypt/Decrypt test passed")
+}
+
+func testEnv(name string) string {
+	return strings.TrimSpace(os.Getenv(name))
 }

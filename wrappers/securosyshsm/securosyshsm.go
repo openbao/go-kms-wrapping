@@ -10,13 +10,11 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/hashicorp/go-hclog"
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
 
 // Wrapper encrypts and decrypts go-kms-wrapping blobs with a Securosys HSM key.
 type Wrapper struct {
-	logger       hclog.Logger
 	client       securosysHSMClientEncryptor
 	currentKeyId *atomic.Value
 	hsmClient    securosysHSMClientEncryptor
@@ -46,9 +44,7 @@ func (s *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 		return nil, err
 	}
 
-	s.logger = opts.WithLogger
-
-	client, wrapConfig, err := newSecurosysHSMClient(ctx, s.logger, opts)
+	client, wrapConfig, err := newSecurosysHSMClient(ctx, opts.WithLogger, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -130,11 +126,6 @@ func (s *Wrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, _ ...wrapp
 		return nil, err
 	}
 	return bytes, nil
-}
-
-// GetClient returns the securosysHSM Wrapper's securosysHSMClientEncryptor
-func (s *Wrapper) GetClient() securosysHSMClientEncryptor {
-	return s.client
 }
 
 type parsedCiphertext struct {

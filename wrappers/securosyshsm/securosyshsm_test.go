@@ -46,8 +46,43 @@ func TestGetOptsAppliesConfigMap(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if opts.withCheckEvery != "10" {
-		t.Fatalf("expected check_every 10, got %q", opts.withCheckEvery)
+	if opts.WithConfigMap["check_every"] != "10" {
+		t.Fatalf("expected check_every 10, got %q", opts.WithConfigMap["check_every"])
+	}
+}
+
+func TestSecurosysKMSConfigMapRemapsWrapperConfig(t *testing.T) {
+	opts, err := getOpts(wrapping.WithConfigMap(map[string]string{
+		"tsb_api_endpoint":     "https://test.com",
+		"auth":                 "TOKEN",
+		"bearer_token":         "token",
+		"key_label":            "wrapper-key",
+		"key_password":         "secret",
+		"check_every":          "20",
+		"approval_timeout":     "600",
+		"application_key_pair": "{}",
+		"api_keys":             "{}",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	provider := securosysKMSConfigMap(opts)
+
+	if provider["rest_api"] != "https://test.com" {
+		t.Fatalf("expected rest_api remap, got %#v", provider["rest_api"])
+	}
+	if _, ok := provider["tsb_api_endpoint"]; ok {
+		t.Fatal("expected tsb_api_endpoint to be remapped, not copied")
+	}
+	if _, ok := provider["key_label"]; ok {
+		t.Fatal("expected key_label to stay out of provider config")
+	}
+	if _, ok := provider["key_password"]; ok {
+		t.Fatal("expected key_password to stay out of provider config")
+	}
+	if provider["auth"] != "TOKEN" || provider["bearer_token"] != "token" {
+		t.Fatalf("unexpected provider auth config: %#v", provider)
 	}
 }
 

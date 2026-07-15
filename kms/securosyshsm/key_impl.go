@@ -27,11 +27,15 @@ import (
 // Ensure securosysKey implements kms.Key
 var _ kms.Key = (*securosysKey)(nil)
 
-var ErrApprovalTimeout = errors.New("approval timeout exceeded")
-var ErrKMSClosed = errors.New("securosys hsm kms closed")
+var (
+	ErrApprovalTimeout = errors.New("approval timeout exceeded")
+	ErrKMSClosed       = errors.New("securosys hsm kms closed")
+)
 
-const defaultApprovalTimeout = 10 * time.Minute
-const defaultRequestPollInterval = 5 * time.Second
+const (
+	defaultApprovalTimeout     = 10 * time.Minute
+	defaultRequestPollInterval = 5 * time.Second
+)
 
 // securosysKey implements kms.Key using a Securosys HSM key.
 type securosysKey struct {
@@ -356,6 +360,9 @@ func (k *securosysKey) waitForRequest(ctx context.Context, requestID string) (*h
 	}
 
 	logger := k.logger
+	if logger == nil {
+		logger = hclog.NewNullLogger()
+	}
 	waitStarted := time.Now()
 	approvalTimeout := k.approvalTimeout
 	if approvalTimeout <= 0 {
@@ -375,12 +382,10 @@ func (k *securosysKey) waitForRequest(ctx context.Context, requestID string) (*h
 	if pollInterval <= 0 {
 		pollInterval = defaultRequestPollInterval
 	}
-	if logger != nil {
-		if deadline, ok := ctx.Deadline(); ok {
-			logger.Info("Waiting for approvals", "request_id", requestID, "poll_interval", pollInterval.String(), "timeout_in", time.Until(deadline).Round(time.Second).String())
-		} else {
-			logger.Info("Waiting for approvals", "request_id", requestID, "poll_interval", pollInterval.String())
-		}
+	if deadline, ok := ctx.Deadline(); ok {
+		logger.Info("Waiting for approvals", "request_id", requestID, "poll_interval", pollInterval.String(), "timeout_in", time.Until(deadline).Round(time.Second).String())
+	} else {
+		logger.Info("Waiting for approvals", "request_id", requestID, "poll_interval", pollInterval.String())
 	}
 
 	ticker := time.NewTicker(pollInterval)
@@ -389,9 +394,7 @@ func (k *securosysKey) waitForRequest(ctx context.Context, requestID string) (*h
 	for {
 		select {
 		case <-ctx.Done():
-			if logger != nil {
-				logger.Warn("securosys async request wait stopped", "request_id", requestID, "elapsed", time.Since(waitStarted).Round(time.Second).String(), "error", ctx.Err())
-			}
+			logger.Warn("securosys async request wait stopped", "request_id", requestID, "elapsed", time.Since(waitStarted).Round(time.Second).String(), "error", ctx.Err())
 			return nil, k.waitForRequestStopError(ctx, requestID)
 		default:
 		}
@@ -399,38 +402,29 @@ func (k *securosysKey) waitForRequest(ctx context.Context, requestID string) (*h
 		request, _, err := k.client.GetRequest(ctx, requestID)
 		if err != nil {
 			if ctx.Err() != nil {
-				if logger != nil {
-					logger.Warn("securosys async request wait stopped", "request_id", requestID, "elapsed", time.Since(waitStarted).Round(time.Second).String(), "error", ctx.Err())
-				}
+				logger.Warn("securosys async request wait stopped", "request_id", requestID, "elapsed", time.Since(waitStarted).Round(time.Second).String(), "error", ctx.Err())
 				return nil, k.waitForRequestStopError(ctx, requestID)
 			}
-			if logger != nil {
-				logger.Error("failed to poll securosys async request", "request_id", requestID, "elapsed", time.Since(waitStarted).Round(time.Second).String(), "error", err)
-			}
+			logger.Error("failed to poll securosys async request", "request_id", requestID, "elapsed", time.Since(waitStarted).Round(time.Second).String(), "error", err)
 			return nil, err
 		}
 		if request.Status != "PENDING" && request.Status != "APPROVED" {
-			if logger != nil {
-				logger.Info("Securosys approval request completed", "request_id", requestID, "status", request.Status, "elapsed", time.Since(waitStarted).Round(time.Second).String())
-			}
+			logger.Info("Securosys approval request completed", "request_id", requestID, "status", request.Status, "elapsed", time.Since(waitStarted).Round(time.Second).String())
 			return request, nil
 		}
-		if logger != nil {
-			logger.Debug("Securosys approval request still pending",
-				"request_id", requestID,
-				"status", request.Status,
-				"elapsed", time.Since(waitStarted).Round(time.Second).String(),
-				"approved_by", request.ApprovedBy,
-				"not_yet_approved_by", request.NotYetApprovedBy,
-				"rejected_by", request.RejectedBy,
-			)
-		}
+		logger.Debug(
+			"Securosys approval request still pending",
+			"request_id", requestID,
+			"status", request.Status,
+			"elapsed", time.Since(waitStarted).Round(time.Second).String(),
+			"approved_by", request.ApprovedBy,
+			"not_yet_approved_by", request.NotYetApprovedBy,
+			"rejected_by", request.RejectedBy,
+		)
 
 		select {
 		case <-ctx.Done():
-			if logger != nil {
-				logger.Warn("securosys async request wait stopped", "request_id", requestID, "status", request.Status, "elapsed", time.Since(waitStarted).Round(time.Second).String(), "error", ctx.Err())
-			}
+			logger.Warn("securosys async request wait stopped", "request_id", requestID, "status", request.Status, "elapsed", time.Since(waitStarted).Round(time.Second).String(), "error", ctx.Err())
 			return nil, k.waitForRequestStopError(ctx, requestID)
 		case <-ticker.C:
 		}
@@ -621,6 +615,9 @@ func mapSignAlgorithmFromOpts(opts *kms.SignOptions, pub crypto.PublicKey) (stri
 		return "EDDSA", nil
 
 	default:
+		if algorithm, ok, err := mapPostQuantumSignAlgorithm(opts.Prehashed, hash, pub); ok || err != nil {
+			return algorithm, err
+		}
 		return "", fmt.Errorf("unsupported key type: %T", pub)
 	}
 }
@@ -692,6 +689,19 @@ func mapSignAlgorithmFromVerifyOpts(opts *kms.VerifyOptions, pub crypto.PublicKe
 		return "EDDSA", nil
 
 	default:
+		if algorithm, ok, err := mapPostQuantumSignAlgorithm(opts.Prehashed, hash, pub); ok || err != nil {
+			return algorithm, err
+		}
 		return "", fmt.Errorf("unsupported key type: %T", pub)
 	}
+}
+
+func mapPostQuantumSignAlgorithm(prehashed bool, hash crypto.Hash, pub crypto.PublicKey) (string, bool, error) {
+	if !isMLDSAPublicKey(pub) {
+		return "", false, nil
+	}
+	if prehashed || hash != 0 {
+		return "", true, errors.New("ML-DSA requires raw message signing with crypto.Hash(0)")
+	}
+	return "ML_DSA", true, nil
 }

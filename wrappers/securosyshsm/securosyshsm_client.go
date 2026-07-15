@@ -6,7 +6,6 @@ package securosyshsm
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"strconv"
 
@@ -14,12 +13,6 @@ import (
 	securosyskms "github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2"
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 	"github.com/openbao/go-kms-wrapping/v2/kms"
-)
-
-const (
-	EnvAdditionalAuthenticationData = "SECUROSYSHSM_ADDITIONAL_AUTHENTICATION_DATA"
-	EnvTagLength                    = "SECUROSYSHSM_TAG_LENGTH"
-	EnvCipherAlgorithm              = "SECUROSYSHSM_CIPHER_ALGORITHM"
 )
 
 type securosysHSMClientEncryptor interface {
@@ -37,7 +30,6 @@ type SecurosysHSMClient struct {
 	kms      kms.KMS
 	key      kms.Key
 	keyLabel string
-	config   *Configurations
 }
 
 func (c *SecurosysHSMClient) Close() {
@@ -78,19 +70,13 @@ func newSecurosysHSMClient(ctx context.Context, logger hclog.Logger, opts *optio
 		return nil, nil, fmt.Errorf("tsb_api_endpoint is required")
 	}
 
-	wrapperConfig, err := buildWrapperConfigurations(opts)
-	if err != nil {
-		return nil, nil, err
-	}
-	configuration = wrapperConfig
-
-	if !wrapperConfig.checkConfigFile() {
-		return nil, nil, fmt.Errorf("securosys hsm wrapper configuration is invalid")
-	}
-
-	provider := securosysKMSConfigMap(wrapperConfig)
+	provider := securosysKMSConfigMap(opts)
 	providerKMS := securosyskms.New()
-	if err := providerKMS.Open(ctx, &kms.OpenOptions{Logger: logger, ConfigMap: provider}); err != nil {
+	if err := providerKMS.Open(ctx, &kms.OpenOptions{
+		Logger:           logger,
+		AllowEnvironment: !opts.WithDisallowEnvVars,
+		ConfigMap:        provider,
+	}); err != nil {
 		return nil, nil, err
 	}
 
@@ -109,57 +95,19 @@ func newSecurosysHSMClient(ctx context.Context, logger hclog.Logger, opts *optio
 		kms:      providerKMS,
 		key:      key,
 		keyLabel: keyLabel,
-		config:   wrapperConfig,
 	}
 
 	wrapConfig := &wrapping.WrapperConfig{
 		Metadata: map[string]string{
 			"tsb_api_endpoint": tsbAPIEndpoint,
-			"check_every":      strconv.Itoa(wrapperConfig.Settings.CheckEvery),
+			"check_every":      strconv.Itoa(parsePositiveInt(opts.withCheckEvery, 5)),
 			"key_label":        keyLabel,
 			"auth":             auth,
-			"approval_timeout": strconv.Itoa(wrapperConfig.Settings.ApprovalTimeout),
+			"approval_timeout": strconv.Itoa(parsePositiveInt(opts.withApprovalTimeout, 600)),
 		},
 	}
 
 	return client, wrapConfig, nil
-}
-
-// buildWrapperConfigurations converts wrapper options into the legacy
-// Configurations structure still used for validation and metadata.
-func buildWrapperConfigurations(opts *options) (*Configurations, error) {
-	wrapperConfig := new(Configurations)
-
-	checkEvery := parsePositiveInt(opts.withCheckEvery, 5)
-	approvalTimeout := parsePositiveInt(opts.withApprovalTimeout, 600)
-
-	var keyPair KeyPair
-	if opts.withApplicationKeyPair != "" {
-		if err := json.Unmarshal([]byte(opts.withApplicationKeyPair), &keyPair); err != nil {
-			return nil, fmt.Errorf("application_key_pair is invalid: %w", err)
-		}
-	}
-
-	var apiKeys ApiKeyTypes
-	if opts.withApiKeys != "" {
-		if err := json.Unmarshal([]byte(opts.withApiKeys), &apiKeys); err != nil {
-			return nil, fmt.Errorf("api_keys is invalid: %w", err)
-		}
-	}
-
-	wrapperConfig.Settings.RestApi = opts.withTSBApiEndpoint
-	wrapperConfig.Settings.Auth = opts.withAuth
-	wrapperConfig.Settings.BearerToken = opts.withBearerToken
-	wrapperConfig.Settings.CertPath = opts.withCertPath
-	wrapperConfig.Settings.KeyPath = opts.withKeyPath
-	wrapperConfig.Settings.CheckEvery = checkEvery
-	wrapperConfig.Settings.ApprovalTimeout = approvalTimeout
-	wrapperConfig.Settings.ApplicationKeyPair = keyPair
-	wrapperConfig.Settings.ApiKeys = apiKeys
-	wrapperConfig.Key.RSALabel = opts.withKeyLabel
-	wrapperConfig.Key.RSAPassword = opts.withKeyPassword
-
-	return wrapperConfig, nil
 }
 
 // parsePositiveInt returns defaultValue when value is empty, invalid, or not
@@ -175,23 +123,39 @@ func parsePositiveInt(value string, defaultValue int) int {
 	return parsed
 }
 
-// securosysKMSConfigMap converts wrapper configuration into kms.OpenOptions
-// data accepted by kms/securosyshsm.
-func securosysKMSConfigMap(config *Configurations) kms.ConfigMap {
-	applicationKeyPair, _ := json.Marshal(config.Settings.ApplicationKeyPair)
-	apiKeys, _ := json.Marshal(config.Settings.ApiKeys)
-
-	return kms.ConfigMap{
-		"rest_api":             config.Settings.RestApi,
-		"auth":                 config.Settings.Auth,
-		"bearer_token":         config.Settings.BearerToken,
-		"cert_path":            config.Settings.CertPath,
-		"key_path":             config.Settings.KeyPath,
-		"check_every":          config.Settings.CheckEvery,
-		"approval_timeout":     config.Settings.ApprovalTimeout,
-		"application_key_pair": string(applicationKeyPair),
-		"api_keys":             string(apiKeys),
+// securosysKMSConfigMap routes wrapper configuration directly into
+// kms/securosyshsm, applying only the wrapper-to-KMS key remaps.
+func securosysKMSConfigMap(opts *options) kms.ConfigMap {
+	provider := kms.ConfigMap{
+		"rest_api": opts.withTSBApiEndpoint,
 	}
+
+	if opts.withAuth != "" {
+		provider["auth"] = opts.withAuth
+	}
+	if opts.withBearerToken != "" {
+		provider["bearer_token"] = opts.withBearerToken
+	}
+	if opts.withCertPath != "" {
+		provider["cert_path"] = opts.withCertPath
+	}
+	if opts.withKeyPath != "" {
+		provider["key_path"] = opts.withKeyPath
+	}
+	if opts.withCheckEvery != "" {
+		provider["check_every"] = opts.withCheckEvery
+	}
+	if opts.withApprovalTimeout != "" {
+		provider["approval_timeout"] = opts.withApprovalTimeout
+	}
+	if opts.withApplicationKeyPair != "" {
+		provider["application_key_pair"] = opts.withApplicationKeyPair
+	}
+	if opts.withApiKeys != "" {
+		provider["api_keys"] = opts.withApiKeys
+	}
+
+	return provider
 }
 
 // Encrypt encrypts a base64-encoded wrapper plaintext with the configured KMS
