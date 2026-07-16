@@ -8,6 +8,8 @@ import (
 	"os"
 	"reflect"
 	"testing"
+
+	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
 
 // This test executes real calls against Naver Cloud KMS. The calls themselves
@@ -18,13 +20,21 @@ import (
 //   - NCLOUDKMS_WRAPPER_KEY_TAG
 //   - NCP_ACCESS_KEY
 //   - NCP_SECRET_KEY
+//
+// Optionally set NCLOUDKMS_DOMAIN (e.g. kms.apigw.gov-ntruss.com) to target the
+// public-sector cloud; it defaults to the civilian cloud.
 func TestAccNcloudKmsWrapper_Lifecycle(t *testing.T) {
 	if os.Getenv("VAULT_ACC") == "" && os.Getenv("KMS_ACC_TESTS") == "" {
 		t.SkipNow()
 	}
 
 	s := NewWrapper()
-	if _, err := s.SetConfig(context.Background()); err != nil {
+
+	var opts []wrapping.Option
+	if d := os.Getenv("NCLOUDKMS_DOMAIN"); d != "" {
+		opts = append(opts, WithDomain(d))
+	}
+	if _, err := s.SetConfig(context.Background(), opts...); err != nil {
 		t.Fatalf("err: %s", err.Error())
 	}
 
