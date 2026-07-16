@@ -51,10 +51,10 @@ func Test(t *testing.T) {
 
 	opts := &kms.OpenOptions{
 		ConfigMap: kms.ConfigMap{
-			"token":       client.Token(),
-			"address":     client.Address(),
-			"mount_path":  "transit",
-			"tls_ca_cert": string(cluster.CACertPEM),
+			"token":             client.Token(),
+			"address":           client.Address(),
+			"mount_path":        "transit",
+			"tls_ca_cert_bytes": string(cluster.CACertPEM),
 		},
 	}
 

@@ -49,13 +49,14 @@ func (k *transitKMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 		MountPath      string `mapstructure:"mount_path"`
 		DisableRenewal bool   `mapstructure:"disable_renewal"`
 
-		TLSCaCert     string `mapstructure:"tls_ca_cert"`
 		TLSServerName string `mapstructure:"tls_server_name"`
 		TLSSkipVerify bool   `mapstructure:"tls_skip_verify"`
 
-		// This is missing client cert configuration, but that is blocked on
-		// https://github.com/openbao/openbao/issues/2762.
+		TLSCACertBytes     string `mapstructure:"tls_ca_cert_bytes"`
+		TLSClientCertBytes string `mapstructure:"tls_client_cert_bytes"`
+		TLSClientKeyBytes  string `mapstructure:"tls_client_key_bytes"`
 	}
+
 	if err := mapstructure.WeakDecode(opts.ConfigMap, &cfg); err != nil {
 		return err
 	}
@@ -78,11 +79,13 @@ func (k *transitKMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 		apiConfig.Address = "https://127.0.0.1:8200"
 	}
 
-	if cfg.TLSCaCert != "" || cfg.TLSServerName != "" || cfg.TLSSkipVerify {
+	if cfg.TLSSkipVerify || cmp.Or(cfg.TLSCACertBytes, cfg.TLSClientCertBytes, cfg.TLSClientKeyBytes, cfg.TLSServerName) != "" {
 		if err := apiConfig.ConfigureTLS(&api.TLSConfig{
-			CACertBytes:   []byte(cfg.TLSCaCert),
-			TLSServerName: cfg.TLSServerName,
-			Insecure:      cfg.TLSSkipVerify,
+			CACertBytes:     []byte(cfg.TLSCACertBytes),
+			ClientCertBytes: []byte(cfg.TLSClientCertBytes),
+			ClientKeyBytes:  []byte(cfg.TLSClientKeyBytes),
+			TLSServerName:   cfg.TLSServerName,
+			Insecure:        cfg.TLSSkipVerify,
 		}); err != nil {
 			return err
 		}
