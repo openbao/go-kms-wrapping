@@ -64,12 +64,18 @@ func (k *transitKMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 		return errors.New("missing required parameter 'token'")
 	}
 
-	// TODO(satoqz): This reads environment variables, and we don't have a good
-	// way around it yet. Fix this once the api package offers ways to create a
-	// clean config.
-	apiConfig := api.DefaultConfig()
+	var apiConfig *api.Config
+
+	if opts.AllowEnvironment {
+		apiConfig = api.DefaultConfig()
+	} else {
+		apiConfig = api.NewConfig()
+	}
+
 	if cfg.Address != "" {
 		apiConfig.Address = cfg.Address
+	} else {
+		apiConfig.Address = "https://127.0.0.1:8200"
 	}
 
 	if cfg.TLSCaCert != "" || cfg.TLSServerName != "" || cfg.TLSSkipVerify {
@@ -82,8 +88,6 @@ func (k *transitKMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 		}
 	}
 
-	// TODO(satoqz): This also reads environment variables, with no way to
-	// circumvent it at all.
 	client, err := api.NewClient(apiConfig)
 	if err != nil {
 		return err
