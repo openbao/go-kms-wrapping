@@ -21,27 +21,17 @@ import (
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
 
-// Type is the wrapper type exported for this Wrapper implementation.
 const Type wrapping.WrapperType = "ncloudkms"
 
-// defaultDomain is the Naver Cloud KMS API gateway host used when no domain is
-// configured. This targets the civilian (public) NCP cloud. For the
-// public-sector (government) NCP cloud, set the domain to
-// "kms.apigw.gov-ntruss.com".
+// ref. https://api.ncloud-docs.com/docs/en/security-kms
 const defaultDomain = "kms.apigw.ntruss.com"
 
-// These constants contain the accepted env vars.
 const (
-	// EnvNcloudKmsWrapperKeyTag provides the key tag identifying the KMS key.
 	EnvNcloudKmsWrapperKeyTag = "NCLOUDKMS_WRAPPER_KEY_TAG"
-
-	// EnvNcpAccessKey and EnvNcpSecretKey are the standard Naver Cloud Platform
-	// account credential env vars, matching the NCP KMS documentation.
-	EnvNcpAccessKey = "NCP_ACCESS_KEY"
-	EnvNcpSecretKey = "NCP_SECRET_KEY"
+	EnvNcpAccessKey           = "NCP_ACCESS_KEY"
+	EnvNcpSecretKey           = "NCP_SECRET_KEY"
 )
 
-// Wrapper is a wrapper that uses Naver Cloud Platform's KMS.
 type Wrapper struct {
 	domain        string
 	keyTag        string
@@ -83,9 +73,7 @@ func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 		return nil, fmt.Errorf("key tag not found (env or config) for ncloud kms wrapper configuration")
 	}
 
-	// A domain isn't required, but it can be used to override the default KMS
-	// API gateway endpoint. Use "kms.apigw.ntruss.com" for the civilian cloud
-	// (default) or "kms.apigw.gov-ntruss.com" for the public-sector cloud.
+	// A domain config is optional.
 	domain := opts.withDomain
 	if domain == "" {
 		domain = defaultDomain
@@ -224,7 +212,6 @@ func newKMSClient(domain, accessKey, secretKey string) *kmsClient {
 	}
 }
 
-// encryptResponse is the envelope returned by the KMS encrypt endpoint.
 type encryptResponse struct {
 	Code string `json:"code"`
 	Msg  string `json:"msg"`
@@ -238,7 +225,6 @@ type encryptResponse struct {
 	} `json:"error"`
 }
 
-// decryptResponse is the envelope returned by the KMS decrypt endpoint.
 type decryptResponse struct {
 	Code string `json:"code"`
 	Msg  string `json:"msg"`
@@ -304,8 +290,7 @@ func (c *kmsClient) doRequest(ctx context.Context, keyTag, operation string, bod
 		return nil, 0, err
 	}
 
-	// keyTag is NCP's identifier for the KMS key; it goes directly into the
-	// URL path (exposed as the key_tag config / NCLOUDKMS_WRAPPER_KEY_TAG env).
+	// keyTag is NCP's identifier for the KMS key; it goes directly into the URL path.
 	path := fmt.Sprintf("/keys/v2/%s/%s", keyTag, operation)
 	reqURL := "https://" + c.domain + path
 
@@ -345,8 +330,8 @@ func snippet(b []byte) string {
 	return s
 }
 
-// createNaverSignature builds the x-ncp-apigw-signature-v2 value: the base64
-// encoding of HMAC-SHA256(secretKey, "{method} {uri}\n{timestamp}\n{accessKey}").
+// createNaverSignature builds the x-ncp-apigw-signature-v2 value
+// ref. https://api.ncloud-docs.com/docs/en/common-ncpapi#request
 func createNaverSignature(method, uri string, timestamp time.Time, accessKey, secretKey string) string {
 	message := fmt.Sprintf("%s %s\n%d\n%s", method, uri, timestamp.UnixMilli(), accessKey)
 	mac := hmac.New(sha256.New, []byte(secretKey))
