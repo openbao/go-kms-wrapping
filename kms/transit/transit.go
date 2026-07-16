@@ -43,11 +43,11 @@ type transitKMS struct {
 
 func (k *transitKMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 	var cfg struct {
-		Address        string `mapstructure:"address"`
-		Token          string `mapstructure:"token"`
-		Namespace      string `mapstructure:"namespace"`
-		MountPath      string `mapstructure:"mount_path"`
-		DisableRenewal bool   `mapstructure:"disable_renewal"`
+		Address       string `mapstructure:"address"`
+		Token         string `mapstructure:"token"`
+		Namespace     string `mapstructure:"namespace"`
+		MountPath     string `mapstructure:"mount_path"`
+		EnableRenewal bool   `mapstructure:"enable_renewal"`
 
 		TLSServerName string `mapstructure:"tls_server_name"`
 		TLSSkipVerify bool   `mapstructure:"tls_skip_verify"`
@@ -106,7 +106,7 @@ func (k *transitKMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 	}
 
 	var lifetimeWatcher *api.LifetimeWatcher
-	if !cfg.DisableRenewal {
+	if cfg.EnableRenewal {
 		// Renew the token immediately to get a secret to pass to lifetime
 		// watcher.
 		secret, err := client.Auth().Token().RenewTokenAsSelf(client.Token(), 0)
