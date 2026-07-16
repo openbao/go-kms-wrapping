@@ -22,7 +22,7 @@ func TestAliCloudKmsWrapper(t *testing.T) {
 		keyId: aliCloudTestKeyId,
 	}
 
-	if _, err := s.SetConfig(nil); err == nil {
+	if _, err := s.SetConfig(t.Context()); err == nil {
 		t.Fatal("expected error when AliCloudKMSWrapper key ID is not provided")
 	}
 
@@ -35,7 +35,7 @@ func TestAliCloudKmsWrapper(t *testing.T) {
 			t.Fatal(err)
 		}
 	}()
-	if _, err := s.SetConfig(nil); err != nil {
+	if _, err := s.SetConfig(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -54,7 +54,7 @@ func TestAliCloudKmsWrapper_Lifecycle(t *testing.T) {
 			t.Fatal(err)
 		}
 	}()
-	if _, err := s.SetConfig(nil); err != nil {
+	if _, err := s.SetConfig(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 
