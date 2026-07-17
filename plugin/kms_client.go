@@ -37,8 +37,11 @@ func (kp *gRPCKMSPlugin) GRPCClient(ctx context.Context, broker *plugin.GRPCBrok
 }
 
 func (c *gRPCKMSClient) handleRPCError(err error) error {
-	code := status.Code(err)
+	s, _ := status.FromError(err)
+	code := s.Code()
 	switch {
+	case code == codes.Unknown:
+		return errors.New(s.Message())
 	case code == codes.Unimplemented:
 		return kms.ErrNotImplemented
 	case code == codes.NotFound:

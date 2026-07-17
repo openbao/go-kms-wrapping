@@ -47,7 +47,7 @@ func Serve(opts *ServeOpts) {
 	logger := opts.Logger
 	if logger == nil {
 		logger = log.New(&log.LoggerOptions{
-			Level:      log.Info,
+			Level:      log.Trace,
 			Output:     os.Stderr,
 			JSONFormat: true,
 		})
