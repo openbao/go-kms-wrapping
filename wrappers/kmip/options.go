@@ -11,10 +11,17 @@ import (
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
 
+func getDefaultOptions() options {
+	return options{
+		withTimeout:      10,
+		withCryptoParams: "AES_GCM",
+	}
+}
+
 // getOpts iterates the inbound Options and returns a struct
 func getOpts(opt ...wrapping.Option) (*options, error) {
-	// First, separate out options into local and global
 	opts := getDefaultOptions()
+	// First, separate out options into local and global
 	var wrappingOptions []wrapping.Option
 	var localOptions []OptionFunc
 	for _, o := range opt {
@@ -53,11 +60,17 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 			case "endpoint":
 				opts.withEndpoint = v
 			case "ca_cert":
-				opts.withCaCert = v
+				opts.withCaCertFile = v
 			case "client_cert":
-				opts.withClientCert = v
+				opts.withClientCertFile = v
 			case "client_key":
-				opts.withClientKey = v
+				opts.withClientKeyFile = v
+			case "ca_cert_bytes":
+				opts.withCaCertBytes = v
+			case "client_cert_bytes":
+				opts.withClientCertBytes = v
+			case "client_key_bytes":
+				opts.withClientKeyBytes = v
 			case "server_name":
 				opts.withServerName = v
 			case "timeout":
@@ -71,7 +84,7 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 			case "encrypt_alg":
 				opts.withCryptoParams = v
 			case "tls12_ciphers":
-				for _, cipher := range strings.Split(v, ",") {
+				for cipher := range strings.SplitSeq(v, ",") {
 					cipher = strings.TrimSpace(cipher)
 					opts.withTls12Ciphers = append(opts.withTls12Ciphers, cipher)
 				}
@@ -99,21 +112,20 @@ type OptionFunc func(*options) error
 type options struct {
 	*wrapping.Options
 
+	// mTLS setup file paths
+	withCaCertFile     string
+	withClientCertFile string
+	withClientKeyFile  string
+	// mTLS setup inmem
+	withCaCertBytes     string
+	withClientCertBytes string
+	withClientKeyBytes  string
+
 	withEndpoint     string
-	withCaCert       string
-	withClientCert   string
-	withClientKey    string
 	withServerName   string
 	withTimeout      uint64
 	withCryptoParams string
 	withTls12Ciphers []string
-}
-
-func getDefaultOptions() options {
-	return options{
-		withTimeout:      10,
-		withCryptoParams: "AES_GCM",
-	}
 }
 
 // WithEndpoint provides a way to chose the endpoint
@@ -126,31 +138,61 @@ func WithEndpoint(with string) wrapping.Option {
 	}
 }
 
-// WithCaCert provides a way to chose the ca cert
-func WithCaCert(with string) wrapping.Option {
+// WithCaCertFile provides a way to chose the ca cert filepath
+func WithCaCertFile(with string) wrapping.Option {
 	return func() interface{} {
 		return OptionFunc(func(o *options) error {
-			o.withCaCert = with
+			o.withCaCertFile = with
 			return nil
 		})
 	}
 }
 
-// WithClientCert provides a way to chose the client cert
-func WithClientCert(with string) wrapping.Option {
+// WithClientCertFile provides a way to chose the client cert filepath
+func WithClientCertFile(with string) wrapping.Option {
 	return func() interface{} {
 		return OptionFunc(func(o *options) error {
-			o.withClientCert = with
+			o.withClientCertFile = with
 			return nil
 		})
 	}
 }
 
-// WithClientKey provides a way to chose the client key
-func WithClientKey(with string) wrapping.Option {
+// WithClientKeyFile provides a way to chose the client key filepath
+func WithClientKeyFile(with string) wrapping.Option {
 	return func() interface{} {
 		return OptionFunc(func(o *options) error {
-			o.withClientKey = with
+			o.withClientKeyFile = with
+			return nil
+		})
+	}
+}
+
+// WithCaCertBytes provides a way to chose the ca cert
+func WithCaCertBytes(with string) wrapping.Option {
+	return func() interface{} {
+		return OptionFunc(func(o *options) error {
+			o.withCaCertBytes = with
+			return nil
+		})
+	}
+}
+
+// WithClientCertBytes provides a way to chose the client cert filepath
+func WithClientCertBytes(with string) wrapping.Option {
+	return func() interface{} {
+		return OptionFunc(func(o *options) error {
+			o.withClientCertBytes = with
+			return nil
+		})
+	}
+}
+
+// WithClientKeyBytes provides a way to chose the client key filepath
+func WithClientKeyBytes(with string) wrapping.Option {
+	return func() interface{} {
+		return OptionFunc(func(o *options) error {
+			o.withClientKeyBytes = with
 			return nil
 		})
 	}
