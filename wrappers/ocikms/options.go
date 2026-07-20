@@ -86,7 +86,7 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 			case KmsConfigPrivateKey:
 				opts.withPrivateKey = v
 			case KmsConfigPrivateKeyPassphrase:
-				opts.WithPrivateKeyPassphrase = v
+				opts.withPrivateKeyPassphrase = v
 			case KmsConfigAuthTypeApiKey:
 				var err error
 				opts.withAuthTypeApiKey, err = strconv.ParseBool(v)
@@ -129,5 +129,5 @@ type options struct {
 	withKeyFingerprint       string
 	withRegion               string
 	withPrivateKey           string
-	WithPrivateKeyPassphrase string
+	withPrivateKeyPassphrase string
 }
