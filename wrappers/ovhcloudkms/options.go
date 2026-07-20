@@ -8,6 +8,10 @@ import (
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
 
+func getDefaultOptions() options {
+	return options{}
+}
+
 // getOpts iterates the inbound Options and returns a struct
 func getOpts(opt ...wrapping.Option) (*options, error) {
 	// First, separate out options into local and global
@@ -60,6 +64,12 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 				opts.withClientKey = v
 			case "ca_cert":
 				opts.withCACert = v
+			case "client_cert_bytes":
+				opts.withClientCertBytes = v
+			case "client_key_bytes":
+				opts.withClientKeyBytes = v
+			case "ca_cert_bytes":
+				opts.withCACertBytes = v
 			case "token":
 				opts.withToken = v
 			}
@@ -86,14 +96,18 @@ type OptionFunc func(*options) error
 type options struct {
 	*wrapping.Options
 
-	withEndpoint   string
-	withKmsId      uuid.UUID
+	withEndpoint string
+	withKmsId    uuid.UUID
+
+	// file-based mTLS configuration
 	withClientCert string
 	withClientKey  string
 	withCACert     string
-	withToken      string
-}
 
-func getDefaultOptions() options {
-	return options{}
+	// in-mem mTLS configuration
+	withClientCertBytes string
+	withClientKeyBytes  string
+	withCACertBytes     string
+
+	withToken string
 }
