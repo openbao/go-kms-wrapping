@@ -34,8 +34,14 @@ const (
 )
 
 type Wrapper struct {
-	authTypeAPIKey bool   // true for user principal, false for instance principal, default is false
-	keyId          string // OCI KMS keyId
+	authTypeAPIKey       bool   // true for user principal, false for instance principal, default is false
+	keyId                string // OCI KMS keyId
+	tenancyOCID          string
+	userOCID             string
+	keyFingerprint       string
+	region               string
+	privateKey           string
+	privateKeyPassphrase string
 
 	cryptoEndpoint     string // OCI KMS crypto endpoint
 	managementEndpoint string // OCI KMS management endpoint
@@ -57,7 +63,7 @@ func NewWrapper() *Wrapper {
 	return k
 }
 
-func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrapping.WrapperConfig, error) {
+func (k *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapping.WrapperConfig, error) {
 	opts, err := getOpts(opt...)
 	if err != nil {
 		return nil, err
@@ -65,61 +71,72 @@ func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 
 	// Check and set KeyId
 	switch {
-	case os.Getenv(EnvOciKmsWrapperKeyId) != "" && !opts.Options.WithDisallowEnvVars:
+	case !opts.Options.WithDisallowEnvVars && os.Getenv(EnvOciKmsWrapperKeyId) != "":
 		k.keyId = os.Getenv(EnvOciKmsWrapperKeyId)
-	case os.Getenv(EnvVaultOciKmsSealKeyId) != "" && !opts.Options.WithDisallowEnvVars:
+	case !opts.Options.WithDisallowEnvVars && os.Getenv(EnvVaultOciKmsSealKeyId) != "":
 		k.keyId = os.Getenv(EnvVaultOciKmsSealKeyId)
 	case opts.WithKeyId != "":
 		k.keyId = opts.WithKeyId
 	default:
-		return nil, fmt.Errorf("'%s' not found for OCI KMS seal configuration", KmsConfigKeyId)
+		return nil, fmt.Errorf("%q not found for OCI KMS seal configuration", KmsConfigKeyId)
 	}
 	// Check and set cryptoEndpoint
 	switch {
-	case os.Getenv(EnvOciKmsWrapperCryptoEndpoint) != "" && !opts.Options.WithDisallowEnvVars:
+	case !opts.Options.WithDisallowEnvVars && os.Getenv(EnvOciKmsWrapperCryptoEndpoint) != "":
 		k.cryptoEndpoint = os.Getenv(EnvOciKmsWrapperCryptoEndpoint)
-	case os.Getenv(EnvVaultOciKmsSealCryptoEndpoint) != "" && !opts.Options.WithDisallowEnvVars:
+	case !opts.Options.WithDisallowEnvVars && os.Getenv(EnvVaultOciKmsSealCryptoEndpoint) != "":
 		k.cryptoEndpoint = os.Getenv(EnvVaultOciKmsSealCryptoEndpoint)
 	case opts.withCryptoEndpoint != "":
 		k.cryptoEndpoint = opts.withCryptoEndpoint
 	default:
-		return nil, fmt.Errorf("'%s' not found for OCI KMS seal configuration", KmsConfigCryptoEndpoint)
+		return nil, fmt.Errorf("%q not found for OCI KMS seal configuration", KmsConfigCryptoEndpoint)
 	}
 
 	// Check and set managementEndpoint
 	switch {
-	case os.Getenv(EnvOciKmsWrapperManagementEndpoint) != "" && !opts.Options.WithDisallowEnvVars:
+	case !opts.Options.WithDisallowEnvVars && os.Getenv(EnvOciKmsWrapperManagementEndpoint) != "":
 		k.managementEndpoint = os.Getenv(EnvOciKmsWrapperManagementEndpoint)
-	case os.Getenv(EnvVaultOciKmsSealManagementEndpoint) != "" && !opts.Options.WithDisallowEnvVars:
+	case !opts.Options.WithDisallowEnvVars && os.Getenv(EnvVaultOciKmsSealManagementEndpoint) != "":
 		k.managementEndpoint = os.Getenv(EnvVaultOciKmsSealManagementEndpoint)
 	case opts.withManagementEndpoint != "":
 		k.managementEndpoint = opts.withManagementEndpoint
 	default:
-		return nil, fmt.Errorf("'%s' not found for OCI KMS seal configuration", KmsConfigManagementEndpoint)
+		return nil, fmt.Errorf("%q not found for OCI KMS seal configuration", KmsConfigManagementEndpoint)
 	}
 
 	k.authTypeAPIKey = opts.withAuthTypeApiKey
+	k.tenancyOCID = opts.withTenancyOCID
+	k.userOCID = opts.withUserOCID
+	k.keyFingerprint = opts.withKeyFingerprint
+	k.region = opts.withRegion
+	k.privateKey = opts.withPrivateKey
+	k.privateKeyPassphrase = opts.WithPrivateKeyPassphrase
+
+	cp, err := k.getConfigProvider(opts.Options.WithDisallowEnvVars)
+	if err != nil {
+		return nil, fmt.Errorf("failed creating configuration provider: %w", err)
+	}
 
 	// Check and set OCI KMS crypto client
 	if k.cryptoClient == nil {
-		kmsCryptoClient, err := k.getOciKmsCryptoClient()
+		kmsCryptoClient, err := k.getOciKmsCryptoClient(cp)
 		if err != nil {
-			return nil, fmt.Errorf("error initializing OCI KMS client: %w", err)
+			return nil, fmt.Errorf("error initializing OCI KMS crypto client: %w", err)
 		}
 		k.cryptoClient = kmsCryptoClient
 	}
 
 	// Check and set OCI KMS management client
 	if k.managementClient == nil {
-		kmsManagementClient, err := k.getOciKmsManagementClient()
+		kmsManagementClient, err := k.getOciKmsManagementClient(cp)
 		if err != nil {
-			return nil, fmt.Errorf("error initializing OCI KMS client: %w", err)
+			return nil, fmt.Errorf("error initializing OCI KMS management client: %w", err)
 		}
 		k.managementClient = kmsManagementClient
 	}
 
 	// Calling Encrypt method with empty string just to validate keyId access and store current keyVersion
-	encryptedBlobInfo, err := k.Encrypt(context.Background(), []byte(""), nil)
+	encryptedBlobInfo, err := k.Encrypt(ctx, []byte(""), nil)
 	if err != nil || encryptedBlobInfo == nil {
 		return nil, fmt.Errorf("failed "+KmsConfigKeyId+" validation: %w", err)
 	}
@@ -182,7 +199,7 @@ func (k *Wrapper) Encrypt(ctx context.Context, plaintext []byte, opt ...wrapping
 
 	// Note: It is potential a timing issue if the key gets rotated between this
 	// getCurrentKeyVersion operation and above Encrypt operation
-	keyVersion, err := k.getCurrentKeyVersion()
+	keyVersion, err := k.getCurrentKeyVersion(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error getting current key version: %w", err)
 	}
@@ -239,11 +256,15 @@ func (k *Wrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, opt ...wra
 	return plaintext, nil
 }
 
-func (k *Wrapper) getConfigProvider() (common.ConfigurationProvider, error) {
+func (k *Wrapper) getConfigProvider(withDisallowEnvVars bool) (common.ConfigurationProvider, error) {
 	var cp common.ConfigurationProvider
 	var err error
 	if k.authTypeAPIKey {
-		cp = common.DefaultConfigProvider()
+		if !withDisallowEnvVars {
+			cp = common.DefaultConfigProvider()
+		} else {
+			cp = common.NewRawConfigurationProvider(k.tenancyOCID, k.userOCID, k.region, k.keyFingerprint, k.privateKey, &k.privateKeyPassphrase)
+		}
 	} else {
 		cp, err = auth.InstancePrincipalConfigurationProvider()
 		if err != nil {
@@ -254,13 +275,7 @@ func (k *Wrapper) getConfigProvider() (common.ConfigurationProvider, error) {
 }
 
 // Build OCI KMS crypto client
-func (k *Wrapper) getOciKmsCryptoClient() (*keymanagement.KmsCryptoClient, error) {
-	cp, err := k.getConfigProvider()
-	if err != nil {
-		return nil, fmt.Errorf("failed creating configuration provider: %w", err)
-	}
-
-	// Build crypto client
+func (k *Wrapper) getOciKmsCryptoClient(cp common.ConfigurationProvider) (*keymanagement.KmsCryptoClient, error) {
 	kmsCryptoClient, err := keymanagement.NewKmsCryptoClientWithConfigurationProvider(cp, k.cryptoEndpoint)
 	if err != nil {
 		return nil, fmt.Errorf("failed creating NewKmsCryptoClientWithConfigurationProvider: %w", err)
@@ -270,16 +285,10 @@ func (k *Wrapper) getOciKmsCryptoClient() (*keymanagement.KmsCryptoClient, error
 }
 
 // Build OCI KMS management client
-func (k *Wrapper) getOciKmsManagementClient() (*keymanagement.KmsManagementClient, error) {
-	cp, err := k.getConfigProvider()
-	if err != nil {
-		return nil, fmt.Errorf("failed creating configuration provider: %w", err)
-	}
-
-	// Build crypto client
+func (k *Wrapper) getOciKmsManagementClient(cp common.ConfigurationProvider) (*keymanagement.KmsManagementClient, error) {
 	kmsManagementClient, err := keymanagement.NewKmsManagementClientWithConfigurationProvider(cp, k.managementEndpoint)
 	if err != nil {
-		return nil, fmt.Errorf("failed creating NewKmsCryptoClientWithConfigurationProvider: %w", err)
+		return nil, fmt.Errorf("failed creating NewKmsManagementClientWithConfigurationProvider: %w", err)
 	}
 
 	return &kmsManagementClient, nil
@@ -295,21 +304,21 @@ func (k *Wrapper) getRequestMetadata() common.RequestMetadata {
 }
 
 func getRequestMetadataWithCustomizedRetryPolicy(fn func(r common.OCIOperationResponse) bool) common.RequestMetadata {
+	rp := getExponentialBackoffRetryPolicy(uint(KMSMaximumNumberOfRetries), fn)
 	return common.RequestMetadata{
-		RetryPolicy: getExponentialBackoffRetryPolicy(uint(KMSMaximumNumberOfRetries), fn),
+		RetryPolicy: &rp,
 	}
 }
 
-func getExponentialBackoffRetryPolicy(n uint, fn func(r common.OCIOperationResponse) bool) *common.RetryPolicy {
+func getExponentialBackoffRetryPolicy(n uint, fn func(r common.OCIOperationResponse) bool) common.RetryPolicy {
 	// The duration between each retry operation, you might want to wait longer each time the retry fails
 	exponentialBackoff := func(r common.OCIOperationResponse) time.Duration {
 		return time.Duration(math.Pow(float64(2), float64(r.AttemptNumber-1))) * time.Second
 	}
-	policy := common.NewRetryPolicy(n, fn, exponentialBackoff)
-	return &policy
+	return common.NewRetryPolicy(n, fn, exponentialBackoff)
 }
 
-func (k *Wrapper) getCurrentKeyVersion() (string, error) {
+func (k *Wrapper) getCurrentKeyVersion(ctx context.Context) (string, error) {
 	if k.managementClient == nil {
 		return "", fmt.Errorf("managementClient has not yet initialized")
 	}
@@ -318,7 +327,7 @@ func (k *Wrapper) getCurrentKeyVersion() (string, error) {
 		KeyId:           &k.keyId,
 		RequestMetadata: requestMetadata,
 	}
-	getKeyResponse, err := k.managementClient.GetKey(context.Background(), getKeyInput)
+	getKeyResponse, err := k.managementClient.GetKey(ctx, getKeyInput)
 	if err != nil || getKeyResponse.CurrentKeyVersion == nil {
 		return "", fmt.Errorf("failed getting current key version: %w", err)
 	}
