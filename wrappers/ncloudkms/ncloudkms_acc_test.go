@@ -4,12 +4,11 @@
 package ncloudkms
 
 import (
-	"context"
 	"os"
-	"reflect"
 	"testing"
 
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
+	"github.com/stretchr/testify/require"
 )
 
 // This test executes real calls against Naver Cloud KMS. The calls themselves
@@ -28,28 +27,21 @@ func TestAccNcloudKmsWrapper_Lifecycle(t *testing.T) {
 		t.SkipNow()
 	}
 
+	ctx := t.Context()
 	s := NewWrapper()
 
 	var opts []wrapping.Option
 	if d := os.Getenv("NCLOUDKMS_DOMAIN"); d != "" {
 		opts = append(opts, wrapping.WithConfigMap(map[string]string{"domain": d}))
 	}
-	if _, err := s.SetConfig(context.Background(), opts...); err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
+	_, err := s.SetConfig(ctx, opts...)
+	require.NoError(t, err, "SetConfig")
 
 	input := []byte("foo")
-	swi, err := s.Encrypt(context.Background(), input, nil)
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
+	swi, err := s.Encrypt(ctx, input)
+	require.NoError(t, err, "Encrypt")
 
-	pt, err := s.Decrypt(context.Background(), swi, nil)
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
-
-	if !reflect.DeepEqual(input, pt) {
-		t.Fatalf("expected %s, got %s", input, pt)
-	}
+	pt, err := s.Decrypt(ctx, swi)
+	require.NoError(t, err, "Decrypt")
+	require.Equal(t, input, pt, "roundtrip mismatch")
 }
