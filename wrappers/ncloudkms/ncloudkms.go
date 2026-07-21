@@ -130,10 +130,6 @@ func (k *Wrapper) KeyId(_ context.Context) (string, error) {
 // the ciphertext, and/or any errors from this call. This should be called after
 // the KMS client has been instantiated.
 func (k *Wrapper) Encrypt(ctx context.Context, plaintext []byte, opt ...wrapping.Option) (*wrapping.BlobInfo, error) {
-	if plaintext == nil {
-		return nil, fmt.Errorf("given plaintext for encryption is nil")
-	}
-
 	env, err := wrapping.EnvelopeEncrypt(plaintext, opt...)
 	if err != nil {
 		return nil, fmt.Errorf("error wrapping data: %w", err)
@@ -159,9 +155,6 @@ func (k *Wrapper) Encrypt(ctx context.Context, plaintext []byte, opt ...wrapping
 
 // Decrypt is used to decrypt the ciphertext. This should be called after Init.
 func (k *Wrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, opt ...wrapping.Option) ([]byte, error) {
-	if in == nil {
-		return nil, fmt.Errorf("given input for decryption is nil")
-	}
 	if in.KeyInfo == nil {
 		return nil, fmt.Errorf("given input for decryption is missing key info")
 	}
