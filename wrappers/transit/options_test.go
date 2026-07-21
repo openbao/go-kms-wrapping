@@ -116,13 +116,13 @@ func Test_GetOpts(t *testing.T) {
 		require.NoError(err)
 		testOpts, err := getOpts()
 		require.NoError(err)
-		testOpts.withTlsCaPath = ""
+		testOpts.withTlsCaCertDir = ""
 		assert.Equal(opts, testOpts)
 
 		const with = "test"
-		opts, err = getOpts(WithTlsCaPath(with))
+		opts, err = getOpts(WithTlsCaDir(with))
 		require.NoError(err)
-		testOpts.withTlsCaPath = with
+		testOpts.withTlsCaCertDir = with
 		assert.Equal(opts, testOpts)
 	})
 	t.Run("WithTlsClientCert", func(t *testing.T) {

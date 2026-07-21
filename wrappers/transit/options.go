@@ -59,11 +59,17 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 			case "tls_ca_cert":
 				opts.withTlsCaCert = v
 			case "tls_ca_path":
-				opts.withTlsCaPath = v
+				opts.withTlsCaCertDir = v
 			case "tls_client_cert":
 				opts.withTlsClientCert = v
 			case "tls_client_key":
 				opts.withTlsClientKey = v
+			case "tls_ca_cert_bytes":
+				opts.withTlsCaCertBytes = v
+			case "tls_client_cert_bytes":
+				opts.withTlsClientCertBytes = v
+			case "tls_client_key_bytes":
+				opts.withTlsClientKeyBytes = v
 			case "tls_server_name":
 				opts.withTlsServerName = v
 			case "tls_skip_verify":
@@ -104,19 +110,22 @@ type OptionFunc func(*options) error
 type options struct {
 	*wrapping.Options
 
-	withMountPath      string
-	withKeyName        string
-	withDisableRenewal string
-	withNamespace      string
-	withAddress        string
-	withTlsCaCert      string
-	withTlsCaPath      string
-	withTlsClientCert  string
-	withTlsClientKey   string
-	withTlsServerName  string
-	withTlsSkipVerify  bool
-	withToken          string
-	withKeyIdPrefix    string
+	withMountPath          string
+	withKeyName            string
+	withDisableRenewal     string
+	withNamespace          string
+	withAddress            string
+	withTlsCaCert          string
+	withTlsCaCertDir       string
+	withTlsClientCert      string
+	withTlsClientKey       string
+	withTlsCaCertBytes     string
+	withTlsClientCertBytes string
+	withTlsClientKeyBytes  string
+	withTlsServerName      string
+	withTlsSkipVerify      bool
+	withToken              string
+	withKeyIdPrefix        string
 }
 
 func getDefaultOptions() options {
@@ -183,11 +192,11 @@ func WithTlsCaCert(with string) wrapping.Option {
 	}
 }
 
-// WithTlsCaPath provides a way to choose the CA path
-func WithTlsCaPath(with string) wrapping.Option {
+// WithTlsCaDir provides a way to choose the CA directory path
+func WithTlsCaDir(with string) wrapping.Option {
 	return func() interface{} {
 		return OptionFunc(func(o *options) error {
-			o.withTlsCaPath = with
+			o.withTlsCaCertDir = with
 			return nil
 		})
 	}

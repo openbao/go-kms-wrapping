@@ -118,25 +118,43 @@ func newTransitClient(logger hclog.Logger, opts *options) (*TransitClient, *wrap
 		token = opts.withToken
 	}
 
-	apiConfig := api.DefaultConfig()
+	var apiConfig *api.Config
+	if !opts.Options.WithDisallowEnvVars {
+		apiConfig = api.DefaultConfig()
+	} else {
+		apiConfig = api.NewConfig()
+		apiConfig.Address = "https://127.0.0.1:8200"
+	}
+
 	if address != "" {
 		apiConfig.Address = address
 	}
-	if opts.withTlsCaCert != "" ||
-		opts.withTlsCaPath != "" ||
-		opts.withTlsClientCert != "" ||
-		opts.withTlsClientKey != "" ||
-		opts.withTlsServerName != "" ||
-		opts.withTlsSkipVerify {
 
-		tlsConfig := &api.TLSConfig{
-			CACert:        opts.withTlsCaCert,
-			CAPath:        opts.withTlsCaPath,
-			ClientCert:    opts.withTlsClientCert,
-			ClientKey:     opts.withTlsClientKey,
-			TLSServerName: opts.withTlsServerName,
-			Insecure:      opts.withTlsSkipVerify,
+	tlsConfig := &api.TLSConfig{
+		TLSServerName: opts.withTlsServerName,
+		Insecure:      opts.withTlsSkipVerify,
+	}
+
+	hasTLSCaConfig := opts.withTlsCaCert != "" || opts.withTlsCaCertDir != "" || opts.withTlsCaCertBytes != ""
+	if hasTLSCaConfig {
+		if !opts.Options.WithDisallowEnvVars {
+			tlsConfig.CACert = opts.withTlsCaCert
+			tlsConfig.CAPath = opts.withTlsCaCertDir
 		}
+		tlsConfig.CACertBytes = []byte(opts.withTlsCaCertBytes)
+	}
+
+	hasTLSConfig := (opts.withTlsClientCert != "" && opts.withTlsClientKey != "") || (opts.withTlsClientCertBytes != "" && opts.withTlsClientKeyBytes != "")
+	if hasTLSConfig {
+		if !opts.Options.WithDisallowEnvVars {
+			tlsConfig.ClientCert = opts.withTlsClientCert
+			tlsConfig.ClientKey = opts.withTlsClientKey
+		}
+		tlsConfig.ClientCertBytes = []byte(opts.withTlsClientCertBytes)
+		tlsConfig.ClientKeyBytes = []byte(opts.withTlsClientKeyBytes)
+	}
+
+	if tlsConfig.Insecure || tlsConfig.TLSServerName != "" || hasTLSCaConfig || hasTLSConfig {
 		if err := apiConfig.ConfigureTLS(tlsConfig); err != nil {
 			return nil, nil, err
 		}
