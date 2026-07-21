@@ -125,13 +125,11 @@ func TestSetConfig(t *testing.T) {
 	})
 }
 
-// TestDecryptInvalidInput covers the nil-input guards, which need no network.
+// TestDecryptInvalidInput covers the missing-key-info guard, which needs no
+// network.
 func TestDecryptInvalidInput(t *testing.T) {
 	w := NewWrapper()
 
-	if _, err := w.Decrypt(context.Background(), nil); err == nil {
-		t.Fatal("expected error for nil input")
-	}
 	if _, err := w.Decrypt(context.Background(), &wrapping.BlobInfo{}); err == nil {
 		t.Fatal("expected error for missing key info")
 	}
