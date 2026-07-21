@@ -32,7 +32,7 @@ func TestAccNcloudKmsWrapper_Lifecycle(t *testing.T) {
 
 	var opts []wrapping.Option
 	if d := os.Getenv("NCLOUDKMS_DOMAIN"); d != "" {
-		opts = append(opts, WithDomain(d))
+		opts = append(opts, wrapping.WithConfigMap(map[string]string{"domain": d}))
 	}
 	if _, err := s.SetConfig(context.Background(), opts...); err != nil {
 		t.Fatalf("err: %s", err.Error())

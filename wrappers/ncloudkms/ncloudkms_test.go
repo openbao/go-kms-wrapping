@@ -60,7 +60,10 @@ func TestSetConfig(t *testing.T) {
 		_, err := w.SetConfig(
 			ctx,
 			wrapping.WithDisallowEnvVars(true),
-			WithAccessKey("ak"), WithSecretKey("sk"),
+			wrapping.WithConfigMap(map[string]string{
+				"access_key": "ak",
+				"secret_key": "sk",
+			}),
 		)
 		if err == nil {
 			t.Fatal("expected error when key tag is missing")
@@ -72,7 +75,9 @@ func TestSetConfig(t *testing.T) {
 		_, err := w.SetConfig(
 			ctx,
 			wrapping.WithDisallowEnvVars(true),
-			WithKeyTag("my-key"),
+			wrapping.WithConfigMap(map[string]string{
+				"key_tag": "my-key",
+			}),
 		)
 		if err == nil {
 			t.Fatal("expected error when credentials are missing")
@@ -84,8 +89,11 @@ func TestSetConfig(t *testing.T) {
 		cfg, err := w.SetConfig(
 			ctx,
 			wrapping.WithDisallowEnvVars(true),
-			WithKeyTag("my-key"),
-			WithAccessKey("ak"), WithSecretKey("sk"),
+			wrapping.WithConfigMap(map[string]string{
+				"key_tag":    "my-key",
+				"access_key": "ak",
+				"secret_key": "sk",
+			}),
 		)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
