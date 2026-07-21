@@ -65,6 +65,7 @@ func (m *testTransitClient) Decrypt(ctx context.Context, ciphertext []byte) ([]b
 func getTestCluster(t *testing.T) (*docker.DockerCluster, *docker.DockerClusterNode, *api.Client) {
 	opts := docker.DefaultOptions(t)
 	opts.ClusterOptions.NumCores = 1
+	opts.ImageTag = "2.5.5"
 	cluster := docker.NewTestDockerCluster(t, opts)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

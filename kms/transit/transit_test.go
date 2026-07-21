@@ -314,6 +314,7 @@ func setupTransitEngine(t *testing.T) (*docker.DockerCluster, *api.Client) {
 	opts.NumCores = 1
 	opts.Storage = inmemStorage{}
 	opts.HADisabled = true
+	opts.ImageTag = "2.5.5"
 	cluster := docker.NewTestDockerCluster(t, opts)
 
 	client := cluster.ClusterNodes[0].APIClient()
