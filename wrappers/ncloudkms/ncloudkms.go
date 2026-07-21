@@ -85,10 +85,10 @@ func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 	accessKey := opts.withAccessKey
 	secretKey := opts.withSecretKey
 	if !opts.Options.WithDisallowEnvVars {
-		if accessKey == "" {
+		if os.Getenv(EnvNcpAccessKey) != "" {
 			accessKey = os.Getenv(EnvNcpAccessKey)
 		}
-		if secretKey == "" {
+		if os.Getenv(EnvNcpSecretKey) != "" {
 			secretKey = os.Getenv(EnvNcpSecretKey)
 		}
 	}
@@ -102,7 +102,12 @@ func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 	k.currentKeyTag.Store(k.keyTag)
 
 	// Map that holds non-sensitive configuration info
-	wrapConfig := new(wrapping.WrapperConfig)
+	wrapConfig := &wrapping.WrapperConfig{
+		Metadata: map[string]string{
+			"domain":  k.domain,
+			"key_tag": k.keyTag,
+		},
+	}
 	wrapConfig.Metadata = make(map[string]string)
 	wrapConfig.Metadata["domain"] = k.domain
 	wrapConfig.Metadata["key_tag"] = k.keyTag
