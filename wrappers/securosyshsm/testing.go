@@ -5,62 +5,67 @@ package securosyshsm
 
 import (
 	"context"
+	"os"
+	"strings"
 
+	securosyskms "github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2"
+	wrapping "github.com/openbao/go-kms-wrapping/v2"
 	"github.com/openbao/go-kms-wrapping/v2/kms"
 )
 
-const SECUROSYS_HSM_TEST_KEY_LABEL = "rsa_openbao_wrapper_test_key"
-const SECUROSYS_HSM_TEST_AUTH_TYPE = "TOKEN"
-const SECUROSYS_HSM_TEST_BEARER_TOKEN = ""
-const SECUROSYS_HSM_TEST_TSB_URL = "tsb_url"
+var (
+	SECUROSYS_HSM_RESTAPI_ENV_VAR  = "SECUROSYS_HSM_RESTAPI"
+	SECUROSYS_BEARER_TOKEN_ENV_VAR = "SECUROSYS_BEARER_TOKEN"
+)
 
+const (
+	SECUROSYS_HSM_TEST_KEY_LABEL = "rsa_openbao_wrapper_test_key"
+	SECUROSYS_HSM_TEST_AUTH_TYPE = "TOKEN"
+)
+
+// NewSecurosysHSMTestWrapper opens a wrapper backed by the configured test HSM
+// key. It returns nil when the HSM cannot be opened or the test key does not
+// exist.
 func NewSecurosysHSMTestWrapper() *Wrapper {
 	ctx := context.Background()
 	s := NewWrapper()
-	provider := map[string]interface{}{
-		"restapi": SECUROSYS_HSM_TEST_TSB_URL,
-		"auth":    SECUROSYS_HSM_TEST_AUTH_TYPE,
-	}
-	var wrapperConfig *Configurations = new(Configurations)
-	wrapperConfig.Settings.RestApi = SECUROSYS_HSM_TEST_TSB_URL
-	wrapperConfig.Settings.Auth = SECUROSYS_HSM_TEST_AUTH_TYPE
-	wrapperConfig.Settings.BearerToken = SECUROSYS_HSM_TEST_BEARER_TOKEN
-	wrapperConfig.Key.RSALabel = SECUROSYS_HSM_TEST_KEY_LABEL
-	wrapperConfig.Settings.CheckEvery = 5
-	wrapperConfig.Settings.ApprovalTimeout = 60
-	configuration = wrapperConfig
 
-	keystore, err := securosyshsm.NewKeyStore(provider)
+	config := map[string]string{
+		"tsb_api_endpoint": wrapperTestEnv(SECUROSYS_HSM_RESTAPI_ENV_VAR),
+		"auth":             SECUROSYS_HSM_TEST_AUTH_TYPE,
+		"bearer_token":     wrapperTestEnv(SECUROSYS_BEARER_TOKEN_ENV_VAR),
+		"check_every":      "5",
+		"approval_timeout": "60",
+	}
+	opts, err := getOpts(wrapping.WithConfigMap(config))
 	if err != nil {
 		return nil
 	}
+
+	providerKMS := securosyskms.New()
+	if err := providerKMS.Open(ctx, &kms.OpenOptions{ConfigMap: securosysKMSConfigMap(opts)}); err != nil {
+		return nil
+	}
+	key, err := providerKMS.GetKey(ctx, &kms.KeyOptions{
+		ConfigMap: kms.ConfigMap{
+			"name": SECUROSYS_HSM_TEST_KEY_LABEL,
+		},
+	})
+	if err != nil {
+		_ = providerKMS.Close(ctx)
+		return nil
+	}
+
 	client := &SecurosysHSMClient{
-		keystore: keystore,
+		kms:      providerKMS,
+		key:      key,
+		keyLabel: SECUROSYS_HSM_TEST_KEY_LABEL,
 	}
-	client.config = wrapperConfig
-	key, err := client.keystore.GetKeyByName(ctx, SECUROSYS_HSM_TEST_KEY_LABEL)
-
-	if key == nil {
-		newKey, _, _ := keystore.GenerateKeyPair(ctx, &kms.KeyAttributes{
-			ProviderSpecific: nil,
-			KeyType:          kms.KeyType_RSA_Private,
-			Name:             SECUROSYS_HSM_TEST_KEY_LABEL,
-			BitKeyLen:        2048,
-			IsRemovable:      true,
-			IsSensitive:      true,
-			CanEncrypt:       true,
-			CanDecrypt:       true,
-			CanSign:          true,
-			CanVerify:        true,
-			CanWrap:          true,
-			CanUnwrap:        true,
-			IsTrusted:        true,
-		})
-		client.key = newKey
-	} else {
-		client.key = key
-	}
-
 	s.hsmClient = client
+	s.client = client
 	return s
+}
+
+func wrapperTestEnv(name string) string {
+	return strings.TrimSpace(os.Getenv(name))
 }

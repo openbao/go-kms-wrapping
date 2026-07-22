@@ -7,6 +7,7 @@ replace github.com/openbao/go-kms-wrapping/v2 => ../../
 replace github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2 => ../../kms/securosyshsm
 
 require (
+	github.com/go-viper/mapstructure/v2 v2.5.0
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/mitchellh/cli v1.1.5
 	github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2 v2.0.0-00010101000000-000000000000
@@ -40,6 +41,7 @@ require (
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/posener/complete v1.1.1 // indirect
 	github.com/ryanuber/go-glob v1.0.0 // indirect
+	github.com/securosys-com/tsb-client-go v1.1.0 // indirect
 	github.com/shopspring/decimal v1.2.0 // indirect
 	github.com/spf13/cast v1.3.1 // indirect
 	golang.org/x/crypto v0.42.0 // indirect

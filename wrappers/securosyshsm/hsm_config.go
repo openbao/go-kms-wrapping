@@ -3,12 +3,10 @@
 package securosyshsm
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 
 	"github.com/hashicorp/go-hclog"
-	securosyskms "github.com/openbao/go-kms-wrapping/v2/kms"
 )
 
 const (
@@ -18,12 +16,8 @@ const (
 )
 
 var logger hclog.Logger = hclog.New(&hclog.LoggerOptions{
-	Name: fmt.Sprintf("securosys-hsm-seal")})
-
-var Logs Logging
-
-// Variable that stores entire configuration from yaml file
-var configuration *Configurations
+	Name: fmt.Sprintf("securosys-hsm-seal"),
+})
 
 // This function validating a config_hsm.yml file
 func (config *Configurations) checkConfigFile() bool {
@@ -35,7 +29,7 @@ func (config *Configurations) checkConfigFile() bool {
 	}
 	if config.Settings.ApprovalTimeout == 0 {
 		valid = false
-		errors = append(errors, "approval_timeout must be bigger then 0 and lower then VAULT_CLIENT_TIMEOUT. Default is 60 (seconds)\nYou can override this value by setting environment variable VAULT_CLIENT_TIMEOUT")
+		errors = append(errors, "approval_timeout must be bigger then 0 and lower then VAULT_CLIENT_TIMEOUT. Default is 600 (seconds)\nYou can override this value by setting environment variable VAULT_CLIENT_TIMEOUT")
 	}
 	if config.Settings.ApprovalTimeout <= config.Settings.CheckEvery {
 		valid = false
@@ -77,22 +71,6 @@ func (config *Configurations) checkConfigFile() bool {
 			}
 		}
 	}
-	jsonBytes, _ := json.Marshal(config.Settings.ApiKeys)
-	jsonStr := string(jsonBytes)
-	provider := map[string]interface{}{
-		"restapi":     config.Settings.RestApi,
-		"auth":        config.Settings.Auth,
-		"bearertoken": config.Settings.BearerToken,
-		"certpath":    config.Settings.CertPath,
-		"keypath":     config.Settings.KeyPath,
-		"apikeys":     jsonStr,
-	}
-	_, err := securosyskms.NewKeyStore(provider)
-	if err != nil {
-		logger.Error("Can't initialize securosy kms provider: %s", err.Error())
-		return false
-	}
-
 	if !valid {
 		for _, element := range errors {
 			logger.Error(fmt.Sprintf("ERROR: %s\n", element))
