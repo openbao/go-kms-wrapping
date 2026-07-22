@@ -99,9 +99,6 @@ func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 			"key_tag": k.keyTag,
 		},
 	}
-	wrapConfig.Metadata = make(map[string]string)
-	wrapConfig.Metadata["domain"] = k.domain
-	wrapConfig.Metadata["key_tag"] = k.keyTag
 
 	return wrapConfig, nil
 }
