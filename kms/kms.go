@@ -120,10 +120,12 @@ type Key interface {
 // ConfigMap represents user-defined data that is used to configure APIs in this
 // package via provider-specific parameters.
 //
-// A ConfigMap MUST use JSON-serializable types only. Providers are expected
-// to decode ConfigMaps using mapstructure.WeakDecode. For a reference
-// implementation, see the github.com/openbao/go-kms-wrapping/v2/kms/transit
-// package.
+// A ConfigMap MUST use JSON-serializable types only. Providers are recommended
+// to decode ConfigMaps using mapstructure's decoder with ErrorUnused=true and
+// WeaklyTypedInput=true set.
+//
+// For a reference implementation of config map decoding via mapstructure, see
+// the github.com/openbao/go-kms-wrapping/v2/kms/transit package.
 type ConfigMap map[string]any
 
 // OpenOptions is passed to [KMS.Open].

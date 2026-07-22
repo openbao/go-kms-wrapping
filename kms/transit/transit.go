@@ -57,7 +57,15 @@ func (k *transitKMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 		TLSClientKeyBytes  string `mapstructure:"tls_client_key_bytes"`
 	}
 
-	if err := mapstructure.WeakDecode(opts.ConfigMap, &cfg); err != nil {
+	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+		Result:           &cfg,
+		ErrorUnused:      true,
+		WeaklyTypedInput: true,
+	})
+	if err != nil {
+		return err
+	}
+	if err := decoder.Decode(opts.ConfigMap); err != nil {
 		return err
 	}
 
@@ -158,9 +166,19 @@ func (k *transitKMS) GetKey(_ context.Context, opts *kms.KeyOptions) (kms.Key, e
 		Name              string `mapstructure:"name"`
 		DisablePrehashing bool   `mapstructure:"disable_prehashing"`
 	}
-	if err := mapstructure.WeakDecode(opts.ConfigMap, &cfg); err != nil {
+
+	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+		Result:           &cfg,
+		ErrorUnused:      true,
+		WeaklyTypedInput: true,
+	})
+	if err != nil {
 		return nil, err
 	}
+	if err := decoder.Decode(opts.ConfigMap); err != nil {
+		return nil, err
+	}
+
 	if cfg.Name == "" {
 		return nil, errors.New("missing required parameter 'name'")
 	}

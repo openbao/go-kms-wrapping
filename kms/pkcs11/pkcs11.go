@@ -57,9 +57,19 @@ func (p *pkcs11KMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 		// Other tweaks.
 		DisableSoftwareEncryption bool `mapstructure:"disable_software_encryption"`
 	}
-	if err := mapstructure.WeakDecode(opts.ConfigMap, &cfg); err != nil {
+
+	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+		Result:           &cfg,
+		ErrorUnused:      true,
+		WeaklyTypedInput: true,
+	})
+	if err != nil {
 		return err
 	}
+	if err := decoder.Decode(opts.ConfigMap); err != nil {
+		return err
+	}
+
 	if cfg.Lib == "" {
 		return errors.New("missing required parameter 'lib'")
 	}
@@ -118,7 +128,16 @@ func (p *pkcs11KMS) GetKey(ctx context.Context, opts *kms.KeyOptions) (kms.Key, 
 		Mechanism   string `mapstructure:"mechanism"`
 		RSAOAEPHash string `mapstructure:"rsa_oaep_hash"`
 	}
-	if err := mapstructure.WeakDecode(opts.ConfigMap, &cfg); err != nil {
+
+	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+		Result:           &cfg,
+		ErrorUnused:      true,
+		WeaklyTypedInput: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := decoder.Decode(opts.ConfigMap); err != nil {
 		return nil, err
 	}
 
