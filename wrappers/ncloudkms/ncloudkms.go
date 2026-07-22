@@ -266,6 +266,7 @@ func (c *kmsClient) decrypt(ctx context.Context, keyTag, ciphertext string) (str
 
 // doRequest performs a signed POST against the given KMS operation for keyTag and
 // returns the raw response body together with the HTTP status code.
+// ref. https://api.ncloud-docs.com/docs/en/security-kms-encrypt, https://api.ncloud-docs.com/docs/en/security-kms-decrypt
 func (c *kmsClient) doRequest(ctx context.Context, keyTag, operation string, body map[string]string) ([]byte, int, error) {
 	payload, err := json.Marshal(body)
 	if err != nil {
