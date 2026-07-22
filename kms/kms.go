@@ -13,6 +13,7 @@ import (
 	"errors"
 	"io"
 
+	"github.com/go-viper/mapstructure/v2"
 	"github.com/hashicorp/go-hclog"
 )
 
@@ -120,12 +121,11 @@ type Key interface {
 // ConfigMap represents user-defined data that is used to configure APIs in this
 // package via provider-specific parameters.
 //
-// A ConfigMap MUST use JSON-serializable types only. Providers are recommended
-// to decode ConfigMaps using mapstructure's decoder with ErrorUnused=true and
-// WeaklyTypedInput=true set.
+// A ConfigMap MUST use JSON-serializable types only. Use the [DecodeConfigMap]
+// helper to validate and decode a ConfigMap into a struct with concrete fields.
 //
-// For a reference implementation of config map decoding via mapstructure, see
-// the github.com/openbao/go-kms-wrapping/v2/kms/transit package.
+// For a reference implementation of config map decoding, see the
+// github.com/openbao/go-kms-wrapping/v2/kms/transit package.
 type ConfigMap map[string]any
 
 // OpenOptions is passed to [KMS.Open].
@@ -348,4 +348,19 @@ func (s *signer) SignMessage(_ io.Reader, data []byte, opts crypto.SignerOpts) (
 		Data:       data,
 		SignerOpts: opts,
 	})
+}
+
+// DecodeConfigMap is a helper to decode a [ConfigMap] with the recommended
+// [mapstructure.DecoderConfig].
+func DecodeConfigMap(v any, config ConfigMap) error {
+	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+		Result:           v,
+		ErrorUnused:      true,
+		WeaklyTypedInput: true,
+		RootName:         "config",
+	})
+	if err != nil {
+		return err
+	}
+	return decoder.Decode(config)
 }

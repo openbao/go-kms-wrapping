@@ -17,7 +17,6 @@ import (
 	"path"
 	"strings"
 
-	"github.com/go-viper/mapstructure/v2"
 	"github.com/hashicorp/go-hclog"
 	"github.com/openbao/go-kms-wrapping/v2/kms"
 	"github.com/openbao/openbao/api/v2"
@@ -57,15 +56,7 @@ func (k *transitKMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 		TLSClientKeyBytes  string `mapstructure:"tls_client_key_bytes"`
 	}
 
-	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
-		Result:           &cfg,
-		ErrorUnused:      true,
-		WeaklyTypedInput: true,
-	})
-	if err != nil {
-		return err
-	}
-	if err := decoder.Decode(opts.ConfigMap); err != nil {
+	if err := kms.DecodeConfigMap(&cfg, opts.ConfigMap); err != nil {
 		return err
 	}
 
@@ -167,15 +158,7 @@ func (k *transitKMS) GetKey(_ context.Context, opts *kms.KeyOptions) (kms.Key, e
 		DisablePrehashing bool   `mapstructure:"disable_prehashing"`
 	}
 
-	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
-		Result:           &cfg,
-		ErrorUnused:      true,
-		WeaklyTypedInput: true,
-	})
-	if err != nil {
-		return nil, err
-	}
-	if err := decoder.Decode(opts.ConfigMap); err != nil {
+	if err := kms.DecodeConfigMap(&cfg, opts.ConfigMap); err != nil {
 		return nil, err
 	}
 
