@@ -26,9 +26,9 @@ const Type wrapping.WrapperType = "ncloudkms"
 const defaultDomain = "kms.apigw.ntruss.com"
 
 const (
-	EnvNcloudKmsWrapperKeyTag = "NCLOUDKMS_WRAPPER_KEY_TAG"
-	EnvNcpAccessKey           = "NCP_ACCESS_KEY"
-	EnvNcpSecretKey           = "NCP_SECRET_KEY"
+	EnvNcloudKmsWrapperKeyTag    = "NCLOUDKMS_WRAPPER_KEY_TAG"
+	EnvNcloudKmsWrapperAccessKey = "NCLOUDKMS_WRAPPER_ACCESS_KEY"
+	EnvNcloudKmsWrapperSecretKey = "NCLOUDKMS_WRAPPER_SECRET_KEY"
 )
 
 type Wrapper struct {
@@ -74,20 +74,19 @@ func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 	}
 	k.domain = domain
 
-	// Resolve credentials: config takes precedence, then the standard NCP
-	// account environment variables.
+	// Resolve credentials: env takes precedence, then the config map.
 	accessKey := opts.withAccessKey
 	secretKey := opts.withSecretKey
 	if !opts.Options.WithDisallowEnvVars {
-		if os.Getenv(EnvNcpAccessKey) != "" {
-			accessKey = os.Getenv(EnvNcpAccessKey)
+		if os.Getenv(EnvNcloudKmsWrapperAccessKey) != "" {
+			accessKey = os.Getenv(EnvNcloudKmsWrapperAccessKey)
 		}
-		if os.Getenv(EnvNcpSecretKey) != "" {
-			secretKey = os.Getenv(EnvNcpSecretKey)
+		if os.Getenv(EnvNcloudKmsWrapperSecretKey) != "" {
+			secretKey = os.Getenv(EnvNcloudKmsWrapperSecretKey)
 		}
 	}
 	if accessKey == "" || secretKey == "" {
-		return nil, fmt.Errorf("access key and secret key are required (env %s/%s or config) for ncloud kms wrapper configuration", EnvNcpAccessKey, EnvNcpSecretKey)
+		return nil, fmt.Errorf("access key and secret key are required (env %s/%s or config) for ncloud kms wrapper configuration", EnvNcloudKmsWrapperAccessKey, EnvNcloudKmsWrapperSecretKey)
 	}
 
 	k.client = newKMSClient(domain, accessKey, secretKey)

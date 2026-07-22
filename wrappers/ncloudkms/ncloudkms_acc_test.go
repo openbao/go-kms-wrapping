@@ -17,8 +17,8 @@ import (
 //
 // To run this test, the following env variables need to be set:
 //   - NCLOUDKMS_WRAPPER_KEY_TAG
-//   - NCP_ACCESS_KEY
-//   - NCP_SECRET_KEY
+//   - NCLOUDKMS_WRAPPER_ACCESS_KEY
+//   - NCLOUDKMS_WRAPPER_SECRET_KEY
 //
 // Optionally set NCLOUDKMS_DOMAIN (e.g. kms.apigw.gov-ntruss.com) to target the
 // public-sector cloud; it defaults to the civilian cloud.
