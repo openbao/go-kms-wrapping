@@ -228,7 +228,7 @@ func (c *kmsClient) encrypt(ctx context.Context, keyTag, plaintextB64 string) (s
 
 	var resp encryptResponse
 	if err := json.Unmarshal(raw, &resp); err != nil {
-		return "", fmt.Errorf("error parsing ncloud kms encrypt response (status %d): %w; body: %s", status, err, snippet(raw))
+		return "", fmt.Errorf("error parsing ncloud kms encrypt response (status %d): %w; body: %s", status, err, truncateString(string(raw)))
 	}
 	if resp.Error != nil {
 		return "", fmt.Errorf("ncloud kms encrypt error (status %d, code=%q): %s [errorCode=%s, details=%s]",
@@ -236,7 +236,7 @@ func (c *kmsClient) encrypt(ctx context.Context, keyTag, plaintextB64 string) (s
 	}
 	if resp.Code != "SUCCESS" {
 		return "", fmt.Errorf("ncloud kms encrypt error (status %d, code=%q, msg=%q); body: %s",
-			status, resp.Code, resp.Msg, snippet(raw))
+			status, resp.Code, resp.Msg, truncateString(string(raw)))
 	}
 
 	return resp.Data.Ciphertext, nil
@@ -250,7 +250,7 @@ func (c *kmsClient) decrypt(ctx context.Context, keyTag, ciphertext string) (str
 
 	var resp decryptResponse
 	if err := json.Unmarshal(raw, &resp); err != nil {
-		return "", fmt.Errorf("error parsing ncloud kms decrypt response (status %d): %w; body: %s", status, err, snippet(raw))
+		return "", fmt.Errorf("error parsing ncloud kms decrypt response (status %d): %w; body: %s", status, err, truncateString(string(raw)))
 	}
 	if resp.Error != nil {
 		return "", fmt.Errorf("ncloud kms decrypt error (status %d, code=%q): %s [errorCode=%s, details=%s]",
@@ -258,7 +258,7 @@ func (c *kmsClient) decrypt(ctx context.Context, keyTag, ciphertext string) (str
 	}
 	if resp.Code != "SUCCESS" {
 		return "", fmt.Errorf("ncloud kms decrypt error (status %d, code=%q, msg=%q); body: %s",
-			status, resp.Code, resp.Msg, snippet(raw))
+			status, resp.Code, resp.Msg, truncateString(string(raw)))
 	}
 
 	return resp.Data.Plaintext, nil
@@ -302,11 +302,11 @@ func (c *kmsClient) doRequest(ctx context.Context, keyTag, operation string, bod
 	return raw, httpResp.StatusCode, nil
 }
 
-// snippet returns a bounded, printable view of a response body for inclusion in
+// truncateString returns a bounded, printable view of a response body for inclusion in
 // error messages, so failures stay debuggable without dumping unbounded output.
-func snippet(b []byte) string {
+func truncateString(s string) string {
 	const max = 512
-	s := strings.TrimSpace(string(b))
+	s = strings.TrimSpace(s)
 	if len(s) > max {
 		return s[:max] + "…(truncated)"
 	}
