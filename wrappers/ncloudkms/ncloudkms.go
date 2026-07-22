@@ -15,7 +15,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
@@ -33,10 +32,9 @@ const (
 )
 
 type Wrapper struct {
-	domain        string
-	keyTag        string
-	currentKeyTag *atomic.Value
-	client        *kmsClient
+	domain string
+	keyTag string
+	client *kmsClient
 }
 
 // Ensure that we are implementing Wrapper
@@ -44,11 +42,7 @@ var _ wrapping.Wrapper = (*Wrapper)(nil)
 
 // NewWrapper creates a new Ncloud Wrapper.
 func NewWrapper() *Wrapper {
-	k := &Wrapper{
-		currentKeyTag: new(atomic.Value),
-	}
-	k.currentKeyTag.Store("")
-	return k
+	return &Wrapper{}
 }
 
 // SetConfig sets the fields on the Wrapper object based on values from the
@@ -98,9 +92,6 @@ func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 
 	k.client = newKMSClient(domain, accessKey, secretKey)
 
-	// Store the current key tag.
-	k.currentKeyTag.Store(k.keyTag)
-
 	// Map that holds non-sensitive configuration info
 	wrapConfig := &wrapping.WrapperConfig{
 		Metadata: map[string]string{
@@ -123,7 +114,7 @@ func (k *Wrapper) Type(_ context.Context) (wrapping.WrapperType, error) {
 // KeyId returns the last known key tag. The method name is fixed by the
 // wrapping.Wrapper interface; the value returned is the NCP KMS key tag.
 func (k *Wrapper) KeyId(_ context.Context) (string, error) {
-	return k.currentKeyTag.Load().(string), nil
+	return k.keyTag, nil
 }
 
 // Encrypt is used to encrypt the master key using the Ncloud CMK. This returns
@@ -139,9 +130,6 @@ func (k *Wrapper) Encrypt(ctx context.Context, plaintext []byte, opt ...wrapping
 	if err != nil {
 		return nil, fmt.Errorf("error encrypting data: %w", err)
 	}
-
-	// Store the current key tag.
-	k.currentKeyTag.Store(k.keyTag)
 
 	return &wrapping.BlobInfo{
 		Ciphertext: env.Ciphertext,
