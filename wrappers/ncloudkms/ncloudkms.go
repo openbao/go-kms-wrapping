@@ -180,7 +180,7 @@ func (k *Wrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, opt ...wra
 // ncp-apigw-signature-v2 (HMAC-SHA256) request signing.
 type kmsClient struct {
 	httpClient *http.Client
-	domain     string
+	baseURL    string
 	accessKey  string
 	secretKey  string
 }
@@ -188,7 +188,7 @@ type kmsClient struct {
 func newKMSClient(domain, accessKey, secretKey string) *kmsClient {
 	return &kmsClient{
 		httpClient: &http.Client{Timeout: 30 * time.Second},
-		domain:     domain,
+		baseURL:    "https://" + domain,
 		accessKey:  accessKey,
 		secretKey:  secretKey,
 	}
@@ -220,8 +220,10 @@ type decryptResponse struct {
 	} `json:"error"`
 }
 
+// ref. https://api.ncloud-docs.com/docs/en/security-kms-encrypt
 func (c *kmsClient) encrypt(ctx context.Context, keyTag, plaintextB64 string) (string, error) {
-	raw, status, err := c.doRequest(ctx, keyTag, "encrypt", map[string]string{"plaintext": plaintextB64})
+	path := fmt.Sprintf("/keys/v2/%s/encrypt", keyTag)
+	raw, status, err := c.doRequest(ctx, path, map[string]string{"plaintext": plaintextB64})
 	if err != nil {
 		return "", err
 	}
@@ -242,8 +244,10 @@ func (c *kmsClient) encrypt(ctx context.Context, keyTag, plaintextB64 string) (s
 	return resp.Data.Ciphertext, nil
 }
 
+// ref. https://api.ncloud-docs.com/docs/en/security-kms-decrypt
 func (c *kmsClient) decrypt(ctx context.Context, keyTag, ciphertext string) (string, error) {
-	raw, status, err := c.doRequest(ctx, keyTag, "decrypt", map[string]string{"ciphertext": ciphertext})
+	path := fmt.Sprintf("/keys/v2/%s/decrypt", keyTag)
+	raw, status, err := c.doRequest(ctx, path, map[string]string{"ciphertext": ciphertext})
 	if err != nil {
 		return "", err
 	}
@@ -264,18 +268,16 @@ func (c *kmsClient) decrypt(ctx context.Context, keyTag, ciphertext string) (str
 	return resp.Data.Plaintext, nil
 }
 
-// doRequest performs a signed POST against the given KMS operation for keyTag and
-// returns the raw response body together with the HTTP status code.
-// ref. https://api.ncloud-docs.com/docs/en/security-kms-encrypt, https://api.ncloud-docs.com/docs/en/security-kms-decrypt
-func (c *kmsClient) doRequest(ctx context.Context, keyTag, operation string, body map[string]string) ([]byte, int, error) {
+// doRequest performs a signed POST against the given API path and returns the raw
+// response body together with the HTTP status code. It handles request signing
+// (x-ncp-apigw-signature-v2).
+func (c *kmsClient) doRequest(ctx context.Context, path string, body map[string]string) ([]byte, int, error) {
 	payload, err := json.Marshal(body)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	// keyTag is NCP's identifier for the KMS key; it goes directly into the URL path.
-	path := fmt.Sprintf("/keys/v2/%s/%s", keyTag, operation)
-	reqURL := "https://" + c.domain + path
+	reqURL := c.baseURL + path
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(payload))
 	if err != nil {
