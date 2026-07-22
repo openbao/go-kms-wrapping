@@ -24,8 +24,8 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 			switch k {
 			case "key_tag": // key tag from the config map (e.g. an OpenBao seal block)
 				opts.withKeyTag = v
-			case "domain":
-				opts.withDomain = v
+			case "base_url":
+				opts.withBaseURL = v
 			case "access_key":
 				opts.withAccessKey = v
 			case "secret_key":
@@ -42,13 +42,13 @@ type options struct {
 	*wrapping.Options
 
 	withKeyTag    string
-	withDomain    string
+	withBaseURL   string
 	withAccessKey string
 	withSecretKey string
 }
 
 func getDefaultOptions() options {
 	return options{
-		withDomain: defaultDomain,
+		withBaseURL: defaultBaseUrl,
 	}
 }

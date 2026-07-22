@@ -20,8 +20,8 @@ import (
 //   - NCLOUDKMS_WRAPPER_ACCESS_KEY
 //   - NCLOUDKMS_WRAPPER_SECRET_KEY
 //
-// Optionally set NCLOUDKMS_DOMAIN (e.g. kms.apigw.gov-ntruss.com) to target the
-// public-sector cloud; it defaults to the civilian cloud.
+// Optionally set NCLOUDKMS_BASE_URL (e.g. https://kms.apigw.gov-ntruss.com) to
+// target the public-sector cloud; it defaults to the civilian cloud.
 func TestAccNcloudKmsWrapper_Lifecycle(t *testing.T) {
 	if os.Getenv("VAULT_ACC") == "" && os.Getenv("KMS_ACC_TESTS") == "" {
 		t.SkipNow()
@@ -31,8 +31,8 @@ func TestAccNcloudKmsWrapper_Lifecycle(t *testing.T) {
 	s := NewWrapper()
 
 	var opts []wrapping.Option
-	if d := os.Getenv("NCLOUDKMS_DOMAIN"); d != "" {
-		opts = append(opts, wrapping.WithConfigMap(map[string]string{"domain": d}))
+	if u := os.Getenv("NCLOUDKMS_BASE_URL"); u != "" {
+		opts = append(opts, wrapping.WithConfigMap(map[string]string{"base_url": u}))
 	}
 	_, err := s.SetConfig(ctx, opts...)
 	require.NoError(t, err, "SetConfig")

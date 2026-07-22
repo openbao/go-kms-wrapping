@@ -87,7 +87,7 @@ func TestSetConfig(t *testing.T) {
 		)
 		require.NoError(t, err)
 		require.Equal(t, "my-key", cfg.Metadata["key_tag"])
-		require.Equal(t, defaultDomain, cfg.Metadata["domain"])
+		require.Equal(t, defaultBaseUrl, cfg.Metadata["base_url"])
 		require.NotNil(t, w.client, "client was not initialized")
 
 		id, err := w.KeyId(t.Context())
@@ -95,20 +95,20 @@ func TestSetConfig(t *testing.T) {
 		require.Equal(t, "my-key", id)
 	})
 
-	t.Run("custom domain via config map", func(t *testing.T) {
+	t.Run("custom base url via config map", func(t *testing.T) {
 		w := NewWrapper()
 		cfg, err := w.SetConfig(
 			t.Context(),
 			wrapping.WithDisallowEnvVars(true),
 			wrapping.WithConfigMap(map[string]string{
 				"key_tag":    "my-key",
-				"domain":     "kms.example.com",
+				"base_url":   "https://kms.example.com",
 				"access_key": "ak",
 				"secret_key": "sk",
 			}),
 		)
 		require.NoError(t, err)
-		require.Equal(t, "kms.example.com", cfg.Metadata["domain"])
+		require.Equal(t, "https://kms.example.com", cfg.Metadata["base_url"])
 	})
 }
 

@@ -23,7 +23,7 @@ import (
 const Type wrapping.WrapperType = "ncloudkms"
 
 // ref. https://api.ncloud-docs.com/docs/en/security-kms
-const defaultDomain = "kms.apigw.ntruss.com"
+const defaultBaseUrl = "https://kms.apigw.ntruss.com"
 
 const (
 	EnvNcloudKmsWrapperKeyTag    = "NCLOUDKMS_WRAPPER_KEY_TAG"
@@ -32,9 +32,9 @@ const (
 )
 
 type Wrapper struct {
-	domain string
-	keyTag string
-	client *kmsClient
+	baseURL string
+	keyTag  string
+	client  *kmsClient
 }
 
 // Ensure that we are implementing Wrapper
@@ -67,12 +67,12 @@ func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 		return nil, fmt.Errorf("key tag not found (env or config) for ncloud kms wrapper configuration")
 	}
 
-	// A domain config is optional.
-	domain := opts.withDomain
-	if domain == "" {
-		domain = defaultDomain
+	// A base URL config is optional.
+	baseURL := opts.withBaseURL
+	if baseURL == "" {
+		baseURL = defaultBaseUrl
 	}
-	k.domain = domain
+	k.baseURL = baseURL
 
 	// Resolve credentials: env takes precedence, then the config map.
 	accessKey := opts.withAccessKey
@@ -89,13 +89,13 @@ func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 		return nil, fmt.Errorf("access key and secret key are required (env %s/%s or config) for ncloud kms wrapper configuration", EnvNcloudKmsWrapperAccessKey, EnvNcloudKmsWrapperSecretKey)
 	}
 
-	k.client = newKMSClient(domain, accessKey, secretKey)
+	k.client = newKMSClient(baseURL, accessKey, secretKey)
 
 	// Map that holds non-sensitive configuration info
 	wrapConfig := &wrapping.WrapperConfig{
 		Metadata: map[string]string{
-			"domain":  k.domain,
-			"key_tag": k.keyTag,
+			"base_url": k.baseURL,
+			"key_tag":  k.keyTag,
 		},
 	}
 
@@ -176,8 +176,6 @@ func (k *Wrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, opt ...wra
 
 // kmsClient talks to the Naver Cloud KMS API 1.0 endpoints
 // ref. https://api.ncloud-docs.com/docs/en/security-kms
-// (https://{domain}/keys/v2/{keyTag}/{encrypt,decrypt}) using the standard
-// ncp-apigw-signature-v2 (HMAC-SHA256) request signing.
 type kmsClient struct {
 	httpClient *http.Client
 	baseURL    string
@@ -185,10 +183,10 @@ type kmsClient struct {
 	secretKey  string
 }
 
-func newKMSClient(domain, accessKey, secretKey string) *kmsClient {
+func newKMSClient(baseURL, accessKey, secretKey string) *kmsClient {
 	return &kmsClient{
 		httpClient: &http.Client{Timeout: 30 * time.Second},
-		baseURL:    "https://" + domain,
+		baseURL:    baseURL,
 		accessKey:  accessKey,
 		secretKey:  secretKey,
 	}
