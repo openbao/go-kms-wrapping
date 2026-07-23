@@ -36,9 +36,26 @@ type ServeOpts struct {
 	// OpenBao.
 	WrapperFactoryFunc func() wrapping.Wrapper
 
+	// Metadata registers static metadata for this plugin, available over the
+	// metadata protocol.
+	Metadata Metadata
+
 	// Logger is optional and automatically initialized with settings compatible
 	// with go-plugin clients if not set.
 	Logger log.Logger
+}
+
+// Metadata holds static metadata for a plugin.
+type Metadata struct {
+	// SensitiveKMSFields are [kms.ConfigMap] fields taken by [kms.KMS.Open]
+	// that are sensitive and should be censored when the config is presented
+	// for display.
+	SensitiveKMSFields []string
+
+	// SensitiveKeyFields are [kms.ConfigMap] fields taken by [kms.KMS.GetKey]
+	// that are sensitive and should be censored when the config is presented
+	// for display.
+	SensitiveKeyFields []string
 }
 
 // Serve is used to serve a KMS plugin. This is typically called in the plugin's
@@ -53,8 +70,11 @@ func Serve(opts *ServeOpts) {
 		})
 	}
 
-	v1 := make(map[string]plugin.Plugin)
-	plugins := map[int]plugin.PluginSet{1: v1}
+	v1 := map[string]plugin.Plugin{
+		"metadata": &gRPCMetadataPlugin{
+			metadata: &opts.Metadata,
+		},
+	}
 
 	if opts.KMSFactoryFunc != nil {
 		v1["kms"] = &gRPCKMSPlugin{
@@ -68,6 +88,8 @@ func Serve(opts *ServeOpts) {
 			logger:  logger,
 		}
 	}
+
+	plugins := map[int]plugin.PluginSet{1: v1}
 
 	plugin.Serve(&plugin.ServeConfig{
 		HandshakeConfig:  HandshakeConfig,
@@ -87,8 +109,9 @@ var HandshakeConfig = plugin.HandshakeConfig{
 // PluginSets are the versioned plugin sets to use on the client side.
 var PluginSets = map[int]plugin.PluginSet{
 	1: {
-		"kms":     &gRPCKMSPlugin{},
-		"wrapper": &gRPCWrapperPlugin{},
+		"kms":      &gRPCKMSPlugin{},
+		"wrapper":  &gRPCWrapperPlugin{},
+		"metadata": &gRPCMetadataPlugin{},
 	},
 }
 
@@ -103,6 +126,13 @@ type gRPCWrapperPlugin struct {
 type gRPCKMSPlugin struct {
 	factory func() kms.KMS
 	logger  log.Logger
+
+	// Embedding this will disable the netRPC protocol.
+	plugin.NetRPCUnsupportedPlugin
+}
+
+type gRPCMetadataPlugin struct {
+	metadata *Metadata
 
 	// Embedding this will disable the netRPC protocol.
 	plugin.NetRPCUnsupportedPlugin

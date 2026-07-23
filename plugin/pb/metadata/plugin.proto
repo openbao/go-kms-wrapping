@@ -1,0 +1,19 @@
+// Copyright (c) 2026 OpenBao a Series of LF Projects, LLC
+// SPDX-License-Identifier: MPL-2.0
+
+syntax = "proto3";
+
+package metadata;
+option go_package = "github.com/openbao/go-kms-wrapping/plugin/v2/pb/metadata;pb";
+
+message Empty {}
+
+// See plugin.Metadata struct.
+message MetadataResponse {
+  repeated string sensitive_kms_fields = 1;
+  repeated string sensitive_key_fields = 2;
+}
+
+service Metadata {
+  rpc Get(Empty) returns (MetadataResponse);
+}

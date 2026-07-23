@@ -25,6 +25,10 @@ import (
 
 var ErrPrehashingDisabled = errors.New("pre-hashing is disabled")
 
+// SensitiveKMSFields are all fields accepted by Open() that should be censored
+// when presenting a ConfigMap for display.
+var SensitiveKMSFields = []string{"token"}
+
 // New returns a new KMS that uses OpenBao's Transit engine.
 func New() kms.KMS {
 	return &transitKMS{}

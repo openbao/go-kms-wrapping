@@ -23,6 +23,10 @@ import (
 	"github.com/openbao/go-kms-wrapping/v2/kms"
 )
 
+// SensitiveKMSFields are all fields accepted by Open() that should be censored
+// when presenting a ConfigMap for display.
+var SensitiveKMSFields = []string{"pin"}
+
 // New returns a new KMS that uses PKCS#11 libraries.
 func New() kms.KMS {
 	return &pkcs11KMS{}
