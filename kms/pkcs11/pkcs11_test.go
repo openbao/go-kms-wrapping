@@ -35,7 +35,8 @@ func NewTestKMS(t *testing.T, configs ...kms.ConfigMap) *pkcs11KMS {
 	}
 
 	require.NoError(t, svc.Open(t.Context(), &kms.OpenOptions{
-		ConfigMap: config,
+		ConfigMap:        config,
+		AllowEnvironment: true,
 	}))
 	t.Cleanup(func() {
 		require.NoError(t, svc.Close(context.Background()))
@@ -78,14 +79,69 @@ func TestOpen(t *testing.T) {
 	for i, config := range good {
 		t.Run(fmt.Sprintf("good[%d]", i), func(t *testing.T) {
 			svc := New()
-			require.NoError(t, svc.Open(ctx, &kms.OpenOptions{ConfigMap: config}))
+			require.NoError(t, svc.Open(ctx, &kms.OpenOptions{
+				ConfigMap:        config,
+				AllowEnvironment: true,
+			}))
 			require.NoError(t, svc.Close(ctx))
 		})
 	}
 
 	for i, config := range bad {
 		t.Run(fmt.Sprintf("bad[%d]", i), func(t *testing.T) {
-			require.Error(t, New().Open(ctx, &kms.OpenOptions{ConfigMap: config}))
+			require.Error(t, New().Open(ctx, &kms.OpenOptions{
+				ConfigMap:        config,
+				AllowEnvironment: true,
+			}))
+		})
+	}
+}
+
+func TestAliases(t *testing.T) {
+	ctx := t.Context()
+
+	lib, token, pin := testvars.Vars(t)
+	aliases := map[string]string{"foo": lib}
+
+	tests := []struct {
+		lib string
+		env bool
+		err bool
+	}{
+		{
+			lib: "foo",
+		},
+		{
+			lib: "foo",
+			env: true,
+		},
+		{
+			lib: lib,
+			env: true,
+		},
+		{
+			lib: lib,
+			err: true,
+		},
+	}
+
+	for i, tt := range tests {
+		t.Run(strconv.Itoa(i), func(t *testing.T) {
+			svc := NewWithAliases(aliases)
+			err := svc.Open(ctx, &kms.OpenOptions{
+				AllowEnvironment: tt.env,
+				ConfigMap: kms.ConfigMap{
+					"lib":         tt.lib,
+					"pin":         pin,
+					"token_label": token,
+				},
+			})
+			if tt.err {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.NoError(t, svc.Close(ctx))
+			}
 		})
 	}
 }

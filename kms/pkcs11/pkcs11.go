@@ -28,6 +28,12 @@ func New() kms.KMS {
 	return &pkcs11KMS{}
 }
 
+// NewWithAliases returns a new KMS that uses PKCS#11 libraries and provides it
+// with a map of library path aliases.
+func NewWithAliases(aliases map[string]string) kms.KMS {
+	return &pkcs11KMS{aliases: aliases}
+}
+
 // pkcs11KMS implements kms.KMS.
 type pkcs11KMS struct {
 	kms.UnimplementedKMS
@@ -39,6 +45,13 @@ type pkcs11KMS struct {
 	// Disable preferring local public key encryption over performing public key
 	// encryption via PKCS#11.
 	disableSoftwareEncryption bool
+
+	// aliases map a name (an alias) to a library path. If the KMS is
+	// opened with AllowEnvironment=false, libraries may only be opened via
+	// alias, i.e., the "lib" parameter is always interpreted as one. If
+	// AllowEnvironment=true, aliases take precedence, but "lib" may still be a
+	// plain file path.
+	aliases map[string]string
 }
 
 func (p *pkcs11KMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
@@ -89,8 +102,18 @@ func (p *pkcs11KMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 		return errors.New("at least one of 'slot', 'serial', 'token' is required")
 	}
 
+	// Resolve library aliases and fall back to plain path if allowed.
+	lib, ok := p.aliases[cfg.Lib]
+	if !ok {
+		if opts.AllowEnvironment {
+			lib = cfg.Lib
+		} else {
+			return fmt.Errorf("unknown library alias: %q", cfg.Lib)
+		}
+	}
+
 	// Open the library:
-	mod, err := module.Open(cfg.Lib)
+	mod, err := module.Open(lib)
 	if err != nil {
 		return err
 	}
