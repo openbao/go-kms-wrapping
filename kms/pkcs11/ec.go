@@ -21,7 +21,7 @@ import (
 )
 
 // newEC constructs a new ecKey.
-func (p *pkcs11KMS) newEC(public, private object, mech *uint) (kms.Key, error) {
+func newEC(pool *session.PoolRef, public, private object, mech *uint) (kms.Key, error) {
 	var m uint
 	if mech == nil {
 		m = pkcs11.CKM_ECDSA
@@ -42,7 +42,7 @@ func (p *pkcs11KMS) newEC(public, private object, mech *uint) (kms.Key, error) {
 			pkcs11.NewAttribute(pkcs11.CKA_EC_PARAMS, 0),
 			pkcs11.NewAttribute(pkcs11.CKA_EC_POINT, 0),
 		}
-		attr, err := session.Scope(ctx, p.pool, func(s *session.Handle) ([]*pkcs11.Attribute, error) {
+		attr, err := session.Scope(ctx, pool, func(s *session.Handle) ([]*pkcs11.Attribute, error) {
 			// NOTE: For CKK_EC keys, the public key can only be exported from
 			// the public key handle, unlike RSA keys where attributes are
 			// available on either object.
@@ -71,7 +71,7 @@ func (p *pkcs11KMS) newEC(public, private object, mech *uint) (kms.Key, error) {
 	})
 
 	return &ecKey{
-		kms:       p,
+		pool:      pool,
 		pubHandle: public.handle,
 		prvHandle: private.handle,
 		public:    exportPublic,
@@ -82,7 +82,7 @@ func (p *pkcs11KMS) newEC(public, private object, mech *uint) (kms.Key, error) {
 type ecKey struct {
 	kms.UnimplementedKey
 
-	kms       *pkcs11KMS
+	pool      *session.PoolRef
 	pubHandle pkcs11.ObjectHandle
 	prvHandle pkcs11.ObjectHandle
 
@@ -104,7 +104,7 @@ func (e *ecKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte, error)
 	}
 
 	mech := pkcs11.NewMechanism(pkcs11.CKM_ECDSA, nil)
-	raw, err := session.Scope(ctx, e.kms.pool, func(s *session.Handle) ([]byte, error) {
+	raw, err := session.Scope(ctx, e.pool, func(s *session.Handle) ([]byte, error) {
 		if err := s.SignInit(mech, e.prvHandle); err != nil {
 			return nil, err
 		}

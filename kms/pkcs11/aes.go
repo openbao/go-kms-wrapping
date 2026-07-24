@@ -13,7 +13,7 @@ import (
 )
 
 // newAES constructs a new aesKey.
-func (p *pkcs11KMS) newAES(o object, mech *uint) (kms.Key, error) {
+func newAES(pool *session.PoolRef, o object, mech *uint) (kms.Key, error) {
 	var m uint
 	if mech == nil {
 		m = pkcs11.CKM_AES_GCM
@@ -30,7 +30,7 @@ func (p *pkcs11KMS) newAES(o object, mech *uint) (kms.Key, error) {
 
 	// Small struct compared to other key types, value receivers should be good.
 	return aesKey{
-		kms:    p,
+		pool:   pool,
 		handle: o.handle,
 	}, nil
 }
@@ -39,7 +39,7 @@ func (p *pkcs11KMS) newAES(o object, mech *uint) (kms.Key, error) {
 type aesKey struct {
 	kms.UnimplementedKey
 
-	kms    *pkcs11KMS
+	pool   *session.PoolRef
 	handle pkcs11.ObjectHandle
 }
 
@@ -49,7 +49,7 @@ const (
 )
 
 func (a aesKey) Encrypt(ctx context.Context, opts *kms.CipherOptions) ([]byte, error) {
-	return session.Scope(ctx, a.kms.pool, func(s *session.Handle) ([]byte, error) {
+	return session.Scope(ctx, a.pool, func(s *session.Handle) ([]byte, error) {
 		nonce, err := s.GenerateRandom(aesGcmNonceSize)
 		if err != nil {
 			return nil, fmt.Errorf("generate nonce: %w", err)
@@ -68,7 +68,7 @@ func (a aesKey) Encrypt(ctx context.Context, opts *kms.CipherOptions) ([]byte, e
 }
 
 func (a aesKey) Decrypt(ctx context.Context, opts *kms.CipherOptions) ([]byte, error) {
-	return session.Scope(ctx, a.kms.pool, func(s *session.Handle) ([]byte, error) {
+	return session.Scope(ctx, a.pool, func(s *session.Handle) ([]byte, error) {
 		params := pkcs11.NewGCMParams(opts.Data[:aesGcmNonceSize], opts.AAD, aesGcmTagSize*8)
 		defer params.Free()
 		if err := s.DecryptInit(pkcs11.NewMechanism(pkcs11.CKM_AES_GCM, params), a.handle); err != nil {

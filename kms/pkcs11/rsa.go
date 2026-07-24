@@ -18,7 +18,13 @@ import (
 )
 
 // newRSA constructs a new rsaKey.
-func (p *pkcs11KMS) newRSA(public, private object, mech *uint, oaepHash crypto.Hash) (kms.Key, error) {
+func newRSA(
+	pool *session.PoolRef,
+	public, private object,
+	mech *uint,
+	oaepHash crypto.Hash,
+	disableSoftwareEncryption bool,
+) (kms.Key, error) {
 	if mech != nil {
 		switch *mech {
 		// pkcs11.CKM_SHA{X}_RSA_PKCS_PSS variants can be added in the future if
@@ -34,7 +40,7 @@ func (p *pkcs11KMS) newRSA(public, private object, mech *uint, oaepHash crypto.H
 			pkcs11.NewAttribute(pkcs11.CKA_MODULUS, nil),
 			pkcs11.NewAttribute(pkcs11.CKA_PUBLIC_EXPONENT, nil),
 		}
-		attr, err := session.Scope(ctx, p.pool, func(s *session.Handle) ([]*pkcs11.Attribute, error) {
+		attr, err := session.Scope(ctx, pool, func(s *session.Handle) ([]*pkcs11.Attribute, error) {
 			// RSA keys have all params available on the public key, too. This
 			// seems like the less invasive object to query.
 			return s.GetAttributeValue(public.handle, temp)
@@ -64,12 +70,13 @@ func (p *pkcs11KMS) newRSA(public, private object, mech *uint, oaepHash crypto.H
 	})
 
 	return &rsaKey{
-		kms:       p,
-		pubHandle: public.handle,
-		prvHandle: private.handle,
-		public:    exportPublic,
-		mech:      mech,
-		oaepHash:  oaepHash,
+		pool:                      pool,
+		pubHandle:                 public.handle,
+		prvHandle:                 private.handle,
+		public:                    exportPublic,
+		mech:                      mech,
+		oaepHash:                  oaepHash,
+		disableSoftwareEncryption: disableSoftwareEncryption,
 	}, nil
 }
 
@@ -77,7 +84,7 @@ func (p *pkcs11KMS) newRSA(public, private object, mech *uint, oaepHash crypto.H
 type rsaKey struct {
 	kms.UnimplementedKey
 
-	kms       *pkcs11KMS
+	pool      *session.PoolRef
 	pubHandle pkcs11.ObjectHandle
 	prvHandle pkcs11.ObjectHandle
 
@@ -89,6 +96,9 @@ type rsaKey struct {
 
 	// The hash to use in RSA-OAEP mode.
 	oaepHash crypto.Hash
+
+	// Whether to disable performing RSA-OAEP encryption in software.
+	disableSoftwareEncryption bool
 }
 
 var rsaLookup = map[crypto.Hash]struct{ hash, mgf uint }{
@@ -105,7 +115,7 @@ func (r *rsaKey) Encrypt(ctx context.Context, opts *kms.CipherOptions) ([]byte, 
 		return nil, fmt.Errorf("unsupported mode: %x", *r.mech)
 	}
 
-	if !r.kms.disableSoftwareEncryption {
+	if !r.disableSoftwareEncryption {
 		pub, err := r.public(ctx)
 		if err != nil {
 			return nil, err
@@ -117,7 +127,7 @@ func (r *rsaKey) Encrypt(ctx context.Context, opts *kms.CipherOptions) ([]byte, 
 	mech := pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS_OAEP,
 		pkcs11.NewOAEPParams(hashMechs.hash, hashMechs.mgf, pkcs11.CKZ_DATA_SPECIFIED, nil))
 
-	return session.Scope(ctx, r.kms.pool, func(s *session.Handle) ([]byte, error) {
+	return session.Scope(ctx, r.pool, func(s *session.Handle) ([]byte, error) {
 		if err := s.EncryptInit(mech, r.pubHandle); err != nil {
 			return nil, err
 		}
@@ -135,7 +145,7 @@ func (r *rsaKey) Decrypt(ctx context.Context, opts *kms.CipherOptions) ([]byte, 
 	mech := pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS_OAEP,
 		pkcs11.NewOAEPParams(hashMechs.hash, hashMechs.mgf, pkcs11.CKZ_DATA_SPECIFIED, nil))
 
-	return session.Scope(ctx, r.kms.pool, func(s *session.Handle) ([]byte, error) {
+	return session.Scope(ctx, r.pool, func(s *session.Handle) ([]byte, error) {
 		if err := s.DecryptInit(mech, r.prvHandle); err != nil {
 			return nil, err
 		}
@@ -178,7 +188,7 @@ func (r *rsaKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte, error
 		data = h.Sum(nil)
 	}
 
-	return session.Scope(ctx, r.kms.pool, func(s *session.Handle) ([]byte, error) {
+	return session.Scope(ctx, r.pool, func(s *session.Handle) ([]byte, error) {
 		if err := s.SignInit(mech, r.prvHandle); err != nil {
 			return nil, err
 		}

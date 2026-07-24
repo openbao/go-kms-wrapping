@@ -6,6 +6,7 @@ package pkcs11
 import (
 	"context"
 	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"maps"
@@ -171,6 +172,8 @@ func TestGetKey(t *testing.T) {
 			return err
 		}))
 
+		id = hex.EncodeToString([]byte(id))
+
 		// By ID:
 		key, err := svc.GetKey(ctx, &kms.KeyOptions{ConfigMap: kms.ConfigMap{"id": id}})
 		require.NoError(t, err)
@@ -202,6 +205,8 @@ func TestGetKey(t *testing.T) {
 			)
 			return err
 		}))
+
+		id = hex.EncodeToString([]byte(id))
 
 		// Find by ID:
 		key, err := svc.GetKey(ctx, &kms.KeyOptions{ConfigMap: kms.ConfigMap{"id": id}})
