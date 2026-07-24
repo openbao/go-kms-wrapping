@@ -55,7 +55,13 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 			case "user_agent":
 				opts.withUserAgent = v
 			case "credentials":
-				opts.withCredentials = v
+				opts.withCredentialsPath = v
+			case "credentials_json":
+				opts.withCredentialsJSON = v
+			case "credentials_type":
+				opts.withCredentialsType = v
+			case "credentials_scopes":
+				opts.withCredentialsScopes = v
 			case "project":
 				opts.withProject = v
 			case "region":
@@ -79,7 +85,7 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 	}
 
 	if !opts.WithDisallowEnvVars {
-		if err := wrapping.ParsePaths(&opts.withCredentials); err != nil {
+		if err := wrapping.ParsePaths(&opts.withCredentialsPath); err != nil {
 			return nil, err
 		}
 	}
@@ -94,13 +100,19 @@ type OptionFunc func(*options) error
 type options struct {
 	*wrapping.Options
 
-	withKeyNotRequired bool
+	withCredentialsPath string
+
+	withCredentialsJSON   string
+	withCredentialsType   string
+	withCredentialsScopes string
+
+	withProject   string
+	withRegion    string
+	withKeyRing   string
+	withCryptoKey string
+
 	withUserAgent      string
-	withCredentials    string
-	withProject        string
-	withRegion         string
-	withKeyRing        string
-	withCryptoKey      string
+	withKeyNotRequired bool
 }
 
 func getDefaultOptions() options {
@@ -112,66 +124,6 @@ func WithKeyNotRequired(with bool) wrapping.Option {
 	return func() interface{} {
 		return OptionFunc(func(o *options) error {
 			o.withKeyNotRequired = with
-			return nil
-		})
-	}
-}
-
-// WithUserAgent provides a way to chose the user agent
-func WithUserAgent(with string) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withUserAgent = with
-			return nil
-		})
-	}
-}
-
-// WithCredentials provides a way to specify credentials
-func WithCredentials(with string) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withCredentials = with
-			return nil
-		})
-	}
-}
-
-// WithProject provides a way to chose the project
-func WithProject(with string) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withProject = with
-			return nil
-		})
-	}
-}
-
-// WithRegion provides a way to chose the region
-func WithRegion(with string) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withRegion = with
-			return nil
-		})
-	}
-}
-
-// WithKeyRing provides a way to chose the key ring
-func WithKeyRing(with string) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withKeyRing = with
-			return nil
-		})
-	}
-}
-
-// WithCryptoKey provides a way to chose the crypto key
-func WithCryptoKey(with string) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withCryptoKey = with
 			return nil
 		})
 	}

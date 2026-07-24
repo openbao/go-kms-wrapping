@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
-	context "golang.org/x/net/context"
 )
 
 const (
@@ -25,7 +24,6 @@ const (
 func TestGcpKeyIdAfterConfig(t *testing.T) {
 	// Now test for cases where CKMS values are provided
 	checkAndSetEnvVars(t)
-	ctx := context.Background()
 
 	tests := []struct {
 		name        string
@@ -49,14 +47,13 @@ func TestGcpKeyIdAfterConfig(t *testing.T) {
 		},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			s := NewWrapper()
-			_, err := s.SetConfig(ctx, tc.opts...)
+			_, err := s.SetConfig(t.Context(), tc.opts...)
 			if err != nil {
 				t.Fatalf("error setting seal config: %v", err)
 			}
-			id, err := s.KeyId(ctx)
+			id, err := s.KeyId(t.Context())
 			if err != nil {
 				t.Fatalf("unexpected error getting key id: %v", err)
 			}
@@ -67,14 +64,14 @@ func TestGcpKeyIdAfterConfig(t *testing.T) {
 				}
 				// Test KeyId after Encrypt call
 				input := []byte("foo")
-				swi, err := s.Encrypt(context.Background(), input)
+				swi, err := s.Encrypt(t.Context(), input)
 				if err != nil {
 					t.Fatalf("err: %s", err.Error())
 				}
 				if swi.KeyInfo.KeyId != id {
 					t.Fatalf("expected %s got: %s", id, swi.KeyInfo.KeyId)
 				}
-				postEncryptKeyId, err := s.KeyId(ctx)
+				postEncryptKeyId, err := s.KeyId(t.Context())
 				if err != nil {
 					t.Fatalf("err: %s", err.Error())
 				}
@@ -113,19 +110,19 @@ func TestDisableEnv(t *testing.T) {
 	t.Setenv(EnvVaultGcpCkmsSealCryptoKey, "bad_vault_crypto_key")
 
 	s := NewWrapper()
-	_, err := s.SetConfig(context.Background(), wrapping.WithConfigMap(configMap), wrapping.WithDisallowEnvVars(true))
+	_, err := s.SetConfig(t.Context(), wrapping.WithConfigMap(configMap), wrapping.WithDisallowEnvVars(true))
 	if err != nil {
 		t.Fatalf("got error from SetConfig %v", err)
 	}
 
 	// Make sure we can use the key properly.
 	input := []byte("foo")
-	swi, err := s.Encrypt(context.Background(), input)
+	swi, err := s.Encrypt(t.Context(), input)
 	if err != nil {
 		t.Fatalf("err: %s", err.Error())
 	}
 
-	pt, err := s.Decrypt(context.Background(), swi)
+	pt, err := s.Decrypt(t.Context(), swi)
 	if err != nil {
 		t.Fatalf("err: %s", err.Error())
 	}
@@ -140,7 +137,7 @@ func TestGcpCkmsSeal(t *testing.T) {
 
 	// Do an error check before env vars are set
 	s := NewWrapper()
-	_, err := s.SetConfig(context.Background())
+	_, err := s.SetConfig(t.Context())
 	if err == nil {
 		t.Fatal("expected error when GcpCkmsSeal required values are not provided")
 	}
@@ -158,7 +155,7 @@ func TestGcpCkmsSeal(t *testing.T) {
 	for name, config := range configCases {
 		t.Run(name, func(t *testing.T) {
 			s := NewWrapper()
-			_, err := s.SetConfig(context.Background(), wrapping.WithConfigMap(config))
+			_, err := s.SetConfig(t.Context(), wrapping.WithConfigMap(config))
 			if err != nil {
 				t.Fatalf("error setting seal config: %v", err)
 			}
@@ -170,20 +167,20 @@ func TestGcpCkmsSeal_Lifecycle(t *testing.T) {
 	checkAndSetEnvVars(t)
 
 	s := NewWrapper()
-	_, err := s.SetConfig(context.Background())
+	_, err := s.SetConfig(t.Context())
 	if err != nil {
 		t.Fatalf("error setting seal config: %v", err)
 	}
 
 	// Test Encrypt and Decrypt calls
 	input := []byte("foo")
-	swi, err := s.Encrypt(context.Background(), input)
+	swi, err := s.Encrypt(t.Context(), input)
 	if err != nil {
 		t.Fatalf("err: %s", err.Error())
 	}
 
 	// assert the wrappers key id matches the key id used for encryption
-	keyId, err := s.KeyId(context.Background())
+	keyId, err := s.KeyId(t.Context())
 	if err != nil {
 		t.Fatalf("err: %s", err.Error())
 	}
@@ -191,7 +188,7 @@ func TestGcpCkmsSeal_Lifecycle(t *testing.T) {
 		t.Fatalf("expected %s got: %s", keyId, swi.KeyInfo.KeyId)
 	}
 
-	pt, err := s.Decrypt(context.Background(), swi)
+	pt, err := s.Decrypt(t.Context(), swi)
 	if err != nil {
 		t.Fatalf("err: %s", err.Error())
 	}
