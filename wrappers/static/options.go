@@ -67,8 +67,10 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 		}
 	}
 
-	if err := wrapping.ParsePaths(&opts.withPreviousKey, &opts.withCurrentKey); err != nil {
-		return nil, err
+	if !opts.WithDisallowEnvVars {
+		if err := wrapping.ParsePaths(&opts.withPreviousKey, &opts.withCurrentKey); err != nil {
+			return nil, err
+		}
 	}
 
 	return &opts, nil
