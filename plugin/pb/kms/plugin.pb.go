@@ -444,7 +444,6 @@ type EncryptResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Ciphertext    []byte                 `protobuf:"bytes,1,opt,name=ciphertext,proto3" json:"ciphertext,omitempty"`
 	Nonce         []byte                 `protobuf:"bytes,2,opt,name=nonce,proto3" json:"nonce,omitempty"`
-	KeyVersion    string                 `protobuf:"bytes,3,opt,name=key_version,json=keyVersion,proto3" json:"key_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -493,13 +492,6 @@ func (x *EncryptResponse) GetNonce() []byte {
 	return nil
 }
 
-func (x *EncryptResponse) GetKeyVersion() string {
-	if x != nil {
-		return x.KeyVersion
-	}
-	return ""
-}
-
 // See kms.Key.Decrypt and kms.CipherOptions.
 type DecryptRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -507,7 +499,6 @@ type DecryptRequest struct {
 	Data          []byte                 `protobuf:"bytes,10,opt,name=data,proto3" json:"data,omitempty"`
 	Aad           []byte                 `protobuf:"bytes,11,opt,name=aad,proto3" json:"aad,omitempty"`
 	Nonce         []byte                 `protobuf:"bytes,12,opt,name=nonce,proto3" json:"nonce,omitempty"`
-	KeyVersion    string                 `protobuf:"bytes,13,opt,name=key_version,json=keyVersion,proto3" json:"key_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -568,13 +559,6 @@ func (x *DecryptRequest) GetNonce() []byte {
 		return x.Nonce
 	}
 	return nil
-}
-
-func (x *DecryptRequest) GetKeyVersion() string {
-	if x != nil {
-		return x.KeyVersion
-	}
-	return ""
 }
 
 type DecryptResponse struct {
@@ -701,7 +685,6 @@ func (x *SignRequest) GetOpts() *SignerOpts {
 type SignResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Signature     []byte                 `protobuf:"bytes,1,opt,name=signature,proto3" json:"signature,omitempty"`
-	KeyVersion    string                 `protobuf:"bytes,2,opt,name=key_version,json=keyVersion,proto3" json:"key_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -743,13 +726,6 @@ func (x *SignResponse) GetSignature() []byte {
 	return nil
 }
 
-func (x *SignResponse) GetKeyVersion() string {
-	if x != nil {
-		return x.KeyVersion
-	}
-	return ""
-}
-
 // See kms.Key.Verify and kms.VerifyOptions.
 type VerifyRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -759,7 +735,6 @@ type VerifyRequest struct {
 	Hash          int32                  `protobuf:"varint,12,opt,name=hash,proto3" json:"hash,omitempty"` // The value of HashFunc().
 	Opts          *SignerOpts            `protobuf:"bytes,13,opt,name=opts,proto3,oneof" json:"opts,omitempty"`
 	Signature     []byte                 `protobuf:"bytes,14,opt,name=signature,proto3" json:"signature,omitempty"`
-	KeyVersion    string                 `protobuf:"bytes,15,opt,name=key_version,json=keyVersion,proto3" json:"key_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -834,13 +809,6 @@ func (x *VerifyRequest) GetSignature() []byte {
 		return x.Signature
 	}
 	return nil
-}
-
-func (x *VerifyRequest) GetKeyVersion() string {
-	if x != nil {
-		return x.KeyVersion
-	}
-	return ""
 }
 
 type VerifyResponse struct {
@@ -1178,22 +1146,18 @@ const file_plugin_pb_kms_plugin_proto_rawDesc = "" +
 	"\x06key_id\x18\x01 \x01(\tR\x05keyId\x12\x12\n" +
 	"\x04data\x18\n" +
 	" \x01(\fR\x04data\x12\x10\n" +
-	"\x03aad\x18\v \x01(\fR\x03aad\"h\n" +
+	"\x03aad\x18\v \x01(\fR\x03aad\"G\n" +
 	"\x0fEncryptResponse\x12\x1e\n" +
 	"\n" +
 	"ciphertext\x18\x01 \x01(\fR\n" +
 	"ciphertext\x12\x14\n" +
-	"\x05nonce\x18\x02 \x01(\fR\x05nonce\x12\x1f\n" +
-	"\vkey_version\x18\x03 \x01(\tR\n" +
-	"keyVersion\"\x84\x01\n" +
+	"\x05nonce\x18\x02 \x01(\fR\x05nonce\"c\n" +
 	"\x0eDecryptRequest\x12\x15\n" +
 	"\x06key_id\x18\x01 \x01(\tR\x05keyId\x12\x12\n" +
 	"\x04data\x18\n" +
 	" \x01(\fR\x04data\x12\x10\n" +
 	"\x03aad\x18\v \x01(\fR\x03aad\x12\x14\n" +
-	"\x05nonce\x18\f \x01(\fR\x05nonce\x12\x1f\n" +
-	"\vkey_version\x18\r \x01(\tR\n" +
-	"keyVersion\"/\n" +
+	"\x05nonce\x18\f \x01(\fR\x05nonce\"/\n" +
 	"\x0fDecryptResponse\x12\x1c\n" +
 	"\tplaintext\x18\x01 \x01(\fR\tplaintext\"\x9d\x01\n" +
 	"\vSignRequest\x12\x15\n" +
@@ -1203,11 +1167,9 @@ const file_plugin_pb_kms_plugin_proto_rawDesc = "" +
 	"\tprehashed\x18\v \x01(\bR\tprehashed\x12\x12\n" +
 	"\x04hash\x18\f \x01(\x05R\x04hash\x12(\n" +
 	"\x04opts\x18\r \x01(\v2\x0f.kms.SignerOptsH\x00R\x04opts\x88\x01\x01B\a\n" +
-	"\x05_opts\"M\n" +
+	"\x05_opts\",\n" +
 	"\fSignResponse\x12\x1c\n" +
-	"\tsignature\x18\x01 \x01(\fR\tsignature\x12\x1f\n" +
-	"\vkey_version\x18\x02 \x01(\tR\n" +
-	"keyVersion\"\xde\x01\n" +
+	"\tsignature\x18\x01 \x01(\fR\tsignature\"\xbd\x01\n" +
 	"\rVerifyRequest\x12\x15\n" +
 	"\x06key_id\x18\x01 \x01(\tR\x05keyId\x12\x12\n" +
 	"\x04data\x18\n" +
@@ -1215,9 +1177,7 @@ const file_plugin_pb_kms_plugin_proto_rawDesc = "" +
 	"\tprehashed\x18\v \x01(\bR\tprehashed\x12\x12\n" +
 	"\x04hash\x18\f \x01(\x05R\x04hash\x12(\n" +
 	"\x04opts\x18\r \x01(\v2\x0f.kms.SignerOptsH\x00R\x04opts\x88\x01\x01\x12\x1c\n" +
-	"\tsignature\x18\x0e \x01(\fR\tsignature\x12\x1f\n" +
-	"\vkey_version\x18\x0f \x01(\tR\n" +
-	"keyVersionB\a\n" +
+	"\tsignature\x18\x0e \x01(\fR\tsignatureB\a\n" +
 	"\x05_opts\"\x10\n" +
 	"\x0eVerifyResponse\",\n" +
 	"\x13ExportPublicRequest\x12\x15\n" +

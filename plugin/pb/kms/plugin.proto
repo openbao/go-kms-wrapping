@@ -46,7 +46,6 @@ message EncryptRequest {
 message EncryptResponse {
   bytes ciphertext = 1;
   bytes nonce = 2;
-  string key_version = 3;
 }
 
 // See kms.Key.Decrypt and kms.CipherOptions.
@@ -56,7 +55,6 @@ message DecryptRequest {
   bytes data = 10;
   bytes aad = 11;
   bytes nonce = 12;
-  string key_version = 13;
 }
 message DecryptResponse {
   bytes plaintext = 1;
@@ -73,7 +71,6 @@ message SignRequest {
 }
 message SignResponse {
   bytes signature = 1;
-  string key_version = 2;
 }
 
 // See kms.Key.Verify and kms.VerifyOptions.
@@ -86,7 +83,6 @@ message VerifyRequest {
   optional SignerOpts opts = 13;
 
   bytes signature = 14;
-  string key_version = 15;
 }
 message VerifyResponse {}
 

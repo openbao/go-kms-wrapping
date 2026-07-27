@@ -178,7 +178,6 @@ func (s *gRPCKMSServer) Encrypt(ctx context.Context, req *pb.EncryptRequest) (*p
 	return &pb.EncryptResponse{
 		Ciphertext: ciphertext,
 		Nonce:      opts.Nonce,
-		KeyVersion: opts.KeyVersion,
 	}, nil
 }
 
@@ -189,10 +188,9 @@ func (s *gRPCKMSServer) Decrypt(ctx context.Context, req *pb.DecryptRequest) (*p
 	}
 
 	plaintext, err := key.Decrypt(ctx, &kms.CipherOptions{
-		Data:       req.Data,
-		AAD:        req.Aad,
-		Nonce:      req.Nonce,
-		KeyVersion: req.KeyVersion,
+		Data:  req.Data,
+		AAD:   req.Aad,
+		Nonce: req.Nonce,
 	})
 	if err != nil {
 		return nil, s.handleKMSError(err)
@@ -242,8 +240,7 @@ func (s *gRPCKMSServer) Sign(ctx context.Context, req *pb.SignRequest) (*pb.Sign
 	}
 
 	return &pb.SignResponse{
-		Signature:  signature,
-		KeyVersion: opts.KeyVersion,
+		Signature: signature,
 	}, nil
 }
 
@@ -263,7 +260,6 @@ func (s *gRPCKMSServer) Verify(ctx context.Context, req *pb.VerifyRequest) (*pb.
 		Data:       req.Data,
 		Prehashed:  req.Prehashed,
 		SignerOpts: signerOpts,
-		KeyVersion: req.KeyVersion,
 	})
 	switch {
 	case errors.Is(err, kms.ErrInvalidSignature):

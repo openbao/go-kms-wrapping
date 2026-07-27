@@ -113,17 +113,15 @@ func (c *gRPCKeyClient) Encrypt(ctx context.Context, opts *kms.CipherOptions) ([
 		return nil, c.kms.handleRPCError(err)
 	}
 	opts.Nonce = resp.Nonce
-	opts.KeyVersion = resp.KeyVersion
 	return resp.Ciphertext, nil
 }
 
 func (c *gRPCKeyClient) Decrypt(ctx context.Context, opts *kms.CipherOptions) ([]byte, error) {
 	resp, err := c.kms.client.Decrypt(ctx, &pb.DecryptRequest{
-		KeyId:      c.id,
-		Data:       opts.Data,
-		Aad:        opts.AAD,
-		Nonce:      opts.Nonce,
-		KeyVersion: opts.KeyVersion,
+		KeyId: c.id,
+		Data:  opts.Data,
+		Aad:   opts.AAD,
+		Nonce: opts.Nonce,
 	})
 	if err != nil {
 		return nil, c.kms.handleRPCError(err)
@@ -178,7 +176,6 @@ func (c *gRPCKeyClient) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte
 	if err != nil {
 		return nil, c.kms.handleRPCError(err)
 	}
-	opts.KeyVersion = resp.KeyVersion
 	return resp.Signature, nil
 }
 
@@ -195,13 +192,12 @@ func (c *gRPCKeyClient) Verify(ctx context.Context, opts *kms.VerifyOptions) err
 		}
 	}
 	_, err = c.kms.client.Verify(ctx, &pb.VerifyRequest{
-		KeyId:      c.id,
-		Data:       opts.Data,
-		Prehashed:  opts.Prehashed,
-		Hash:       hash,
-		Opts:       signerOpts,
-		Signature:  opts.Signature,
-		KeyVersion: opts.KeyVersion,
+		KeyId:     c.id,
+		Data:      opts.Data,
+		Prehashed: opts.Prehashed,
+		Hash:      hash,
+		Opts:      signerOpts,
+		Signature: opts.Signature,
 	})
 	switch {
 	case status.Code(err) == codes.InvalidArgument:

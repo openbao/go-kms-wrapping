@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"strconv"
 	"strings"
 
 	"github.com/hashicorp/go-hclog"
@@ -159,6 +160,7 @@ func (k *transitKMS) Close(context.Context) error {
 func (k *transitKMS) GetKey(_ context.Context, opts *kms.KeyOptions) (kms.Key, error) {
 	var cfg struct {
 		Name              string `mapstructure:"name"`
+		Version           uint64 `mapstructure:"version"`
 		DisablePrehashing bool   `mapstructure:"disable_prehashing"`
 	}
 
@@ -166,14 +168,18 @@ func (k *transitKMS) GetKey(_ context.Context, opts *kms.KeyOptions) (kms.Key, e
 		return nil, err
 	}
 
-	if cfg.Name == "" {
+	switch {
+	case cfg.Name == "":
 		return nil, errors.New("missing required parameter 'name'")
+	case cfg.Version <= 0:
+		return nil, errors.New("missing required parameter 'version'")
 	}
 
 	return &transitKey{
 		client:            k.client,
 		mount:             k.mount,
 		name:              cfg.Name,
+		version:           cfg.Version,
 		disablePrehashing: cfg.DisablePrehashing,
 	}, nil
 }
@@ -184,8 +190,9 @@ type transitKey struct {
 
 	client *api.Client
 
-	mount string // The configured Transit engine mount path.
-	name  string // The configured key name.
+	mount   string // The configured Transit engine mount path.
+	name    string // The configured key name.
+	version uint64 // The configured key version.
 
 	disablePrehashing bool
 }
@@ -193,7 +200,8 @@ type transitKey struct {
 // See: https://openbao.org/api-docs/secret/transit/#encrypt-data
 func (k *transitKey) Encrypt(ctx context.Context, opts *kms.CipherOptions) ([]byte, error) {
 	data := map[string]any{
-		"plaintext": base64.StdEncoding.EncodeToString(opts.Data),
+		"plaintext":   base64.StdEncoding.EncodeToString(opts.Data),
+		"key_version": strconv.FormatUint(k.version, 10),
 	}
 	if len(opts.AAD) != 0 {
 		data["associated_data"] = base64.StdEncoding.EncodeToString(opts.AAD)
@@ -219,15 +227,21 @@ func (k *transitKey) Encrypt(ctx context.Context, opts *kms.CipherOptions) ([]by
 	if err != nil {
 		return nil, fmt.Errorf("decode ciphertext: %w", err)
 	}
-	opts.KeyVersion = parts[1]
+	version, err := strconv.ParseUint(parts[1][1:], 10, 64)
+	switch {
+	case err != nil:
+		return nil, fmt.Errorf("parse key version: %w", err)
+	case version != k.version:
+		return nil, fmt.Errorf("expected used key version to match configured version %d, got %d", k.version, version)
+	}
 	return out, nil
 }
 
 // See: https://openbao.org/api-docs/secret/transit/#decrypt-data
 func (k *transitKey) Decrypt(ctx context.Context, opts *kms.CipherOptions) ([]byte, error) {
 	data := map[string]any{
-		"ciphertext": fmt.Sprintf("vault:%s:%s",
-			opts.KeyVersion, base64.StdEncoding.EncodeToString(opts.Data)),
+		"ciphertext": fmt.Sprintf("vault:v%d:%s",
+			k.version, base64.StdEncoding.EncodeToString(opts.Data)),
 	}
 	if len(opts.AAD) != 0 {
 		data["associated_data"] = base64.StdEncoding.EncodeToString(opts.AAD)
@@ -270,7 +284,7 @@ func (k *transitKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte, e
 		return nil, ErrPrehashingDisabled
 	}
 
-	data := make(map[string]any)
+	data := map[string]any{"key_version": strconv.FormatUint(k.version, 10)}
 	if transitHash, ok := hash2transit[hash]; ok {
 		data["hash_algorithm"] = transitHash
 	} else if hash != crypto.Hash(0) {
@@ -329,7 +343,13 @@ func (k *transitKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte, e
 	if err != nil {
 		return nil, fmt.Errorf("decode signature: %w", err)
 	}
-	opts.KeyVersion = parts[1]
+	version, err := strconv.ParseUint(parts[1][1:], 10, 64)
+	switch {
+	case err != nil:
+		return nil, fmt.Errorf("parse key version: %w", err)
+	case version != k.version:
+		return nil, fmt.Errorf("expected used key version to match configured version %d, got %d", k.version, version)
+	}
 	return out, nil
 }
 
@@ -342,8 +362,8 @@ func (k *transitKey) Verify(ctx context.Context, opts *kms.VerifyOptions) error 
 	}
 
 	data := map[string]any{
-		"signature": fmt.Sprintf("vault:%s:%s",
-			opts.KeyVersion, base64.StdEncoding.EncodeToString(opts.Signature)),
+		"signature": fmt.Sprintf("vault:v%d:%s",
+			k.version, base64.StdEncoding.EncodeToString(opts.Signature)),
 	}
 
 	if transitHash, ok := hash2transit[hash]; ok {
