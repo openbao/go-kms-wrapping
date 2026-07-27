@@ -198,7 +198,7 @@ func TestAwsKmsWrapper_custom_endpoint(t *testing.T) {
 
 			// call GetAwsKmsClient() to get the configured client and verify it's
 			// endpoint
-			k, err := s.GetAwsKmsClient(t.Context())
+			k, err := s.GetAwsKmsClient(t.Context(), false)
 			if err != nil {
 				t.Fatal(err)
 			}

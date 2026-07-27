@@ -9,6 +9,10 @@ import (
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
 
+func getDefaultOptions() options {
+	return options{}
+}
+
 // getOpts iterates the inbound Options and returns a struct
 func getOpts(opt ...wrapping.Option) (*options, error) {
 	// First, separate out options into local and global
@@ -115,8 +119,4 @@ type options struct {
 	withWebIdentityTokenFile string
 	withRoleSessionName      string
 	withRoleArn              string
-}
-
-func getDefaultOptions() options {
-	return options{}
 }
