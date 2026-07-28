@@ -264,6 +264,10 @@ var hash2transit = map[crypto.Hash]string{
 
 // See: https://openbao.org/api-docs/secret/transit/#sign-data
 func (k *transitKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte, error) {
+	if opts.SignerOpts == nil {
+		return nil, errors.New("cannot sign without opts.SignerOpts")
+	}
+
 	hash := opts.HashFunc()
 	if opts.Prehashed && hash != crypto.Hash(0) && k.disablePrehashing {
 		// We are not allowed to pre-hash but got pre-hashed data.
@@ -335,6 +339,10 @@ func (k *transitKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte, e
 
 // See: https://openbao.org/api-docs/secret/transit/#verify-signed-data
 func (k *transitKey) Verify(ctx context.Context, opts *kms.VerifyOptions) error {
+	if opts.SignerOpts == nil {
+		return errors.New("cannot verify without opts.SignerOpts")
+	}
+
 	hash := opts.HashFunc()
 	if opts.Prehashed && hash != crypto.Hash(0) && k.disablePrehashing {
 		// We are not allowed to pre-hash but got pre-hashed data.

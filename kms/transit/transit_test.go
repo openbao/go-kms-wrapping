@@ -224,6 +224,25 @@ func test(t *testing.T, k kms.KMS, opts *kms.OpenOptions) {
 			})
 			require.ErrorContains(t, err, ErrPrehashingDisabled.Error())
 		})
+
+		t.Run("missing_opts", func(t *testing.T) {
+			key, err := k.GetKey(ctx, &kms.KeyOptions{
+				ConfigMap: kms.ConfigMap{
+					"name":               "ecdsa-p256",
+					"disable_prehashing": true,
+				},
+			})
+			require.NoError(t, err)
+
+			opts := &kms.SignOptions{
+				Data:      []byte{0x00},
+				Prehashed: true,
+			}
+
+			_, err = key.Sign(ctx, opts)
+			require.ErrorContains(t, err, "without opts.SignerOpts")
+		})
+
 	})
 
 	t.Run("ExportPublic", func(t *testing.T) {
