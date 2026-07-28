@@ -188,8 +188,10 @@ type CipherOptions struct {
 	//
 	// If the nonce cannot trivially be split from the ciphertext, e.g., because
 	// it would require additional API calls to determine the used cipher mode
-	// parameters or key type, it is allowed not to split it and bundle it with
-	// the ciphertext in provider-specific encoding.
+	// parameters or key type, it is allowed not to split it and is assumed to
+	// be prefixed before the ciphertext.
+	//
+	// If the nonce is split, it should never be any part of the ciphertext.
 	Nonce []byte
 }
 
