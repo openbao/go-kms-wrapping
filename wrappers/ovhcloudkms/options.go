@@ -22,36 +22,31 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 		return nil, err
 	}
 
-	// Local options can be provided either via the WithConfigMap field
-	// (for over the plugin barrier or embedding) or via local option functions
-	// (for embedding). First pull from the option.
-	if opts.WithConfigMap != nil {
-		for k, v := range opts.WithConfigMap {
-			switch k {
-			case "key_id": // deprecated backend-specific value, set global
-				opts.WithKeyId = v
-			case "endpoint":
-				opts.withEndpoint = v
-			case "kms_id":
-				opts.withKmsId, err = uuid.Parse(v)
-				if err != nil {
-					return nil, err
-				}
-			case "client_cert":
-				opts.withClientCert = v
-			case "client_key":
-				opts.withClientKey = v
-			case "ca_cert":
-				opts.withCACert = v
-			case "client_cert_bytes":
-				opts.withClientCertBytes = v
-			case "client_key_bytes":
-				opts.withClientKeyBytes = v
-			case "ca_cert_bytes":
-				opts.withCACertBytes = v
-			case "token":
-				opts.withToken = v
+	for k, v := range opts.WithConfigMap {
+		switch k {
+		case "key_id": // deprecated backend-specific value, set global
+			opts.WithKeyId = v
+		case "endpoint":
+			opts.withEndpoint = v
+		case "kms_id":
+			opts.withKmsId, err = uuid.Parse(v)
+			if err != nil {
+				return nil, err
 			}
+		case "client_cert":
+			opts.withClientCert = v
+		case "client_key":
+			opts.withClientKey = v
+		case "ca_cert":
+			opts.withCACert = v
+		case "client_cert_bytes":
+			opts.withClientCertBytes = v
+		case "client_key_bytes":
+			opts.withClientKeyBytes = v
+		case "ca_cert_bytes":
+			opts.withCACertBytes = v
+		case "token":
+			opts.withToken = v
 		}
 	}
 

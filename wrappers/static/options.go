@@ -18,21 +18,16 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 		return nil, err
 	}
 
-	// Local options can be provided either via the WithConfigMap field
-	// (for over the plugin barrier or embedding) or via local option functions
-	// (for embedding). First pull from the option.
-	if opts.WithConfigMap != nil {
-		for k, v := range opts.WithConfigMap {
-			switch k {
-			case "previous_key":
-				opts.withPreviousKey = v
-			case "previous_key_id":
-				opts.withPreviousKeyId = v
-			case "current_key":
-				opts.withCurrentKey = v
-			case "current_key_id":
-				opts.withCurrentKeyId = v
-			}
+	for k, v := range opts.WithConfigMap {
+		switch k {
+		case "previous_key":
+			opts.withPreviousKey = v
+		case "previous_key_id":
+			opts.withPreviousKeyId = v
+		case "current_key":
+			opts.withCurrentKey = v
+		case "current_key_id":
+			opts.withCurrentKeyId = v
 		}
 	}
 

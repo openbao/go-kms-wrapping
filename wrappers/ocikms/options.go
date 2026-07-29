@@ -42,36 +42,31 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 		return nil, err
 	}
 
-	// Local options can be provided either via the WithConfigMap field
-	// (for over the plugin barrier or embedding) or via local option functions
-	// (for embedding). First pull from the option.
-	if opts.WithConfigMap != nil {
-		for k, v := range opts.WithConfigMap {
-			switch k {
-			case KmsConfigKeyId:
-				opts.WithKeyId = v
-			case KmsConfigCryptoEndpoint:
-				opts.withCryptoEndpoint = v
-			case KmsConfigManagementEndpoint:
-				opts.withManagementEndpoint = v
-			case KmsConfigTenancyOCID:
-				opts.withTenancyOCID = v
-			case KmsConfigUserOCID:
-				opts.withUserOCID = v
-			case KmsConfigKeyFingerprint:
-				opts.withKeyFingerprint = v
-			case KmsConfigRegion:
-				opts.withRegion = v
-			case KmsConfigPrivateKey:
-				opts.withPrivateKey = v
-			case KmsConfigPrivateKeyPassphrase:
-				opts.withPrivateKeyPassphrase = v
-			case KmsConfigAuthTypeApiKey:
-				var err error
-				opts.withAuthTypeApiKey, err = strconv.ParseBool(v)
-				if err != nil {
-					return nil, fmt.Errorf("failed parsing "+KmsConfigAuthTypeApiKey+" parameter: %w", err)
-				}
+	for k, v := range opts.WithConfigMap {
+		switch k {
+		case KmsConfigKeyId:
+			opts.WithKeyId = v
+		case KmsConfigCryptoEndpoint:
+			opts.withCryptoEndpoint = v
+		case KmsConfigManagementEndpoint:
+			opts.withManagementEndpoint = v
+		case KmsConfigTenancyOCID:
+			opts.withTenancyOCID = v
+		case KmsConfigUserOCID:
+			opts.withUserOCID = v
+		case KmsConfigKeyFingerprint:
+			opts.withKeyFingerprint = v
+		case KmsConfigRegion:
+			opts.withRegion = v
+		case KmsConfigPrivateKey:
+			opts.withPrivateKey = v
+		case KmsConfigPrivateKeyPassphrase:
+			opts.withPrivateKeyPassphrase = v
+		case KmsConfigAuthTypeApiKey:
+			var err error
+			opts.withAuthTypeApiKey, err = strconv.ParseBool(v)
+			if err != nil {
+				return nil, fmt.Errorf("failed parsing "+KmsConfigAuthTypeApiKey+" parameter: %w", err)
 			}
 		}
 	}

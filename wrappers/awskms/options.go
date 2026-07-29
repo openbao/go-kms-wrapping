@@ -20,41 +20,36 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 		return nil, err
 	}
 
-	// Local options can be provided either via the WithConfigMap field
-	// (for over the plugin barrier or embedding) or via local option functions
-	// (for embedding). First pull from the option.
-	if opts.WithConfigMap != nil {
-		for k, v := range opts.WithConfigMap {
-			switch k {
-			case "key_not_required":
-				keyNotRequired, err := strconv.ParseBool(v)
-				if err != nil {
-					return nil, err
-				}
-				opts.withKeyNotRequired = keyNotRequired
-			case "kms_key_id": // deprecated backend-specific value, set global
-				opts.WithKeyId = v
-			case "region":
-				opts.withRegion = v
-			case "endpoint":
-				opts.withEndpoint = v
-			case "access_key":
-				opts.withAccessKey = v
-			case "secret_key":
-				opts.withSecretKey = v
-			case "session_token":
-				opts.withSessionToken = v
-			case "shared_creds_filename":
-				opts.withSharedCredsFilename = v
-			case "shared_creds_profile":
-				opts.withSharedCredsProfile = v
-			case "web_identity_token_file":
-				opts.withWebIdentityTokenFile = v
-			case "role_session_name":
-				opts.withRoleSessionName = v
-			case "role_arn":
-				opts.withRoleArn = v
+	for k, v := range opts.WithConfigMap {
+		switch k {
+		case "key_not_required":
+			keyNotRequired, err := strconv.ParseBool(v)
+			if err != nil {
+				return nil, err
 			}
+			opts.withKeyNotRequired = keyNotRequired
+		case "kms_key_id": // deprecated backend-specific value, set global
+			opts.WithKeyId = v
+		case "region":
+			opts.withRegion = v
+		case "endpoint":
+			opts.withEndpoint = v
+		case "access_key":
+			opts.withAccessKey = v
+		case "secret_key":
+			opts.withSecretKey = v
+		case "session_token":
+			opts.withSessionToken = v
+		case "shared_creds_filename":
+			opts.withSharedCredsFilename = v
+		case "shared_creds_profile":
+			opts.withSharedCredsProfile = v
+		case "web_identity_token_file":
+			opts.withWebIdentityTokenFile = v
+		case "role_session_name":
+			opts.withRoleSessionName = v
+		case "role_arn":
+			opts.withRoleArn = v
 		}
 	}
 

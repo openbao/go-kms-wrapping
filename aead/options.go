@@ -38,32 +38,26 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 		return nil, err
 	}
 
-	// Local options can be provided either via the WithConfigMap field
-	// (for over the plugin barrier or embedding) or via local option functions
-	// (for embedding). First pull from the option.
-	if opts.WithConfigMap != nil {
-		var err error
-		for k, v := range opts.WithConfigMap {
-			switch k {
-			case "aead_type":
-				opts.WithAeadType = wrapping.AeadTypeMap(v)
-			case "hash_type":
-				opts.WithHashType = wrapping.HashTypeMap(v)
-			case "key":
-				opts.WithKey, err = base64.StdEncoding.DecodeString(v)
-				if err != nil {
-					return nil, fmt.Errorf("error base64-decoding key value: %w", err)
-				}
-			case "salt":
-				opts.WithSalt, err = base64.StdEncoding.DecodeString(v)
-				if err != nil {
-					return nil, fmt.Errorf("error base64-decoding salt value: %w", err)
-				}
-			case "info":
-				opts.WithInfo, err = base64.StdEncoding.DecodeString(v)
-				if err != nil {
-					return nil, fmt.Errorf("error base64-decoding info value: %w", err)
-				}
+	for k, v := range opts.WithConfigMap {
+		switch k {
+		case "aead_type":
+			opts.WithAeadType = wrapping.AeadTypeMap(v)
+		case "hash_type":
+			opts.WithHashType = wrapping.HashTypeMap(v)
+		case "key":
+			opts.WithKey, err = base64.StdEncoding.DecodeString(v)
+			if err != nil {
+				return nil, fmt.Errorf("error base64-decoding key value: %w", err)
+			}
+		case "salt":
+			opts.WithSalt, err = base64.StdEncoding.DecodeString(v)
+			if err != nil {
+				return nil, fmt.Errorf("error base64-decoding salt value: %w", err)
+			}
+		case "info":
+			opts.WithInfo, err = base64.StdEncoding.DecodeString(v)
+			if err != nil {
+				return nil, fmt.Errorf("error base64-decoding info value: %w", err)
 			}
 		}
 	}

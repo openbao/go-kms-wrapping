@@ -19,43 +19,38 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 		return nil, err
 	}
 
-	// Local options can be provided either via the WithConfigMap field
-	// (for over the plugin barrier or embedding) or via local option functions
-	// (for embedding). First pull from the option.
-	if opts.WithConfigMap != nil {
-		for k, v := range opts.WithConfigMap {
-			switch k {
-			case "key_not_required":
-				keyNotRequired, err := strconv.ParseBool(v)
-				if err != nil {
-					return nil, err
-				}
-				opts.withKeyNotRequired = keyNotRequired
-			case "tenant_id":
-				opts.withTenantId = v
-			case "client_id":
-				opts.withClientId = v
-			case "client_secret":
-				opts.withClientSecret = v
-			case "environment":
-				opts.withEnvironment = v
-			case "resource":
-				opts.withResource = v
-			case "vault_name":
-				opts.withVaultName = v
-			case "key_name":
-				opts.withKeyName = v
-			case "auth_method":
-				opts.withAuthMethod = v
-			case "cert_path":
-				opts.withCertPath = v
-			case "cert_password":
-				opts.withCertPass = v
-			case "managed_id_kind":
-				opts.withManagedIdKind = v
-			case "resource_id":
-				opts.withResourceId = v
+	for k, v := range opts.WithConfigMap {
+		switch k {
+		case "key_not_required":
+			keyNotRequired, err := strconv.ParseBool(v)
+			if err != nil {
+				return nil, err
 			}
+			opts.withKeyNotRequired = keyNotRequired
+		case "tenant_id":
+			opts.withTenantId = v
+		case "client_id":
+			opts.withClientId = v
+		case "client_secret":
+			opts.withClientSecret = v
+		case "environment":
+			opts.withEnvironment = v
+		case "resource":
+			opts.withResource = v
+		case "vault_name":
+			opts.withVaultName = v
+		case "key_name":
+			opts.withKeyName = v
+		case "auth_method":
+			opts.withAuthMethod = v
+		case "cert_path":
+			opts.withCertPath = v
+		case "cert_password":
+			opts.withCertPass = v
+		case "managed_id_kind":
+			opts.withManagedIdKind = v
+		case "resource_id":
+			opts.withResourceId = v
 		}
 	}
 
