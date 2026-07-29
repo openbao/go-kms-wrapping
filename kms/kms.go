@@ -158,7 +158,7 @@ type KeyOptions struct {
 	// ConfigMap is the ConfigMap that will configure the Key. Configuration is
 	// provider-specific, but common categories of information passed here are:
 	//
-	//  - A Key name or ID to uniquely identify a key to use.
+	//  - A Key name, version and/or ID to uniquely identify key material.
 	//  - Per-key authentication parameters.
 	//  - An algorithm that this key must be enforced to use.
 	//  - The key type to avoid +1 key type lookup calls if required to set up
@@ -188,16 +188,11 @@ type CipherOptions struct {
 	//
 	// If the nonce cannot trivially be split from the ciphertext, e.g., because
 	// it would require additional API calls to determine the used cipher mode
-	// parameters or key type, it is allowed not to split it and bundle it with
-	// the ciphertext in provider-specific encoding.
+	// parameters or key type, it is allowed not to split it and is assumed to
+	// be prefixed before the ciphertext.
+	//
+	// If the nonce is split, it should never be any part of the ciphertext.
 	Nonce []byte
-
-	// KeyVersion is a provider-specific reference to the key version used to
-	// create a ciphertext. This may optionally be required by certain providers
-	// (e.g., OpenBao Transit) to target the correct key for decryption. This
-	// value is produced and written back by Encrypt calls and read by Decrypt
-	// calls, much like the Nonce field. Human-readable encodings are preferred.
-	KeyVersion string
 }
 
 // SignOptions is passed to [Key.Sign].
@@ -222,13 +217,6 @@ type SignOptions struct {
 	// that indicate (at minimum) a hash function or the absence of one via
 	// crypto.Hash(0).
 	crypto.SignerOpts
-
-	// KeyVersion is a provider-specific reference to the key version used
-	// to create a signature. This may optionally be required by certain
-	// providers (e.g., OpenBao Transit) to target the correct key for signature
-	// verification. This value is written back to this field by Sign calls.
-	// Human-readable encodings are preferred.
-	KeyVersion string
 }
 
 // VerifyOptions is passed to [Key.Verify].
@@ -250,14 +238,6 @@ type VerifyOptions struct {
 	// that indicate (at minimum) a hash function or the absence of one via
 	// crypto.Hash(0).
 	crypto.SignerOpts
-
-	// KeyVersion is a provider-specific reference to the key version used
-	// to create a signature. This may optionally be required by certain
-	// providers (e.g., OpenBao Transit) to target the correct key for signature
-	// verification. If required by the provider, this field should be populated
-	// when calling Verify and be set to the KeyVersion produced by a Sign call.
-	// Human-readable encodings are preferred.
-	KeyVersion string
 }
 
 // UnimplementedKMS should be embedded in all implementations of [KMS] to ensure

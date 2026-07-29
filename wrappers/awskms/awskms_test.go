@@ -24,14 +24,18 @@ func TestAwsKmsWrapper(t *testing.T) {
 	defer os.Setenv(EnvAwsKmsWrapperKeyId, oldKeyId)
 
 	os.Unsetenv(EnvAwsKmsWrapperKeyId)
-	_, err := s.SetConfig(t.Context(), WithRegion("dummy"))
+	_, err := s.SetConfig(t.Context(), wrapping.WithConfigMap(map[string]string{
+		"region": "dummy",
+	}))
 	if err == nil {
 		t.Fatal("expected error when AwsKms wrapping key ID is not provided")
 	}
 
 	// Set the key
 	os.Setenv(EnvAwsKmsWrapperKeyId, awsTestKeyId)
-	_, err = s.SetConfig(t.Context(), WithRegion("dummy"))
+	_, err = s.SetConfig(t.Context(), wrapping.WithConfigMap(map[string]string{
+		"region": "dummy",
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,12 +56,12 @@ func TestAwsKmsWrapper_IgnoreEnv(t *testing.T) {
 		"access_key": "a-access-key",
 		"secret_key": "a-secret-key",
 		"endpoint":   "my-endpoint",
+		"region":     "dummy",
 	}
 
 	_, err := wrapper.SetConfig(t.Context(),
 		wrapping.WithConfigMap(config),
-		wrapping.WithDisallowEnvVars(true),
-		WithRegion("dummy"))
+		wrapping.WithDisallowEnvVars(true))
 	assert.NoError(t, err)
 
 	require.Equal(t, config["access_key"], wrapper.accessKey)
@@ -74,7 +78,9 @@ func TestAwsKmsWrapper_Lifecycle(t *testing.T) {
 	oldKeyId := os.Getenv(EnvAwsKmsWrapperKeyId)
 	os.Setenv(EnvAwsKmsWrapperKeyId, awsTestKeyId)
 	defer os.Setenv(EnvAwsKmsWrapperKeyId, oldKeyId)
-	testEncryptionRoundTrip(t, s, WithRegion("dummy"))
+	testEncryptionRoundTrip(t, s, wrapping.WithConfigMap(map[string]string{
+		"region": "dummy",
+	}))
 }
 
 // This test executes real calls. The calls themselves should be free,
@@ -182,13 +188,17 @@ func TestAwsKmsWrapper_custom_endpoint(t *testing.T) {
 			if tc.Config != nil {
 				cfg = tc.Config
 			}
-			if _, err := s.SetConfig(t.Context(), wrapping.WithConfigMap(cfg), WithRegion("dummy")); err != nil {
+			if cfg == nil {
+				cfg = map[string]string{}
+			}
+			cfg["region"] = "dummy"
+			if _, err := s.SetConfig(t.Context(), wrapping.WithConfigMap(cfg)); err != nil {
 				t.Fatalf("error setting config: %s", err)
 			}
 
 			// call GetAwsKmsClient() to get the configured client and verify it's
 			// endpoint
-			k, err := s.GetAwsKmsClient(t.Context())
+			k, err := s.GetAwsKmsClient(t.Context(), false)
 			if err != nil {
 				t.Fatal(err)
 			}

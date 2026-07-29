@@ -144,18 +144,18 @@ func TestSetConfig(t *testing.T) {
 
 	tests := []struct {
 		name            string
-		opts            []wrapping.Option
+		opts            map[string]string
 		setup           func(t *testing.T)
 		wantErr         bool
 		wantErrContains string
 	}{
 		{
 			name: "missing-mount",
-			opts: []wrapping.Option{
-				WithAddress(testWithAddress),
-				WithToken("vault-plaintext-root-token"),
-				WithKeyName("example-key"),
-				WithNamespace("ns1/"),
+			opts: map[string]string{
+				"address":   testWithAddress,
+				"token":     "vault-plaintext-root-token",
+				"key_name":  "example-key",
+				"namespace": "ns1/",
 			},
 			wantErr:         true,
 			wantErrContains: "mount_path is required",
@@ -166,10 +166,10 @@ func TestSetConfig(t *testing.T) {
 				require.NoError(t, os.Setenv(EnvTransitWrapperMountPath, testWithMountPath))
 				t.Cleanup(func() { os.Unsetenv(EnvTransitWrapperMountPath) })
 			},
-			opts: []wrapping.Option{
-				WithAddress(testWithAddress),
-				WithToken(testWithToken),
-				WithKeyName(testWithKeyName),
+			opts: map[string]string{
+				"address":  testWithAddress,
+				"token":    testWithToken,
+				"key_name": testWithKeyName,
 			},
 		},
 		{
@@ -178,18 +178,18 @@ func TestSetConfig(t *testing.T) {
 				require.NoError(t, os.Setenv(EnvVaultTransitSealMountPath, testWithMountPath))
 				t.Cleanup(func() { os.Unsetenv(EnvVaultTransitSealMountPath) })
 			},
-			opts: []wrapping.Option{
-				WithAddress(testWithAddress),
-				WithToken(testWithToken),
-				WithKeyName(testWithKeyName),
+			opts: map[string]string{
+				"address":  testWithAddress,
+				"token":    testWithToken,
+				"key_name": testWithKeyName,
 			},
 		},
 		{
 			name: "missing-key-name",
-			opts: []wrapping.Option{
-				WithAddress(testWithAddress),
-				WithToken(testWithToken),
-				WithMountPath(testWithMountPath),
+			opts: map[string]string{
+				"address":    testWithAddress,
+				"token":      testWithToken,
+				"mount_path": testWithMountPath,
 			},
 			wantErr:         true,
 			wantErrContains: "key_name is required",
@@ -200,10 +200,10 @@ func TestSetConfig(t *testing.T) {
 				require.NoError(t, os.Setenv(EnvTransitWrapperKeyName, testWithKeyName))
 				t.Cleanup(func() { os.Unsetenv(EnvTransitWrapperKeyName) })
 			},
-			opts: []wrapping.Option{
-				WithAddress(testWithAddress),
-				WithToken(testWithToken),
-				WithMountPath(testWithMountPath),
+			opts: map[string]string{
+				"address":    testWithAddress,
+				"token":      testWithToken,
+				"mount_path": testWithMountPath,
 			},
 		},
 		{
@@ -212,10 +212,10 @@ func TestSetConfig(t *testing.T) {
 				require.NoError(t, os.Setenv(EnvVaultTransitSealKeyName, testWithKeyName))
 				t.Cleanup(func() { os.Unsetenv(EnvVaultTransitSealKeyName) })
 			},
-			opts: []wrapping.Option{
-				WithAddress(testWithAddress),
-				WithToken(testWithToken),
-				WithMountPath(testWithMountPath),
+			opts: map[string]string{
+				"address":    testWithAddress,
+				"token":      testWithToken,
+				"mount_path": testWithMountPath,
 			},
 		},
 		{
@@ -224,11 +224,11 @@ func TestSetConfig(t *testing.T) {
 				require.NoError(t, os.Setenv(EnvTransitWrapperDisableRenewal, testWithDisableRenewal))
 				t.Cleanup(func() { os.Unsetenv(EnvTransitWrapperDisableRenewal) })
 			},
-			opts: []wrapping.Option{
-				WithAddress(testWithAddress),
-				WithToken(testWithToken),
-				WithMountPath(testWithMountPath),
-				WithKeyName(testWithKeyName),
+			opts: map[string]string{
+				"address":    testWithAddress,
+				"token":      testWithToken,
+				"mount_path": testWithMountPath,
+				"key_name":   testWithKeyName,
 			},
 		},
 		{
@@ -237,11 +237,11 @@ func TestSetConfig(t *testing.T) {
 				require.NoError(t, os.Setenv(EnvVaultTransitSealDisableRenewal, testWithDisableRenewal))
 				t.Cleanup(func() { os.Unsetenv(EnvVaultTransitSealDisableRenewal) })
 			},
-			opts: []wrapping.Option{
-				WithAddress(testWithAddress),
-				WithToken(testWithToken),
-				WithMountPath(testWithMountPath),
-				WithKeyName(testWithKeyName),
+			opts: map[string]string{
+				"address":    testWithAddress,
+				"token":      testWithToken,
+				"mount_path": testWithMountPath,
+				"key_name":   testWithKeyName,
 			},
 		},
 		{
@@ -250,66 +250,66 @@ func TestSetConfig(t *testing.T) {
 				require.NoError(t, os.Setenv(EnvTransitWrapperDisableRenewal, "invalid-disable-renewal"))
 				t.Cleanup(func() { os.Unsetenv(EnvTransitWrapperDisableRenewal) })
 			},
-			opts: []wrapping.Option{
-				WithAddress(testWithAddress),
-				WithToken(testWithToken),
-				WithMountPath(testWithMountPath),
-				WithKeyName(testWithKeyName),
+			opts: map[string]string{
+				"address":    testWithAddress,
+				"token":      testWithToken,
+				"mount_path": testWithMountPath,
+				"key_name":   testWithKeyName,
 			},
 			wantErr:         true,
 			wantErrContains: "parsing \"invalid-disable-renewal\": invalid syntax",
 		},
 		{
 			name: "success-with-disable-renewal",
-			opts: []wrapping.Option{
-				WithDisableRenewal(testWithDisableRenewal),
-				WithAddress(testWithAddress),
-				WithToken(testWithToken),
-				WithMountPath(testWithMountPath),
-				WithKeyName(testWithKeyName),
+			opts: map[string]string{
+				"disable_renewal": testWithDisableRenewal,
+				"address":         testWithAddress,
+				"token":           testWithToken,
+				"mount_path":      testWithMountPath,
+				"key_name":        testWithKeyName,
 			},
 		},
 		{
 			name: "error-SetConfig-bad-scheme",
-			opts: []wrapping.Option{
-				WithAddress("bad-scheme"),
-				WithToken(testWithToken),
-				WithMountPath(testWithMountPath),
-				WithKeyName(testWithKeyName),
+			opts: map[string]string{
+				"address":    "bad-scheme",
+				"token":      testWithToken,
+				"mount_path": testWithMountPath,
+				"key_name":   testWithKeyName,
 			},
 			wantErr:         true,
 			wantErrContains: "unsupported protocol scheme",
 		},
 		{
 			name: "error-bad-address",
-			opts: []wrapping.Option{
-				WithAddress(" https://bad-address"),
-				WithToken(testWithToken),
-				WithMountPath(testWithMountPath),
-				WithKeyName(testWithKeyName),
+			opts: map[string]string{
+				"address":    " https://bad-address",
+				"token":      testWithToken,
+				"mount_path": testWithMountPath,
+				"key_name":   testWithKeyName,
 			},
 			wantErr:         true,
 			wantErrContains: "first path segment in URL cannot contain colon",
 		},
 		{
 			name: "error-perm-denied",
-			opts: []wrapping.Option{
-				WithAddress(testWithAddress),
-				// WithToken(testWithToken),
-				WithMountPath(testWithMountPath),
-				WithKeyName(testWithKeyName),
+			opts: map[string]string{
+				"address": testWithAddress,
+				// "token": testWithToken,
+				"mount_path": testWithMountPath,
+				"key_name":   testWithKeyName,
 			},
 			wantErr:         true,
 			wantErrContains: "permission denied",
 		},
 		{
 			name: "success-with-opts",
-			opts: []wrapping.Option{
-				WithAddress(testWithAddress),
-				WithToken(testWithToken),
-				WithMountPath(testWithMountPath),
-				WithKeyName(testWithKeyName),
-				WithKeyIdPrefix("test/"),
+			opts: map[string]string{
+				"address":       testWithAddress,
+				"token":         testWithToken,
+				"mount_path":    testWithMountPath,
+				"key_name":      testWithKeyName,
+				"key_id_prefix": "test/",
 			},
 		},
 		{
@@ -326,7 +326,7 @@ func TestSetConfig(t *testing.T) {
 				t.Cleanup(func() { os.Unsetenv(EnvTransitWrapperKeyName) })
 				t.Cleanup(func() { os.Unsetenv(EnvTransitWrapperMountPath) })
 			},
-			opts: []wrapping.Option{},
+			opts: map[string]string{},
 		},
 	}
 
@@ -337,7 +337,7 @@ func TestSetConfig(t *testing.T) {
 				tc.setup(t)
 			}
 			w := NewWrapper()
-			_, err := w.SetConfig(context.Background(), tc.opts...)
+			_, err := w.SetConfig(context.Background(), wrapping.WithConfigMap(tc.opts))
 			if tc.wantErr {
 				require.Error(err)
 				if tc.wantErrContains != "" {
@@ -381,11 +381,13 @@ func TestContextCancellation(t *testing.T) {
 		w := NewWrapper()
 		_, err := w.SetConfig(
 			context.Background(),
-			WithAddress(testWithAddress),
-			WithToken(testWithToken),
-			WithMountPath(testWithMountPath),
-			WithKeyName(testWithKeyName),
-			WithKeyIdPrefix("test/"),
+			wrapping.WithConfigMap(map[string]string{
+				"address":       testWithAddress,
+				"token":         testWithToken,
+				"mount_path":    testWithMountPath,
+				"key_name":      testWithKeyName,
+				"key_id_prefix": "test/",
+			}),
 		)
 		require.NoError(err)
 		testPt := []byte("test-plaintext")
@@ -400,11 +402,13 @@ func TestContextCancellation(t *testing.T) {
 		w := NewWrapper()
 		_, err := w.SetConfig(
 			context.Background(),
-			WithAddress(testWithAddress),
-			WithToken(testWithToken),
-			WithMountPath(testWithMountPath),
-			WithKeyName(testWithKeyName),
-			WithKeyIdPrefix("test/"),
+			wrapping.WithConfigMap(map[string]string{
+				"address":       testWithAddress,
+				"token":         testWithToken,
+				"mount_path":    testWithMountPath,
+				"key_name":      testWithKeyName,
+				"key_id_prefix": "test/",
+			}),
 		)
 		require.NoError(err)
 		testPt := []byte("test-plaintext")

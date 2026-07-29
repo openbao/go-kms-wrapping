@@ -6,6 +6,7 @@ package transit
 import (
 	"testing"
 
+	wrapping "github.com/openbao/go-kms-wrapping/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -24,8 +25,10 @@ func Test_GetOpts(t *testing.T) {
 		assert.Equal(opts, testOpts)
 
 		const with = "/test/path"
-		opts, err = getOpts(WithMountPath(with))
+		cfg := map[string]string{"mount_path": with}
+		opts, err = getOpts(wrapping.WithConfigMap(cfg))
 		require.NoError(err)
+		testOpts.WithConfigMap = cfg
 		testOpts.withMountPath = with
 		assert.Equal(opts, testOpts)
 	})
@@ -40,8 +43,10 @@ func Test_GetOpts(t *testing.T) {
 		assert.Equal(opts, testOpts)
 
 		const with = "testKey"
-		opts, err = getOpts(WithKeyName(with))
+		cfg := map[string]string{"key_name": with}
+		opts, err = getOpts(wrapping.WithConfigMap(cfg))
 		require.NoError(err)
+		testOpts.WithConfigMap = cfg
 		testOpts.withKeyName = with
 		assert.Equal(opts, testOpts)
 	})
@@ -56,8 +61,10 @@ func Test_GetOpts(t *testing.T) {
 		assert.Equal(opts, testOpts)
 
 		const with = "test"
-		opts, err = getOpts(WithDisableRenewal(with))
+		cfg := map[string]string{"disable_renewal": with}
+		opts, err = getOpts(wrapping.WithConfigMap(cfg))
 		require.NoError(err)
+		testOpts.WithConfigMap = cfg
 		testOpts.withDisableRenewal = with
 		assert.Equal(opts, testOpts)
 	})
@@ -72,8 +79,10 @@ func Test_GetOpts(t *testing.T) {
 		assert.Equal(opts, testOpts)
 
 		const with = "test"
-		opts, err = getOpts(WithNamespace(with))
+		cfg := map[string]string{"namespace": with}
+		opts, err = getOpts(wrapping.WithConfigMap(cfg))
 		require.NoError(err)
+		testOpts.WithConfigMap = cfg
 		testOpts.withNamespace = with
 		assert.Equal(opts, testOpts)
 	})
@@ -88,8 +97,10 @@ func Test_GetOpts(t *testing.T) {
 		assert.Equal(opts, testOpts)
 
 		const with = "test"
-		opts, err = getOpts(WithAddress(with))
+		cfg := map[string]string{"address": with}
+		opts, err = getOpts(wrapping.WithConfigMap(cfg))
 		require.NoError(err)
+		testOpts.WithConfigMap = cfg
 		testOpts.withAddress = with
 		assert.Equal(opts, testOpts)
 	})
@@ -104,8 +115,10 @@ func Test_GetOpts(t *testing.T) {
 		assert.Equal(opts, testOpts)
 
 		const with = "test"
-		opts, err = getOpts(WithTlsCaCert(with))
+		cfg := map[string]string{"tls_ca_cert": with}
+		opts, err = getOpts(wrapping.WithConfigMap(cfg))
 		require.NoError(err)
+		testOpts.WithConfigMap = cfg
 		testOpts.withTlsCaCert = with
 		assert.Equal(opts, testOpts)
 	})
@@ -120,8 +133,10 @@ func Test_GetOpts(t *testing.T) {
 		assert.Equal(opts, testOpts)
 
 		const with = "test"
-		opts, err = getOpts(WithTlsCaDir(with))
+		cfg := map[string]string{"tls_ca_path": with}
+		opts, err = getOpts(wrapping.WithConfigMap(cfg))
 		require.NoError(err)
+		testOpts.WithConfigMap = cfg
 		testOpts.withTlsCaCertDir = with
 		assert.Equal(opts, testOpts)
 	})
@@ -136,8 +151,10 @@ func Test_GetOpts(t *testing.T) {
 		assert.Equal(opts, testOpts)
 
 		const with = "test"
-		opts, err = getOpts(WithTlsClientCert(with))
+		cfg := map[string]string{"tls_client_cert": with}
+		opts, err = getOpts(wrapping.WithConfigMap(cfg))
 		require.NoError(err)
+		testOpts.WithConfigMap = cfg
 		testOpts.withTlsClientCert = with
 		assert.Equal(opts, testOpts)
 	})
@@ -152,8 +169,10 @@ func Test_GetOpts(t *testing.T) {
 		assert.Equal(opts, testOpts)
 
 		const with = "test"
-		opts, err = getOpts(WithTlsClientKey(with))
+		cfg := map[string]string{"tls_client_key": with}
+		opts, err = getOpts(wrapping.WithConfigMap(cfg))
 		require.NoError(err)
+		testOpts.WithConfigMap = cfg
 		testOpts.withTlsClientKey = with
 		assert.Equal(opts, testOpts)
 	})
@@ -168,8 +187,10 @@ func Test_GetOpts(t *testing.T) {
 		assert.Equal(opts, testOpts)
 
 		const with = "test"
-		opts, err = getOpts(WithTlsServerName(with))
+		cfg := map[string]string{"tls_server_name": with}
+		opts, err = getOpts(wrapping.WithConfigMap(cfg))
 		require.NoError(err)
+		testOpts.WithConfigMap = cfg
 		testOpts.withTlsServerName = with
 		assert.Equal(opts, testOpts)
 	})
@@ -183,8 +204,10 @@ func Test_GetOpts(t *testing.T) {
 		testOpts.withTlsSkipVerify = false
 		assert.Equal(opts, testOpts)
 
-		opts, err = getOpts(WithTlsSkipVerify(true))
+		cfg := map[string]string{"tls_skip_verify": "true"}
+		opts, err = getOpts(wrapping.WithConfigMap(cfg))
 		require.NoError(err)
+		testOpts.WithConfigMap = cfg
 		testOpts.withTlsSkipVerify = true
 		assert.Equal(opts, testOpts)
 	})
@@ -199,8 +222,10 @@ func Test_GetOpts(t *testing.T) {
 		assert.Equal(opts, testOpts)
 
 		const with = "test"
-		opts, err = getOpts(WithToken(with))
+		cfg := map[string]string{"token": with}
+		opts, err = getOpts(wrapping.WithConfigMap(cfg))
 		require.NoError(err)
+		testOpts.WithConfigMap = cfg
 		testOpts.withToken = with
 		assert.Equal(opts, testOpts)
 	})

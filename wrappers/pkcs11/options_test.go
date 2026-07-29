@@ -7,6 +7,7 @@ package pkcs11
 import (
 	"testing"
 
+	wrapping "github.com/openbao/go-kms-wrapping/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -25,9 +26,11 @@ func Test_GetOpts(t *testing.T) {
 		assert.Equal(opts, testOpts)
 
 		const with = "testKeyId"
-		opts, err = getOpts(WithKeyId(with))
+		cfg := map[string]string{"key_id": with}
+		opts, err = getOpts(wrapping.WithConfigMap(cfg))
 		require.NoError(err)
 		testOpts.withKeyId = with
+		testOpts.WithConfigMap = cfg
 		assert.Equal(opts, testOpts)
 	})
 	t.Run("WithSlot", func(t *testing.T) {
@@ -41,9 +44,11 @@ func Test_GetOpts(t *testing.T) {
 		assert.Equal(opts, testOpts)
 
 		const with = "1024"
-		opts, err = getOpts(WithSlot(with))
+		cfg := map[string]string{"slot": with}
+		opts, err = getOpts(wrapping.WithConfigMap(cfg))
 		require.NoError(err)
 		testOpts.withSlot = with
+		testOpts.WithConfigMap = cfg
 		assert.Equal(opts, testOpts)
 	})
 	t.Run("WithPin", func(t *testing.T) {
@@ -57,9 +62,11 @@ func Test_GetOpts(t *testing.T) {
 		assert.Equal(opts, testOpts)
 
 		const with = "000000"
-		opts, err = getOpts(WithPin(with))
+		cfg := map[string]string{"pin": with}
+		opts, err = getOpts(wrapping.WithConfigMap(cfg))
 		require.NoError(err)
 		testOpts.withPin = with
+		testOpts.WithConfigMap = cfg
 		assert.Equal(opts, testOpts)
 	})
 	t.Run("WithLib", func(t *testing.T) {
@@ -73,9 +80,11 @@ func Test_GetOpts(t *testing.T) {
 		assert.Equal(opts, testOpts)
 
 		const with = "/usr/lib/pkcs11.so"
-		opts, err = getOpts(WithLib(with))
+		cfg := map[string]string{"lib": with}
+		opts, err = getOpts(wrapping.WithConfigMap(cfg))
 		require.NoError(err)
 		testOpts.withLib = with
+		testOpts.WithConfigMap = cfg
 		assert.Equal(opts, testOpts)
 	})
 	t.Run("WithTokenLabel", func(t *testing.T) {
@@ -89,8 +98,10 @@ func Test_GetOpts(t *testing.T) {
 		assert.Equal(opts, testOpts)
 
 		const with = "labelTest"
-		opts, err = getOpts(WithTokenLabel(with))
+		cfg := map[string]string{"token": with}
+		opts, err = getOpts(wrapping.WithConfigMap(cfg))
 		require.NoError(err)
+		testOpts.WithConfigMap = cfg
 		testOpts.withTokenLabel = with
 		assert.Equal(opts, testOpts)
 	})
@@ -105,8 +116,10 @@ func Test_GetOpts(t *testing.T) {
 		assert.Equal(opts, testOpts)
 
 		const with = "CKM_AES_GCM"
-		opts, err = getOpts(WithMechanism(with))
+		cfg := map[string]string{"mechanism": with}
+		opts, err = getOpts(wrapping.WithConfigMap(cfg))
 		require.NoError(err)
+		testOpts.WithConfigMap = cfg
 		testOpts.withMechanism = with
 		assert.Equal(opts, testOpts)
 	})
