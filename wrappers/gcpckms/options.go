@@ -118,13 +118,3 @@ type options struct {
 func getDefaultOptions() options {
 	return options{}
 }
-
-// WithKeyNotRequired provides a way to not require a key at config time
-func WithKeyNotRequired(with bool) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withKeyNotRequired = with
-			return nil
-		})
-	}
-}

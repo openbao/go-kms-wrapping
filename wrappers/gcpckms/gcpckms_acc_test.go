@@ -40,8 +40,7 @@ func TestGcpKeyIdAfterConfig(t *testing.T) {
 		{
 			name: "unexpected-key-id",
 			opts: []wrapping.Option{
-				wrapping.WithConfigMap(map[string]string{"credentials": os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")}),
-				WithKeyNotRequired(true),
+				wrapping.WithConfigMap(map[string]string{"credentials": os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"), "key_not_required": "true"}),
 			},
 			expectKeyId: false,
 		},
