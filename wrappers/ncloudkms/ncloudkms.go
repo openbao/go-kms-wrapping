@@ -192,32 +192,6 @@ func newKMSClient(baseURL, accessKey, secretKey string) *kmsClient {
 	}
 }
 
-type encryptResponse struct {
-	Code string `json:"code"`
-	Msg  string `json:"msg"`
-	Data struct {
-		Ciphertext string `json:"ciphertext"`
-	} `json:"data"`
-	Error *struct {
-		ErrorCode string `json:"errorCode"`
-		Message   string `json:"message"`
-		Details   string `json:"details"`
-	} `json:"error"`
-}
-
-type decryptResponse struct {
-	Code string `json:"code"`
-	Msg  string `json:"msg"`
-	Data struct {
-		Plaintext string `json:"plaintext"`
-	} `json:"data"`
-	Error *struct {
-		ErrorCode string `json:"errorCode"`
-		Message   string `json:"message"`
-		Details   string `json:"details"`
-	} `json:"error"`
-}
-
 // ref. https://api.ncloud-docs.com/docs/en/security-kms-encrypt
 func (c *kmsClient) encrypt(ctx context.Context, keyTag, plaintextB64 string) (string, error) {
 	path := fmt.Sprintf("/keys/v2/%s/encrypt", keyTag)
@@ -226,7 +200,19 @@ func (c *kmsClient) encrypt(ctx context.Context, keyTag, plaintextB64 string) (s
 		return "", err
 	}
 
-	var resp encryptResponse
+	var resp struct {
+		Code string `json:"code"`
+		Msg  string `json:"msg"`
+		Data struct {
+			Ciphertext string `json:"ciphertext"`
+		} `json:"data"`
+		Error *struct {
+			ErrorCode string `json:"errorCode"`
+			Message   string `json:"message"`
+			Details   string `json:"details"`
+		} `json:"error"`
+	}
+
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		return "", fmt.Errorf("error parsing ncloud kms encrypt response (status %d): %w; body: %s", status, err, truncateString(string(raw)))
 	}
@@ -250,7 +236,19 @@ func (c *kmsClient) decrypt(ctx context.Context, keyTag, ciphertext string) (str
 		return "", err
 	}
 
-	var resp decryptResponse
+	var resp struct {
+		Code string `json:"code"`
+		Msg  string `json:"msg"`
+		Data struct {
+			Plaintext string `json:"plaintext"`
+		} `json:"data"`
+		Error *struct {
+			ErrorCode string `json:"errorCode"`
+			Message   string `json:"message"`
+			Details   string `json:"details"`
+		} `json:"error"`
+	}
+
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		return "", fmt.Errorf("error parsing ncloud kms decrypt response (status %d): %w; body: %s", status, err, truncateString(string(raw)))
 	}
