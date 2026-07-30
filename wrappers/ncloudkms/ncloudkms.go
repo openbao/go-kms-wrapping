@@ -59,7 +59,7 @@ func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 
 	// Check and set the key tag
 	switch {
-	case os.Getenv(EnvNcloudKmsWrapperKeyTag) != "" && !opts.Options.WithDisallowEnvVars:
+	case !opts.Options.WithDisallowEnvVars && os.Getenv(EnvNcloudKmsWrapperKeyTag) != "":
 		k.keyTag = os.Getenv(EnvNcloudKmsWrapperKeyTag)
 	case opts.withKeyTag != "":
 		k.keyTag = opts.withKeyTag
