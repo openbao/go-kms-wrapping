@@ -17,20 +17,16 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 		return nil, err
 	}
 
-	// Wrapper-specific fields are provided via the WithConfigMap option (e.g.
-	// an OpenBao seal block or over the plugin barrier).
-	if opts.WithConfigMap != nil {
-		for k, v := range opts.WithConfigMap {
-			switch k {
-			case "key_tag": // key tag from the config map (e.g. an OpenBao seal block)
-				opts.withKeyTag = v
-			case "base_url":
-				opts.withBaseURL = v
-			case "access_key":
-				opts.withAccessKey = v
-			case "secret_key":
-				opts.withSecretKey = v
-			}
+	for k, v := range opts.WithConfigMap {
+		switch k {
+		case "key_tag": // key tag from the config map (e.g. an OpenBao seal block)
+			opts.withKeyTag = v
+		case "base_url":
+			opts.withBaseURL = v
+		case "access_key":
+			opts.withAccessKey = v
+		case "secret_key":
+			opts.withSecretKey = v
 		}
 	}
 
