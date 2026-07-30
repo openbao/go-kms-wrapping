@@ -4,7 +4,6 @@
 package azurekeyvault
 
 import (
-	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -12,7 +11,6 @@ import (
 	"encoding/pem"
 	"math/big"
 	"os"
-	"reflect"
 	"testing"
 	"time"
 
@@ -24,91 +22,137 @@ import (
 )
 
 func TestAzureKeyVault_SetConfig(t *testing.T) {
-	if os.Getenv("VAULT_ACC") == "" {
-		t.SkipNow()
-	}
-
 	s := NewWrapper()
-	tenantID := os.Getenv("AZURE_TENANT_ID")
 	os.Unsetenv("AZURE_TENANT_ID")
 
 	// Attempt to set config, expect failure due to missing config
-	_, err := s.SetConfig(context.Background())
-	if err == nil {
-		t.Fatal("expected error when Azure Key Vault config values are not provided")
-	}
+	_, err := s.SetConfig(t.Context())
+	require.Error(t, err)
 
-	os.Setenv("AZURE_TENANT_ID", tenantID)
+	t.Setenv("AZURE_TENANT_ID", "tenant_id")
+	t.Setenv(EnvVaultAzureKeyVaultVaultName, "vault_name")
+	t.Setenv(EnvVaultAzureKeyVaultKeyName, "key_name")
 
-	_, err = s.SetConfig(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
+	_, err = s.SetConfig(t.Context(), wrapping.WithConfigMap(map[string]string{
+		"key_not_required": "true",
+	}))
+	require.NoError(t, err)
 }
 
 func TestMapAuthMethod(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
+		wrapper  *Wrapper
 		expected authenticationMethod
 	}{
-		{"Empty String", "", Automatic},
-		{"Managed Identity", "managed_identity", ManagedIdentityCredential},
-		{"Client Secret", "client_secret", ClientSecretCredential},
-		{"Workload Identity", "workload_identity", WorkloadIdentityCredential},
-		{"Certificate", "certificate", CertificateCredential},
-		{"Environment", "environment", EnvironmentCredential},
-		{"Default", "default", DefaultAzureCredential},
-		{"Invalid Input", "invalid_input", Automatic},
-		{"Mixed Case Input", "Managed_Identity", ManagedIdentityCredential},
-		{"Leading/Tailing Whitespace", " client_secret ", Automatic},
+		{
+			"Empty String",
+			"",
+			&Wrapper{},
+			DefaultAzureCredential,
+		},
+		{
+			"Managed Identity",
+			"managed_identity",
+			&Wrapper{},
+			ManagedIdentityCredential,
+		},
+		{
+			"Client Secret",
+			"client_secret",
+			&Wrapper{},
+			ClientSecretCredential,
+		},
+		{
+			"Workload Identity",
+			"workload_identity",
+			&Wrapper{},
+			WorkloadIdentityCredential,
+		},
+		{
+			"Certificate",
+			"certificate",
+			&Wrapper{},
+			CertificateCredential,
+		},
+		{
+			"Environment",
+			"environment",
+			&Wrapper{},
+			EnvironmentCredential,
+		},
+		{
+			"Default",
+			"default",
+			&Wrapper{},
+			DefaultAzureCredential,
+		},
+		{
+			"Invalid Input",
+			"invalid_input",
+			&Wrapper{},
+			DefaultAzureCredential,
+		},
+		{
+			"Mixed Case Input",
+			"Managed_Identity",
+			&Wrapper{},
+			ManagedIdentityCredential,
+		},
+		{
+			"Leading/Tailing Whitespace",
+			" client_secret ",
+			&Wrapper{},
+			DefaultAzureCredential,
+		},
+		{
+			"No specification with wrapper properties set to client_secret",
+			"",
+			&Wrapper{tenantID: "tenant", clientID: "client", clientSecret: "secret"},
+			ClientSecretCredential,
+		},
+		{
+			"No specification with wrapper properties set to certificate",
+			"",
+			&Wrapper{certPath: "./somepath/cert.pem"},
+			CertificateCredential,
+		},
+		{
+			"No specification with wrapper properties set to managed identity",
+			"",
+			&Wrapper{clientID: "client"},
+			ManagedIdentityCredential,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := mapAuthMethod(tt.input)
-			if result != tt.expected {
-				t.Errorf("mapAuthMethod(%q) = %v; want %v", tt.input, result, tt.expected)
-			}
+			tt.wrapper.configureAuthMethod(tt.input)
+			require.Equal(t, tt.expected, tt.wrapper.authMethod)
 		})
 	}
 }
 
 func TestAzureKeyVault_IgnoreEnv(t *testing.T) {
-	if os.Getenv("VAULT_ACC") == "" {
-		t.SkipNow()
-	}
-
-	expectedErr := `error fetching Azure Key Vault wrapper key information: Get "https://a-vault-name.a-resource/keys/a-key-name/?api-version=7.4": dial tcp: lookup a-vault-name.a-resource: no such host`
-
-	s := NewWrapper()
-
-	// Setup environment values to ignore for the following values
-	for _, envVar := range []string{
-		"AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET",
-		"AZURE_ENVIRONMENT", "AZURE_AD_RESOURCE", EnvAzureKeyVaultWrapperVaultName,
-		EnvVaultAzureKeyVaultVaultName, EnvAzureKeyVaultWrapperKeyName, EnvVaultAzureKeyVaultKeyName,
-	} {
-		oldVal := os.Getenv(envVar)
-		os.Setenv(envVar, "envValue")
-		defer os.Setenv(envVar, oldVal)
-	}
 	config := map[string]string{
-		"tenant_id":     "a-tenant-id",
-		"client_id":     "a-client-id",
-		"client_secret": "a-client-secret",
-		"environment":   azure.PublicCloud.Name,
-		"resource":      "a-resource",
-		"vault_name":    "a-vault-name",
-		"key_name":      "a-key-name",
-		"auth_method":   "managed_identity",
-		"cert_path":     "/cert/someCert.pem",
-		"cert_password": "somePassword",
+		"tenant_id":        "a-tenant-id",
+		"client_id":        "a-client-id",
+		"client_secret":    "a-client-secret",
+		"environment":      azure.PublicCloud.Name,
+		"resource":         "a-resource",
+		"vault_name":       "a-vault-name",
+		"key_name":         "a-key-name",
+		"auth_method":      "client_secret",
+		"cert_path":        "/cert/someCert.pem",
+		"cert_password":    "somePassword",
+		"key_not_required": "true",
 	}
+	s := NewWrapper()
 	_, err := s.SetConfig(t.Context(),
 		wrapping.WithConfigMap(config),
 		wrapping.WithDisallowEnvVars(true))
-	require.Equal(t, expectedErr, err.Error())
+	require.NoError(t, err)
 	require.Equal(t, config["tenant_id"], s.tenantID)
 	require.Equal(t, config["client_id"], s.clientID)
 	require.Equal(t, config["client_secret"], s.clientSecret)
@@ -116,9 +160,9 @@ func TestAzureKeyVault_IgnoreEnv(t *testing.T) {
 	require.Equal(t, "https://"+config["resource"]+"/", s.resource)
 	require.Equal(t, config["vault_name"], s.vaultName)
 	require.Equal(t, config["key_name"], s.keyName)
-	require.Equal(t, mapAuthMethod(config["auth_method"]), s.authMethod)
 	require.Equal(t, config["cert_path"], s.certPath)
-	require.Equal(t, config["cert_password"], s.certPass)
+	require.Equal(t, config["cert_password"], s.certPassword)
+	require.Equal(t, ClientSecretCredential, s.authMethod)
 }
 
 func TestAzureKeyVault_Lifecycle(t *testing.T) {
@@ -127,26 +171,17 @@ func TestAzureKeyVault_Lifecycle(t *testing.T) {
 	}
 
 	s := NewWrapper()
-	_, err := s.SetConfig(context.Background())
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
+	_, err := s.SetConfig(t.Context())
+	require.NoError(t, err)
 
 	// Test Encrypt and Decrypt calls
 	input := []byte("foo")
-	swi, err := s.Encrypt(context.Background(), input, nil)
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
+	swi, err := s.Encrypt(t.Context(), input, nil)
+	require.NoError(t, err)
 
-	pt, err := s.Decrypt(context.Background(), swi, nil)
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
-
-	if !reflect.DeepEqual(input, pt) {
-		t.Fatalf("expected %s, got %s", input, pt)
-	}
+	pt, err := s.Decrypt(t.Context(), swi, nil)
+	require.NoError(t, err)
+	require.Equal(t, input, pt)
 }
 
 func TestWrapper_getCredential_CertificateCredential(t *testing.T) {
@@ -176,31 +211,25 @@ func TestWrapper_getCredential_CertificateCredential(t *testing.T) {
 	certFile, err := os.CreateTemp("", "cert.pem")
 	require.NoError(t, err)
 	defer func(name string) {
-		err := os.Remove(name)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, os.Remove(name))
 	}(certFile.Name())
 
 	// Write the certificate to the file
-	err = pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
-	require.NoError(t, err)
+	require.NoError(t, pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes}))
 
 	// Write the private key to the file
-	err = pem.Encode(certFile, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privateKey)})
-	require.NoError(t, err)
-
-	err = certFile.Close()
-	require.NoError(t, err)
+	require.NoError(t, pem.Encode(certFile, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privateKey)}))
+	require.NoError(t, certFile.Close())
 
 	// Create a wrapper and test the getCredential method
 	v := &Wrapper{
-		tenantID: "test-tenant-id",
-		clientID: "test-client-id",
-		certPath: certFile.Name(),
+		tenantID:   "test-tenant-id",
+		clientID:   "test-client-id",
+		certPath:   certFile.Name(),
+		authMethod: CertificateCredential,
 	}
 
-	cred, err := v.getCredential(CertificateCredential)
+	cred, err := v.getCredential()
 	require.NoError(t, err)
 	require.NotNil(t, cred)
 }
@@ -309,11 +338,7 @@ func TestWrapper_getManagedIdentityID(t *testing.T) {
 				resourceID:    tc.resourceID,
 				managedIdKind: tc.managedIdKind,
 			}
-			result := wrapper.getManagedIdentityID()
-
-			if result != tc.expectedResult {
-				t.Errorf("unexpected result: got %v, want %v", result, tc.expectedResult)
-			}
+			require.Equal(t, tc.expectedResult, wrapper.getManagedIdentityID())
 		})
 	}
 }
