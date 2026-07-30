@@ -23,7 +23,7 @@ import (
 const Type wrapping.WrapperType = "ncloudkms"
 
 // ref. https://api.ncloud-docs.com/docs/en/security-kms
-const defaultBaseUrl = "https://kms.apigw.ntruss.com"
+const defaultBaseUrl = "https://ocapi.ncloud.com"
 
 const (
 	EnvNcloudKmsWrapperKeyTag    = "NCLOUDKMS_WRAPPER_KEY_TAG"
@@ -174,7 +174,7 @@ func (k *Wrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, opt ...wra
 	return plaintext, nil
 }
 
-// kmsClient talks to the Naver Cloud KMS API 1.0 endpoints
+// kmsClient talks to the Naver Cloud KMS API 2.0 endpoints
 // ref. https://api.ncloud-docs.com/docs/en/security-kms
 type kmsClient struct {
 	httpClient *http.Client
@@ -192,9 +192,9 @@ func newKMSClient(baseURL, accessKey, secretKey string) *kmsClient {
 	}
 }
 
-// ref. https://api.ncloud-docs.com/docs/en/security-kms-encrypt
+// ref. https://api.ncloud-docs.com/docs/en/security-kms2-encrypt
 func (c *kmsClient) encrypt(ctx context.Context, keyTag, plaintextB64 string) (string, error) {
-	path := fmt.Sprintf("/keys/v2/%s/encrypt", keyTag)
+	path := fmt.Sprintf("/kms/v1/keys/%s/encrypt", keyTag)
 	raw, status, err := c.doRequest(ctx, path, map[string]string{"plaintext": plaintextB64})
 	if err != nil {
 		return "", err
@@ -228,9 +228,9 @@ func (c *kmsClient) encrypt(ctx context.Context, keyTag, plaintextB64 string) (s
 	return resp.Data.Ciphertext, nil
 }
 
-// ref. https://api.ncloud-docs.com/docs/en/security-kms-decrypt
+// ref. https://api.ncloud-docs.com/docs/en/security-kms2-decrypt
 func (c *kmsClient) decrypt(ctx context.Context, keyTag, ciphertext string) (string, error) {
-	path := fmt.Sprintf("/keys/v2/%s/decrypt", keyTag)
+	path := fmt.Sprintf("/kms/v1/keys/%s/decrypt", keyTag)
 	raw, status, err := c.doRequest(ctx, path, map[string]string{"ciphertext": ciphertext})
 	if err != nil {
 		return "", err
