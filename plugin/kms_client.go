@@ -112,7 +112,6 @@ func (c *gRPCKeyClient) Encrypt(ctx context.Context, opts *kms.CipherOptions) ([
 	if err != nil {
 		return nil, c.kms.handleRPCError(err)
 	}
-	opts.Nonce = resp.Nonce
 	return resp.Ciphertext, nil
 }
 
@@ -121,7 +120,6 @@ func (c *gRPCKeyClient) Decrypt(ctx context.Context, opts *kms.CipherOptions) ([
 		KeyId: c.id,
 		Data:  opts.Data,
 		Aad:   opts.AAD,
-		Nonce: opts.Nonce,
 	})
 	if err != nil {
 		return nil, c.kms.handleRPCError(err)

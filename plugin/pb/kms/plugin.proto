@@ -45,7 +45,6 @@ message EncryptRequest {
 }
 message EncryptResponse {
   bytes ciphertext = 1;
-  bytes nonce = 2;
 }
 
 // See kms.Key.Decrypt and kms.CipherOptions.
@@ -54,7 +53,6 @@ message DecryptRequest {
 
   bytes data = 10;
   bytes aad = 11;
-  bytes nonce = 12;
 }
 message DecryptResponse {
   bytes plaintext = 1;

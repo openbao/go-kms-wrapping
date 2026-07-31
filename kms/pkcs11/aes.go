@@ -43,13 +43,18 @@ type aesKey struct {
 	handle pkcs11.ObjectHandle
 }
 
+const (
+	aesGcmTagSize   = 16 // 128-bit tag.
+	aesGcmNonceSize = 12 // 96-bit nonce.
+)
+
 func (a aesKey) Encrypt(ctx context.Context, opts *kms.CipherOptions) ([]byte, error) {
 	return session.Scope(ctx, a.kms.pool, func(s *session.Handle) ([]byte, error) {
-		nonce, err := s.GenerateRandom(12) // 96-bit nonce.
+		nonce, err := s.GenerateRandom(aesGcmNonceSize)
 		if err != nil {
 			return nil, fmt.Errorf("generate nonce: %w", err)
 		}
-		params := pkcs11.NewGCMParams(nonce, opts.AAD, 128) // 128-bit tag.
+		params := pkcs11.NewGCMParams(nonce, opts.AAD, aesGcmTagSize*8)
 		defer params.Free()
 		if err := s.EncryptInit(pkcs11.NewMechanism(pkcs11.CKM_AES_GCM, params), a.handle); err != nil {
 			return nil, err
@@ -58,18 +63,17 @@ func (a aesKey) Encrypt(ctx context.Context, opts *kms.CipherOptions) ([]byte, e
 		if err != nil {
 			return nil, err
 		}
-		opts.Nonce = params.IV()
-		return ciphertext, nil
+		return append(params.IV(), ciphertext...), nil
 	})
 }
 
 func (a aesKey) Decrypt(ctx context.Context, opts *kms.CipherOptions) ([]byte, error) {
 	return session.Scope(ctx, a.kms.pool, func(s *session.Handle) ([]byte, error) {
-		params := pkcs11.NewGCMParams(opts.Nonce, opts.AAD, 128)
+		params := pkcs11.NewGCMParams(opts.Data[:aesGcmNonceSize], opts.AAD, aesGcmTagSize*8)
 		defer params.Free()
 		if err := s.DecryptInit(pkcs11.NewMechanism(pkcs11.CKM_AES_GCM, params), a.handle); err != nil {
 			return nil, err
 		}
-		return s.Decrypt(opts.Data)
+		return s.Decrypt(opts.Data[aesGcmNonceSize:])
 	})
 }

@@ -74,7 +74,8 @@ type KMS interface {
 // omitted APIs.
 type Key interface {
 	// Encrypt encrypts data according to the passed options and returns
-	// ciphertext.
+	// ciphertext. If ciphertext is created in combination with a nonce, prepend
+	// the nonce to the returned ciphertext.
 	//
 	// Also see [CipherOptions].
 	Encrypt(context.Context, *CipherOptions) ([]byte, error)
@@ -173,26 +174,14 @@ type KeyOptions struct {
 // CipherOptions is passed to [Key.Encrypt] and [Key.Decrypt].
 type CipherOptions struct {
 	// Data is the raw plaintext or ciphertext to operate on, depending on the
-	// operation. This may hold a provider-specific encoding if most practical.
+	// operation. When ciphertext must be provided in combination with a nonce,
+	// prepend the nonce to the ciphertext.
 	Data []byte
 
 	// AAD is Additional Authenticated Data to pass to an encrypt or decrypt
 	// operation. Not all providers or cipher modes will honor this field, but
 	// should respect it if applicable to the underlying cipher mode used.
 	AAD []byte
-
-	// Nonce holds the (optional) nonce value either produced by a Encrypt
-	// operation or taken by a Decrypt operation. That is, Nonce is never
-	// manually passed to Encrypt, but Encrypt generates a secure nonce itself
-	// using the KMS and writes it back to this field.
-	//
-	// If the nonce cannot trivially be split from the ciphertext, e.g., because
-	// it would require additional API calls to determine the used cipher mode
-	// parameters or key type, it is allowed not to split it and is assumed to
-	// be prefixed before the ciphertext.
-	//
-	// If the nonce is split, it should never be any part of the ciphertext.
-	Nonce []byte
 }
 
 // SignOptions is passed to [Key.Sign].

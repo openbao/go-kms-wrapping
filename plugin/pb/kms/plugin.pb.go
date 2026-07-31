@@ -443,7 +443,6 @@ func (x *EncryptRequest) GetAad() []byte {
 type EncryptResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Ciphertext    []byte                 `protobuf:"bytes,1,opt,name=ciphertext,proto3" json:"ciphertext,omitempty"`
-	Nonce         []byte                 `protobuf:"bytes,2,opt,name=nonce,proto3" json:"nonce,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -485,20 +484,12 @@ func (x *EncryptResponse) GetCiphertext() []byte {
 	return nil
 }
 
-func (x *EncryptResponse) GetNonce() []byte {
-	if x != nil {
-		return x.Nonce
-	}
-	return nil
-}
-
 // See kms.Key.Decrypt and kms.CipherOptions.
 type DecryptRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	KeyId         string                 `protobuf:"bytes,1,opt,name=key_id,json=keyId,proto3" json:"key_id,omitempty"`
 	Data          []byte                 `protobuf:"bytes,10,opt,name=data,proto3" json:"data,omitempty"`
 	Aad           []byte                 `protobuf:"bytes,11,opt,name=aad,proto3" json:"aad,omitempty"`
-	Nonce         []byte                 `protobuf:"bytes,12,opt,name=nonce,proto3" json:"nonce,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -550,13 +541,6 @@ func (x *DecryptRequest) GetData() []byte {
 func (x *DecryptRequest) GetAad() []byte {
 	if x != nil {
 		return x.Aad
-	}
-	return nil
-}
-
-func (x *DecryptRequest) GetNonce() []byte {
-	if x != nil {
-		return x.Nonce
 	}
 	return nil
 }
@@ -1146,18 +1130,16 @@ const file_plugin_pb_kms_plugin_proto_rawDesc = "" +
 	"\x06key_id\x18\x01 \x01(\tR\x05keyId\x12\x12\n" +
 	"\x04data\x18\n" +
 	" \x01(\fR\x04data\x12\x10\n" +
-	"\x03aad\x18\v \x01(\fR\x03aad\"G\n" +
+	"\x03aad\x18\v \x01(\fR\x03aad\"1\n" +
 	"\x0fEncryptResponse\x12\x1e\n" +
 	"\n" +
 	"ciphertext\x18\x01 \x01(\fR\n" +
-	"ciphertext\x12\x14\n" +
-	"\x05nonce\x18\x02 \x01(\fR\x05nonce\"c\n" +
+	"ciphertext\"M\n" +
 	"\x0eDecryptRequest\x12\x15\n" +
 	"\x06key_id\x18\x01 \x01(\tR\x05keyId\x12\x12\n" +
 	"\x04data\x18\n" +
 	" \x01(\fR\x04data\x12\x10\n" +
-	"\x03aad\x18\v \x01(\fR\x03aad\x12\x14\n" +
-	"\x05nonce\x18\f \x01(\fR\x05nonce\"/\n" +
+	"\x03aad\x18\v \x01(\fR\x03aad\"/\n" +
 	"\x0fDecryptResponse\x12\x1c\n" +
 	"\tplaintext\x18\x01 \x01(\fR\tplaintext\"\x9d\x01\n" +
 	"\vSignRequest\x12\x15\n" +

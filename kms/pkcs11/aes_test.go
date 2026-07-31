@@ -33,13 +33,14 @@ func TestGCM(t *testing.T) {
 
 	roundtrip := func(t *testing.T, key kms.Key, input, aad []byte) {
 		t.Helper()
-		opts := &kms.CipherOptions{Data: input, AAD: aad}
-		ciphertext, err := key.Encrypt(ctx, opts)
+		ciphertext, err := key.Encrypt(ctx, &kms.CipherOptions{
+			Data: input, AAD: aad,
+		})
 		require.NoError(t, err)
 		require.NotEmpty(t, ciphertext)
 		require.NotEqual(t, input, ciphertext)
 		plaintext, err := key.Decrypt(ctx, &kms.CipherOptions{
-			Data: ciphertext, AAD: aad, Nonce: opts.Nonce,
+			Data: ciphertext, AAD: aad,
 		})
 		require.NoError(t, err)
 		require.Equal(t, input, plaintext)

@@ -166,18 +166,15 @@ func (s *gRPCKMSServer) Encrypt(ctx context.Context, req *pb.EncryptRequest) (*p
 		return nil, err
 	}
 
-	opts := &kms.CipherOptions{
+	ciphertext, err := key.Encrypt(ctx, &kms.CipherOptions{
 		Data: req.Data, AAD: req.Aad,
-	}
-
-	ciphertext, err := key.Encrypt(ctx, opts)
+	})
 	if err != nil {
 		return nil, s.handleKMSError(err)
 	}
 
 	return &pb.EncryptResponse{
 		Ciphertext: ciphertext,
-		Nonce:      opts.Nonce,
 	}, nil
 }
 
@@ -188,9 +185,8 @@ func (s *gRPCKMSServer) Decrypt(ctx context.Context, req *pb.DecryptRequest) (*p
 	}
 
 	plaintext, err := key.Decrypt(ctx, &kms.CipherOptions{
-		Data:  req.Data,
-		AAD:   req.Aad,
-		Nonce: req.Nonce,
+		Data: req.Data,
+		AAD:  req.Aad,
 	})
 	if err != nil {
 		return nil, s.handleKMSError(err)
