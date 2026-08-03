@@ -22,8 +22,6 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/keyvault/azkeys"
-	"github.com/Azure/go-autorest/autorest/azure"
-	"github.com/Azure/go-autorest/autorest/to"
 	"github.com/hashicorp/go-hclog"
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
@@ -56,6 +54,14 @@ const (
 	WorkloadIdentityCredential
 )
 
+// source: https://devblogs.microsoft.com/azure-sdk/guidance-for-applications-using-the-key-vault-libraries/
+var envToKeyVaultMap = map[string]string{
+	"azurecloud":        "vault.azure.net",
+	"azurechinacloud":   "vault.azure.cn",
+	"azureusgovernment": "vault.usgovcloudapi.net",
+	"azuregermancloud":  "vault.microsoftazure.de",
+}
+
 type managedIdentityKind int
 
 const (
@@ -86,7 +92,7 @@ type Wrapper struct {
 	currentKeyId *atomic.Value
 	client       *azkeys.Client
 
-	environment azure.Environment
+	environment string
 	resource    string
 	logger      hclog.Logger
 	baseURL     string
@@ -232,13 +238,15 @@ func (v *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 		envName = opts.withEnvironment
 	}
 	if envName == "" {
-		v.environment = azure.PublicCloud
+		v.environment = "azurecloud"
 	} else {
-		var err error
-		v.environment, err = azure.EnvironmentFromName(envName)
-		if err != nil {
-			return nil, err
+		envName = strings.ToLower(envName)
+		_, ok := envToKeyVaultMap[envName]
+		if !ok {
+			return nil, fmt.Errorf("no cloud environment matching the name %q", envName)
 		}
+
+		v.environment = envName
 	}
 
 	var azResource string
@@ -248,13 +256,11 @@ func (v *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 	if azResource == "" {
 		azResource = opts.withResource
 		if azResource == "" {
-			azResource = v.environment.KeyVaultDNSSuffix
+			azResource = envToKeyVaultMap[v.environment]
 		}
 	}
 
-	v.environment.KeyVaultDNSSuffix = azResource
 	v.resource = fmt.Sprintf("https://%s/", azResource)
-	v.environment.KeyVaultEndpoint = v.resource
 
 	switch {
 	case !opts.WithDisallowEnvVars && os.Getenv(EnvAzureKeyVaultWrapperVaultName) != "":
@@ -281,7 +287,7 @@ func (v *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 	}
 
 	// Set the base URL
-	v.baseURL = fmt.Sprintf("https://%s.%s/", v.vaultName, v.environment.KeyVaultDNSSuffix)
+	v.baseURL = fmt.Sprintf("https://%s.%s/", v.vaultName, azResource)
 
 	if v.client == nil {
 		client, err := v.getKeyVaultClient()
@@ -298,7 +304,7 @@ func (v *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 			if keyInfo.Key == nil {
 				return nil, errors.New("no key information returned")
 			}
-			v.currentKeyId.Store(ParseKeyVersion(to.String((*string)(keyInfo.Key.KID))))
+			v.currentKeyId.Store(keyInfo.Key.KID.Version())
 		}
 
 		v.client = client
@@ -307,7 +313,7 @@ func (v *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 	// Map that holds non-sensitive configuration info
 	wrapConfig := new(wrapping.WrapperConfig)
 	wrapConfig.Metadata = make(map[string]string)
-	wrapConfig.Metadata["environment"] = v.environment.Name
+	wrapConfig.Metadata["environment"] = v.environment
 	wrapConfig.Metadata["vault_name"] = v.vaultName
 	wrapConfig.Metadata["key_name"] = v.keyName
 	wrapConfig.Metadata["resource"] = v.resource
@@ -350,7 +356,7 @@ func (v *Wrapper) Encrypt(ctx context.Context, plaintext []byte, opt ...wrapping
 	}
 
 	// Store the current key version
-	keyVersion := ParseKeyVersion(resp.KID.Version())
+	keyVersion := resp.KID.Version()
 	v.currentKeyId.Store(keyVersion)
 
 	ret := &wrapping.BlobInfo{
@@ -609,11 +615,4 @@ func (v *Wrapper) Logger() hclog.Logger {
 // on the Azure Vault name and environment.
 func (v *Wrapper) BaseURL() string {
 	return v.baseURL
-}
-
-// Kid gets returned as a full URL, get the last bit which is just
-// the version
-func ParseKeyVersion(kid string) string {
-	keyVersionParts := strings.Split(kid, "/")
-	return keyVersionParts[len(keyVersionParts)-1]
 }
