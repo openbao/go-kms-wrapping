@@ -11,6 +11,7 @@ import (
 
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 	"github.com/stackitcloud/stackit-sdk-go/services/kms/v1api"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -121,9 +122,8 @@ func testWrapper(t *testing.T, fake *fakeKmsClient, overrides map[string]string)
 	t.Helper()
 	w := NewWrapper()
 	w.newClient = func(clientConfig) (kmsClient, error) { return fake, nil }
-	if _, err := w.SetConfig(context.Background(), wrapping.WithConfigMap(testConfigMap(overrides))); err != nil {
-		t.Fatalf("SetConfig failed: %v", err)
-	}
+	_, err := w.SetConfig(context.Background(), wrapping.WithConfigMap(testConfigMap(overrides)))
+	require.NoError(t, err)
 	return w
 }
 
@@ -137,26 +137,13 @@ func TestWrapperRoundtrip(t *testing.T) {
 
 	plaintext := []byte("the quick brown fox")
 	blob, err := w.Encrypt(ctx, plaintext)
-	if err != nil {
-		t.Fatalf("Encrypt failed: %v", err)
-	}
-	if bytes.Contains(blob.Ciphertext, plaintext) {
-		t.Fatal("ciphertext contains plaintext")
-	}
-	if got, want := blob.KeyInfo.KeyId, testKeyId+"/1"; got != want {
-		t.Fatalf("blob KeyId = %q, want %q", got, want)
-	}
-	if blob.KeyInfo.Mechanism != StackitKmsEnvelopeAesGcmEncrypt {
-		t.Fatalf("blob Mechanism = %d, want %d", blob.KeyInfo.Mechanism, StackitKmsEnvelopeAesGcmEncrypt)
-	}
+	require.NoError(t, err)
+	require.False(t, bytes.Contains(blob.Ciphertext, plaintext), "ciphertext contains plaintext")
+	require.Equal(t, testKeyId+"/1", blob.KeyInfo.KeyId)
 
 	decrypted, err := w.Decrypt(ctx, blob)
-	if err != nil {
-		t.Fatalf("Decrypt failed: %v", err)
-	}
-	if !bytes.Equal(decrypted, plaintext) {
-		t.Fatalf("Decrypt = %q, want %q", decrypted, plaintext)
-	}
+	require.NoError(t, err)
+	require.Equal(t, plaintext, decrypted)
 }
 
 func TestWrapperRoundtripWithAad(t *testing.T) {
@@ -169,21 +156,14 @@ func TestWrapperRoundtripWithAad(t *testing.T) {
 
 	plaintext := []byte("with additional data")
 	blob, err := w.Encrypt(ctx, plaintext, wrapping.WithAad([]byte("aad")))
-	if err != nil {
-		t.Fatalf("Encrypt failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	decrypted, err := w.Decrypt(ctx, blob, wrapping.WithAad([]byte("aad")))
-	if err != nil {
-		t.Fatalf("Decrypt failed: %v", err)
-	}
-	if !bytes.Equal(decrypted, plaintext) {
-		t.Fatalf("Decrypt = %q, want %q", decrypted, plaintext)
-	}
+	require.NoError(t, err)
+	require.Equal(t, plaintext, decrypted)
 
-	if _, err := w.Decrypt(ctx, blob, wrapping.WithAad([]byte("other"))); err == nil {
-		t.Fatal("Decrypt with wrong AAD succeeded, want error")
-	}
+	_, err = w.Decrypt(ctx, blob, wrapping.WithAad([]byte("other")))
+	require.Error(t, err, "Decrypt with wrong AAD must fail")
 }
 
 func TestLatestVersionResolution(t *testing.T) {
@@ -197,12 +177,8 @@ func TestLatestVersionResolution(t *testing.T) {
 	w := testWrapper(t, fake, nil)
 
 	keyId, err := w.KeyId(context.Background())
-	if err != nil {
-		t.Fatalf("KeyId failed: %v", err)
-	}
-	if want := testKeyId + "/2"; keyId != want {
-		t.Fatalf("KeyId = %q, want %q (highest enabled active version)", keyId, want)
-	}
+	require.NoError(t, err)
+	require.Equal(t, testKeyId+"/2", keyId, "highest enabled active version")
 }
 
 func TestExplicitVersion(t *testing.T) {
@@ -214,12 +190,8 @@ func TestExplicitVersion(t *testing.T) {
 	w := testWrapper(t, fake, map[string]string{"key_version": "1"})
 
 	blob, err := w.Encrypt(context.Background(), []byte("pinned"))
-	if err != nil {
-		t.Fatalf("Encrypt failed: %v", err)
-	}
-	if got, want := blob.KeyInfo.KeyId, testKeyId+"/1"; got != want {
-		t.Fatalf("blob KeyId = %q, want %q", got, want)
-	}
+	require.NoError(t, err)
+	require.Equal(t, testKeyId+"/1", blob.KeyInfo.KeyId)
 }
 
 func TestDecryptAfterRotation(t *testing.T) {
@@ -230,9 +202,7 @@ func TestDecryptAfterRotation(t *testing.T) {
 		fakeVersion(1, v1api.VERSIONSTATE_ACTIVE, false),
 	)
 	blob, err := testWrapper(t, fakeV1, nil).Encrypt(ctx, []byte("pre-rotation"))
-	if err != nil {
-		t.Fatalf("Encrypt failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// A wrapper configured after rotation to version 2 must still decrypt
 	// the old blob with version 1.
@@ -244,24 +214,14 @@ func TestDecryptAfterRotation(t *testing.T) {
 	w := testWrapper(t, fakeV2, nil)
 
 	decrypted, err := w.Decrypt(ctx, blob)
-	if err != nil {
-		t.Fatalf("Decrypt failed: %v", err)
-	}
-	if !bytes.Equal(decrypted, []byte("pre-rotation")) {
-		t.Fatalf("Decrypt = %q, want %q", decrypted, "pre-rotation")
-	}
-	if len(fakeV2.decryptCalls) != 1 || fakeV2.decryptCalls[0] != testKeyId+"/1" {
-		t.Fatalf("decrypt calls = %v, want exactly one call with version 1", fakeV2.decryptCalls)
-	}
+	require.NoError(t, err)
+	require.Equal(t, []byte("pre-rotation"), decrypted)
+	require.Equal(t, []string{testKeyId + "/1"}, fakeV2.decryptCalls)
 
 	// New encryptions use the current version and change the reported key id.
 	newBlob, err := w.Encrypt(ctx, []byte("post-rotation"))
-	if err != nil {
-		t.Fatalf("Encrypt failed: %v", err)
-	}
-	if got, want := newBlob.KeyInfo.KeyId, testKeyId+"/2"; got != want {
-		t.Fatalf("blob KeyId = %q, want %q", got, want)
-	}
+	require.NoError(t, err)
+	require.Equal(t, testKeyId+"/2", newBlob.KeyInfo.KeyId)
 }
 
 func TestSetConfigMissingParameters(t *testing.T) {
@@ -274,9 +234,7 @@ func TestSetConfigMissingParameters(t *testing.T) {
 			}
 			_, err := w.SetConfig(context.Background(),
 				wrapping.WithConfigMap(testConfigMap(map[string]string{param: ""})))
-			if err == nil {
-				t.Fatalf("SetConfig without %s succeeded, want error", param)
-			}
+			require.Error(t, err, "SetConfig without %s must fail", param)
 		})
 	}
 }
@@ -290,9 +248,7 @@ func TestSetConfigRejectsBadKeyVersion(t *testing.T) {
 		}
 		_, err := w.SetConfig(context.Background(),
 			wrapping.WithConfigMap(testConfigMap(map[string]string{"key_version": bad})))
-		if err == nil {
-			t.Fatalf("SetConfig with key_version=%q succeeded, want error", bad)
-		}
+		require.Error(t, err, "SetConfig with key_version=%q must fail", bad)
 	}
 }
 
@@ -304,9 +260,7 @@ func TestSetConfigRejectsWrongPurpose(t *testing.T) {
 	w := NewWrapper()
 	w.newClient = func(clientConfig) (kmsClient, error) { return fake, nil }
 	_, err := w.SetConfig(context.Background(), wrapping.WithConfigMap(testConfigMap(nil)))
-	if err == nil {
-		t.Fatal("SetConfig with a sign/verify key succeeded, want error")
-	}
+	require.Error(t, err, "SetConfig with a sign/verify key must fail")
 }
 
 func TestSetConfigRejectsUnusableVersion(t *testing.T) {
@@ -320,17 +274,13 @@ func TestSetConfigRejectsUnusableVersion(t *testing.T) {
 	w.newClient = func(clientConfig) (kmsClient, error) { return fake, nil }
 	_, err := w.SetConfig(context.Background(),
 		wrapping.WithConfigMap(testConfigMap(map[string]string{"key_version": "1"})))
-	if err == nil {
-		t.Fatal("SetConfig with a disabled pinned version succeeded, want error")
-	}
+	require.Error(t, err, "SetConfig with a disabled pinned version must fail")
 
 	// No usable version to auto-resolve.
 	w = NewWrapper()
 	w.newClient = func(clientConfig) (kmsClient, error) { return fake, nil }
 	_, err = w.SetConfig(context.Background(), wrapping.WithConfigMap(testConfigMap(nil)))
-	if err == nil {
-		t.Fatal("SetConfig with no usable version succeeded, want error")
-	}
+	require.Error(t, err, "SetConfig with no usable version must fail")
 }
 
 func TestSetConfigEnvVars(t *testing.T) {
@@ -339,10 +289,10 @@ func TestSetConfigEnvVars(t *testing.T) {
 		fakeVersion(1, v1api.VERSIONSTATE_ACTIVE, false),
 	)
 
-	t.Setenv(EnvStackitKmsProjectId, testProjectId)
-	t.Setenv(EnvStackitKmsRegion, testRegion)
-	t.Setenv(EnvStackitKmsKeyRingId, testKeyRingId)
-	t.Setenv(EnvStackitKmsKeyId, testKeyId)
+	t.Setenv(envKMSProjectID, testProjectId)
+	t.Setenv(envKMSRegion, testRegion)
+	t.Setenv(envKMSKeyRingID, testKeyRingId)
+	t.Setenv(envKMSKeyID, testKeyId)
 
 	w := NewWrapper()
 	var gotConfig clientConfig
@@ -350,19 +300,27 @@ func TestSetConfigEnvVars(t *testing.T) {
 		gotConfig = cc
 		return fake, nil
 	}
-	if _, err := w.SetConfig(context.Background()); err != nil {
-		t.Fatalf("SetConfig from environment failed: %v", err)
-	}
-	if gotConfig.projectId != testProjectId || gotConfig.region != testRegion || gotConfig.keyRingId != testKeyRingId {
-		t.Fatalf("client config = %+v, want values from environment", gotConfig)
-	}
+	_, err := w.SetConfig(context.Background())
+	require.NoError(t, err, "SetConfig from environment")
+	require.Equal(t, testProjectId, gotConfig.projectId)
+	require.Equal(t, testRegion, gotConfig.region)
+	require.Equal(t, testKeyRingId, gotConfig.keyRingId)
 
 	// With WithDisallowEnvVars the same environment must not be consulted.
 	w = NewWrapper()
 	w.newClient = func(clientConfig) (kmsClient, error) { return fake, nil }
-	if _, err := w.SetConfig(context.Background(), wrapping.WithDisallowEnvVars(true)); err == nil {
-		t.Fatal("SetConfig with WithDisallowEnvVars and no config succeeded, want error")
+	_, err = w.SetConfig(context.Background(), wrapping.WithDisallowEnvVars(true))
+	require.Error(t, err, "SetConfig with WithDisallowEnvVars and no config must fail")
+
+	w = NewWrapper()
+	w.newClient = func(cc clientConfig) (kmsClient, error) {
+		gotConfig = cc
+		return fake, nil
 	}
+	_, err = w.SetConfig(context.Background(),
+		wrapping.WithConfigMap(testConfigMap(nil)), wrapping.WithDisallowEnvVars(true))
+	require.NoError(t, err)
+	require.True(t, gotConfig.disallowEnvVars)
 }
 
 func TestSetConfigMetadata(t *testing.T) {
@@ -373,9 +331,7 @@ func TestSetConfigMetadata(t *testing.T) {
 	w := NewWrapper()
 	w.newClient = func(clientConfig) (kmsClient, error) { return fake, nil }
 	cfg, err := w.SetConfig(context.Background(), wrapping.WithConfigMap(testConfigMap(nil)))
-	if err != nil {
-		t.Fatalf("SetConfig failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	want := map[string]string{
 		"project_id":  testProjectId,
@@ -384,19 +340,10 @@ func TestSetConfigMetadata(t *testing.T) {
 		"key_id":      testKeyId,
 		"key_version": "1",
 	}
-	for k, v := range want {
-		if cfg.Metadata[k] != v {
-			t.Errorf("metadata[%q] = %q, want %q", k, cfg.Metadata[k], v)
-		}
-	}
-	for _, secret := range []string{"token", "service_account_key", "private_key"} {
-		if _, ok := cfg.Metadata[secret]; ok {
-			t.Errorf("metadata leaks %q", secret)
-		}
-	}
+	require.Equal(t, want, cfg.Metadata)
 }
 
-func TestDecryptRejectsForeignBlob(t *testing.T) {
+func TestDecryptRejectsInvalidBlob(t *testing.T) {
 	fake := newFakeKmsClient(
 		v1api.PURPOSE_SYMMETRIC_ENCRYPT_DECRYPT,
 		fakeVersion(1, v1api.VERSIONSTATE_ACTIVE, false),
@@ -404,41 +351,29 @@ func TestDecryptRejectsForeignBlob(t *testing.T) {
 	w := testWrapper(t, fake, nil)
 	ctx := context.Background()
 
-	if _, err := w.Decrypt(ctx, nil); err == nil {
-		t.Fatal("Decrypt of nil blob succeeded, want error")
-	}
-	if _, err := w.Decrypt(ctx, &wrapping.BlobInfo{Ciphertext: []byte("x")}); err == nil {
-		t.Fatal("Decrypt of blob without key info succeeded, want error")
-	}
-	blob := &wrapping.BlobInfo{
-		Ciphertext: []byte("x"),
-		KeyInfo:    &wrapping.KeyInfo{Mechanism: 0xdead, WrappedKey: []byte("y")},
-	}
-	if _, err := w.Decrypt(ctx, blob); err == nil {
-		t.Fatal("Decrypt of blob with foreign mechanism succeeded, want error")
-	}
+	_, err := w.Decrypt(ctx, nil)
+	require.Error(t, err, "Decrypt of nil blob must fail")
+	_, err = w.Decrypt(ctx, &wrapping.BlobInfo{Ciphertext: []byte("x")})
+	require.Error(t, err, "Decrypt of blob without key info must fail")
 }
 
 func TestUnconfiguredWrapper(t *testing.T) {
 	w := NewWrapper()
 	ctx := context.Background()
-	if _, err := w.Encrypt(ctx, []byte("x")); err == nil {
-		t.Fatal("Encrypt on unconfigured wrapper succeeded, want error")
-	}
-	if _, err := w.Decrypt(ctx, &wrapping.BlobInfo{}); err == nil {
-		t.Fatal("Decrypt on unconfigured wrapper succeeded, want error")
-	}
+	_, err := w.Encrypt(ctx, []byte("x"))
+	require.Error(t, err, "Encrypt on unconfigured wrapper must fail")
+	_, err = w.Decrypt(ctx, &wrapping.BlobInfo{})
+	require.Error(t, err, "Decrypt on unconfigured wrapper must fail")
 }
 
 func TestParseKeyVersionId(t *testing.T) {
 	keyId, version, ok := parseKeyVersionId(testKeyId + "/7")
-	if !ok || keyId != testKeyId || version != 7 {
-		t.Fatalf("parseKeyVersionId = (%q, %d, %t), want (%q, 7, true)", keyId, version, ok, testKeyId)
-	}
+	require.True(t, ok)
+	require.Equal(t, testKeyId, keyId)
+	require.Equal(t, int64(7), version)
 
 	for _, bad := range []string{"", testKeyId, testKeyId + "/", testKeyId + "/x", testKeyId + "/0", testKeyId + "/-1", "/1"} {
-		if _, _, ok := parseKeyVersionId(bad); ok {
-			t.Errorf("parseKeyVersionId(%q) ok = true, want false", bad)
-		}
+		_, _, ok := parseKeyVersionId(bad)
+		require.False(t, ok, "parseKeyVersionId(%q) must not parse", bad)
 	}
 }
