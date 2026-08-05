@@ -26,9 +26,9 @@ const Type wrapping.WrapperType = "ncloudkms"
 const defaultBaseUrl = "https://ocapi.ncloud.com"
 
 const (
-	EnvNcloudKmsWrapperKeyTag    = "NCLOUDKMS_WRAPPER_KEY_TAG"
-	EnvNcloudKmsWrapperAccessKey = "NCLOUDKMS_WRAPPER_ACCESS_KEY"
-	EnvNcloudKmsWrapperSecretKey = "NCLOUDKMS_WRAPPER_SECRET_KEY"
+	EnvNcloudKmsKeyTag    = "NCLOUDKMS_KEY_TAG"
+	EnvNcloudKmsAccessKey = "NCLOUDKMS_ACCESS_KEY"
+	EnvNcloudKmsSecretKey = "NCLOUDKMS_SECRET_KEY"
 )
 
 type Wrapper struct {
@@ -59,8 +59,8 @@ func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 
 	// Check and set the key tag
 	switch {
-	case !opts.Options.WithDisallowEnvVars && os.Getenv(EnvNcloudKmsWrapperKeyTag) != "":
-		k.keyTag = os.Getenv(EnvNcloudKmsWrapperKeyTag)
+	case !opts.Options.WithDisallowEnvVars && os.Getenv(EnvNcloudKmsKeyTag) != "":
+		k.keyTag = os.Getenv(EnvNcloudKmsKeyTag)
 	case opts.withKeyTag != "":
 		k.keyTag = opts.withKeyTag
 	default:
@@ -78,15 +78,15 @@ func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 	accessKey := opts.withAccessKey
 	secretKey := opts.withSecretKey
 	if !opts.Options.WithDisallowEnvVars {
-		if os.Getenv(EnvNcloudKmsWrapperAccessKey) != "" {
-			accessKey = os.Getenv(EnvNcloudKmsWrapperAccessKey)
+		if os.Getenv(EnvNcloudKmsAccessKey) != "" {
+			accessKey = os.Getenv(EnvNcloudKmsAccessKey)
 		}
-		if os.Getenv(EnvNcloudKmsWrapperSecretKey) != "" {
-			secretKey = os.Getenv(EnvNcloudKmsWrapperSecretKey)
+		if os.Getenv(EnvNcloudKmsSecretKey) != "" {
+			secretKey = os.Getenv(EnvNcloudKmsSecretKey)
 		}
 	}
 	if accessKey == "" || secretKey == "" {
-		return nil, fmt.Errorf("access key and secret key are required (env %s/%s or config) for ncloud kms wrapper configuration", EnvNcloudKmsWrapperAccessKey, EnvNcloudKmsWrapperSecretKey)
+		return nil, fmt.Errorf("access key and secret key are required (env %s/%s or config) for ncloud kms wrapper configuration", EnvNcloudKmsAccessKey, EnvNcloudKmsSecretKey)
 	}
 
 	k.client = newKMSClient(baseURL, accessKey, secretKey)

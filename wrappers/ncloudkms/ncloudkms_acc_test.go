@@ -16,9 +16,9 @@ import (
 // the Ncloud documentation for KMS pricing.
 //
 // To run this test, the following env variables need to be set:
-//   - NCLOUDKMS_WRAPPER_KEY_TAG
-//   - NCLOUDKMS_WRAPPER_ACCESS_KEY
-//   - NCLOUDKMS_WRAPPER_SECRET_KEY
+//   - NCLOUDKMS_KEY_TAG
+//   - NCLOUDKMS_ACCESS_KEY
+//   - NCLOUDKMS_SECRET_KEY
 //
 // Optionally set NCLOUDKMS_BASE_URL (e.g. https://kms.apigw.gov-ntruss.com) to
 // target the public-sector cloud; it defaults to the civilian cloud.
