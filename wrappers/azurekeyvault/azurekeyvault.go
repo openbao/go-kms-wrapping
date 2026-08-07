@@ -6,13 +6,13 @@ package azurekeyvault
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -22,8 +22,6 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/keyvault/azkeys"
-	"github.com/Azure/go-autorest/autorest/azure"
-	"github.com/Azure/go-autorest/autorest/to"
 	"github.com/hashicorp/go-hclog"
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
@@ -56,6 +54,14 @@ const (
 	WorkloadIdentityCredential
 )
 
+// source: https://devblogs.microsoft.com/azure-sdk/guidance-for-applications-using-the-key-vault-libraries/
+var envToKeyVaultMap = map[string]string{
+	"azurecloud":        "vault.azure.net",
+	"azurechinacloud":   "vault.azure.cn",
+	"azureusgovernment": "vault.usgovcloudapi.net",
+	"azuregermancloud":  "vault.microsoftazure.de",
+}
+
 type managedIdentityKind int
 
 const (
@@ -64,31 +70,32 @@ const (
 	resourceId
 )
 
-// Wrapper is an Wrapper that uses Azure Key Vault
-// for crypto operations.  Azure Key Vault currently does not support
-// keys that can encrypt long data (RSA keys).  Due to this fact, we generate
-// and AES key and wrap the key using Key Vault and store it with the
-// data
+// Wrapper is an Wrapper that uses Azure Key Vault for crypto operations.
+// Azure Key Vault currently does not support keys that can encrypt long
+// data (RSA keys). Due to this fact, we generate AES key and wrap the
+// key using Key Vault and store it with the data.
 type Wrapper struct {
 	tenantID      string
 	clientID      string
 	clientSecret  string
-	vaultName     string
 	keyName       string
 	authMethod    authenticationMethod
+	vaultName     string
 	certPath      string
-	certPass      string
+	certBytes     string
+	certPassword  string
 	resourceID    string
 	managedIdKind managedIdentityKind
 
-	currentKeyId *atomic.Value
-
-	environment    azure.Environment
-	resource       string
-	client         *azkeys.Client
-	logger         hclog.Logger
 	keyNotRequired bool
-	baseURL        string
+
+	currentKeyId *atomic.Value
+	client       *azkeys.Client
+
+	environment string
+	resource    string
+	logger      hclog.Logger
+	baseURL     string
 }
 
 // Ensure that we are implementing Wrapper
@@ -103,34 +110,41 @@ func NewWrapper() *Wrapper {
 	return v
 }
 
-func mapAuthMethod(authMethod string) authenticationMethod {
-	returnVal := Automatic
-	authMethod = strings.ToLower(authMethod)
-
-	switch authMethod {
-	case "managed_identity":
-		returnVal = ManagedIdentityCredential
-	case "client_secret":
-		returnVal = ClientSecretCredential
-	case "workload_identity":
-		returnVal = WorkloadIdentityCredential
+func (v *Wrapper) configureAuthMethod(authMethod string) {
+	switch strings.ToLower(authMethod) {
+	// Certificate and ClientSecret are the only two methods allowed
+	// if `withDisallowEnvVars` flag is passed.
 	case "certificate":
-		returnVal = CertificateCredential
+		v.authMethod = CertificateCredential
+	case "client_secret":
+		v.authMethod = ClientSecretCredential
+	case "managed_identity":
+		v.authMethod = ManagedIdentityCredential
+	case "workload_identity":
+		v.authMethod = WorkloadIdentityCredential
 	case "environment":
-		returnVal = EnvironmentCredential
+		v.authMethod = EnvironmentCredential
 	case "default":
-		returnVal = DefaultAzureCredential
+		v.authMethod = DefaultAzureCredential
 	default:
-		returnVal = Automatic
+		switch {
+		case v.tenantID != "" && v.clientID != "" && v.clientSecret != "":
+			v.authMethod = ClientSecretCredential
+		case v.certBytes != "" || v.certPath != "":
+			v.authMethod = CertificateCredential
+		case v.clientID != "":
+			v.authMethod = ManagedIdentityCredential
+		default:
+			v.authMethod = DefaultAzureCredential
+		}
 	}
-	return returnVal
 }
 
 // SetConfig sets the fields on the Wrapper object based on
 // values from the config parameter.
 //
-// Order of precedence:
-// * Environment variable
+// Order of precedence for Azure Key Vault values:
+// * Environment variable (if WithDisallowEnvVars not provided)
 // * Passed in config map
 // * Managed Service Identity for instance
 func (v *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapping.WrapperConfig, error) {
@@ -142,46 +156,58 @@ func (v *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 	v.keyNotRequired = opts.withKeyNotRequired
 	v.logger = opts.WithLogger
 
-	authMethod := ""
 	switch {
-	case os.Getenv(EnvVaultAzureKeyVaultAuthMethod) != "" && !opts.WithDisallowEnvVars:
-		authMethod = os.Getenv(EnvVaultAzureKeyVaultAuthMethod)
-	case opts.withAuthMethod != "":
-		authMethod = opts.withAuthMethod
-	}
-
-	v.authMethod = mapAuthMethod(authMethod)
-
-	switch {
-	case os.Getenv(EnvVaultAzureKeyVaultCertificatePath) != "" && !opts.WithDisallowEnvVars:
+	case !opts.WithDisallowEnvVars && os.Getenv(EnvVaultAzureKeyVaultCertificatePath) != "":
 		v.certPath = os.Getenv(EnvVaultAzureKeyVaultCertificatePath)
 	case opts.withCertPath != "":
 		v.certPath = opts.withCertPath
 	}
 
+	v.certBytes = opts.withCertBytes
+
 	switch {
-	case os.Getenv(EnvVaultAzureKeyVaultCertificatePassword) != "" && !opts.WithDisallowEnvVars:
-		v.certPass = os.Getenv(EnvVaultAzureKeyVaultCertificatePassword)
-	case opts.withCertPass != "":
-		v.certPass = opts.withCertPass
+	case !opts.WithDisallowEnvVars && os.Getenv(EnvVaultAzureKeyVaultCertificatePassword) != "":
+		v.certPassword = os.Getenv(EnvVaultAzureKeyVaultCertificatePassword)
+	case opts.withCertPassword != "":
+		v.certPassword = opts.withCertPassword
 	}
 
 	switch {
-	case os.Getenv("AZURE_TENANT_ID") != "" && !opts.WithDisallowEnvVars:
+	case !opts.WithDisallowEnvVars && os.Getenv("AZURE_TENANT_ID") != "":
 		v.tenantID = os.Getenv("AZURE_TENANT_ID")
 	case opts.withTenantId != "":
 		v.tenantID = opts.withTenantId
 	}
 
 	switch {
-	case os.Getenv("AZURE_CLIENT_ID") != "" && !opts.WithDisallowEnvVars:
+	case !opts.WithDisallowEnvVars && os.Getenv("AZURE_CLIENT_ID") != "":
 		v.clientID = os.Getenv("AZURE_CLIENT_ID")
 	case opts.withClientId != "":
 		v.clientID = opts.withClientId
 	}
 
 	switch {
-	case os.Getenv(EnvVaultAzureKeyVaultResourceId) != "" && !opts.WithDisallowEnvVars:
+	case !opts.WithDisallowEnvVars && os.Getenv("AZURE_CLIENT_SECRET") != "":
+		v.clientSecret = os.Getenv("AZURE_CLIENT_SECRET")
+	case opts.withClientSecret != "":
+		v.clientSecret = opts.withClientSecret
+	}
+
+	authMethod := ""
+	switch {
+	case !opts.WithDisallowEnvVars && os.Getenv(EnvVaultAzureKeyVaultAuthMethod) != "":
+		authMethod = os.Getenv(EnvVaultAzureKeyVaultAuthMethod)
+	case opts.withAuthMethod != "":
+		authMethod = opts.withAuthMethod
+	}
+
+	v.configureAuthMethod(authMethod)
+	if opts.WithDisallowEnvVars && !slices.Contains([]authenticationMethod{CertificateCredential, ClientSecretCredential}, v.authMethod) {
+		return nil, fmt.Errorf("authentication method cannot be used in this context: %s", authMethod)
+	}
+
+	switch {
+	case !opts.WithDisallowEnvVars && os.Getenv(EnvVaultAzureKeyVaultResourceId) != "":
 		v.resourceID = os.Getenv(EnvVaultAzureKeyVaultResourceId)
 	case opts.withResourceId != "":
 		v.resourceID = opts.withResourceId
@@ -189,7 +215,7 @@ func (v *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 
 	managedIdKind := ""
 	switch {
-	case os.Getenv(EnvVaultAzureKeyVaultManagedIdentityKind) != "" && !opts.WithDisallowEnvVars:
+	case !opts.WithDisallowEnvVars && os.Getenv(EnvVaultAzureKeyVaultManagedIdentityKind) != "":
 		managedIdKind = os.Getenv(EnvVaultAzureKeyVaultManagedIdentityKind)
 	case opts.withManagedIdKind != "":
 		managedIdKind = opts.withManagedIdKind
@@ -204,17 +230,6 @@ func (v *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 		v.managedIdKind = undefined
 	}
 
-	switch {
-	case os.Getenv(EnvVaultAzureKeyVaultManagedIdentityKind) != "" && !opts.WithDisallowEnvVars:
-	}
-
-	switch {
-	case os.Getenv("AZURE_CLIENT_SECRET") != "" && !opts.WithDisallowEnvVars:
-		v.clientSecret = os.Getenv("AZURE_CLIENT_SECRET")
-	case opts.withClientSecret != "":
-		v.clientSecret = opts.withClientSecret
-	}
-
 	var envName string
 	if !opts.WithDisallowEnvVars {
 		envName = os.Getenv("AZURE_ENVIRONMENT")
@@ -223,13 +238,15 @@ func (v *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 		envName = opts.withEnvironment
 	}
 	if envName == "" {
-		v.environment = azure.PublicCloud
+		v.environment = "azurecloud"
 	} else {
-		var err error
-		v.environment, err = azure.EnvironmentFromName(envName)
-		if err != nil {
-			return nil, err
+		envName = strings.ToLower(envName)
+		_, ok := envToKeyVaultMap[envName]
+		if !ok {
+			return nil, fmt.Errorf("no cloud environment matching the name %q", envName)
 		}
+
+		v.environment = envName
 	}
 
 	var azResource string
@@ -239,17 +256,16 @@ func (v *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 	if azResource == "" {
 		azResource = opts.withResource
 		if azResource == "" {
-			azResource = v.environment.KeyVaultDNSSuffix
+			azResource = envToKeyVaultMap[v.environment]
 		}
 	}
-	v.environment.KeyVaultDNSSuffix = azResource
-	v.resource = "https://" + azResource + "/"
-	v.environment.KeyVaultEndpoint = v.resource
+
+	v.resource = fmt.Sprintf("https://%s/", azResource)
 
 	switch {
-	case os.Getenv(EnvAzureKeyVaultWrapperVaultName) != "" && !opts.WithDisallowEnvVars:
+	case !opts.WithDisallowEnvVars && os.Getenv(EnvAzureKeyVaultWrapperVaultName) != "":
 		v.vaultName = os.Getenv(EnvAzureKeyVaultWrapperVaultName)
-	case os.Getenv(EnvVaultAzureKeyVaultVaultName) != "" && !opts.WithDisallowEnvVars:
+	case !opts.WithDisallowEnvVars && os.Getenv(EnvVaultAzureKeyVaultVaultName) != "":
 		v.vaultName = os.Getenv(EnvVaultAzureKeyVaultVaultName)
 	case opts.withVaultName != "":
 		v.vaultName = opts.withVaultName
@@ -258,9 +274,9 @@ func (v *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 	}
 
 	switch {
-	case os.Getenv(EnvAzureKeyVaultWrapperKeyName) != "" && !opts.WithDisallowEnvVars:
+	case !opts.WithDisallowEnvVars && os.Getenv(EnvAzureKeyVaultWrapperKeyName) != "":
 		v.keyName = os.Getenv(EnvAzureKeyVaultWrapperKeyName)
-	case os.Getenv(EnvVaultAzureKeyVaultKeyName) != "" && !opts.WithDisallowEnvVars:
+	case !opts.WithDisallowEnvVars && os.Getenv(EnvVaultAzureKeyVaultKeyName) != "":
 		v.keyName = os.Getenv(EnvVaultAzureKeyVaultKeyName)
 	case opts.withKeyName != "":
 		v.keyName = opts.withKeyName
@@ -271,10 +287,10 @@ func (v *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 	}
 
 	// Set the base URL
-	v.baseURL = v.buildBaseURL()
+	v.baseURL = fmt.Sprintf("https://%s.%s/", v.vaultName, azResource)
 
 	if v.client == nil {
-		client, err := v.getKeyVaultClient(nil)
+		client, err := v.getKeyVaultClient()
 		if err != nil {
 			return nil, fmt.Errorf("error initializing Azure Key Vault wrapper client: %w", err)
 		}
@@ -288,7 +304,7 @@ func (v *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 			if keyInfo.Key == nil {
 				return nil, errors.New("no key information returned")
 			}
-			v.currentKeyId.Store(ParseKeyVersion(to.String((*string)(keyInfo.Key.KID))))
+			v.currentKeyId.Store(keyInfo.Key.KID.Version())
 		}
 
 		v.client = client
@@ -297,7 +313,7 @@ func (v *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 	// Map that holds non-sensitive configuration info
 	wrapConfig := new(wrapping.WrapperConfig)
 	wrapConfig.Metadata = make(map[string]string)
-	wrapConfig.Metadata["environment"] = v.environment.Name
+	wrapConfig.Metadata["environment"] = v.environment
 	wrapConfig.Metadata["vault_name"] = v.vaultName
 	wrapConfig.Metadata["key_name"] = v.keyName
 	wrapConfig.Metadata["resource"] = v.resource
@@ -325,7 +341,7 @@ func (v *Wrapper) Encrypt(ctx context.Context, plaintext []byte, opt ...wrapping
 
 	env, err := wrapping.EnvelopeEncrypt(plaintext, opt...)
 	if err != nil {
-		return nil, fmt.Errorf("error wrapping dat: %w", err)
+		return nil, fmt.Errorf("error wrapping data: %w", err)
 	}
 	// Encrypt the DEK using Key Vault
 	algo := azkeys.JSONWebKeyEncryptionAlgorithmRSAOAEP256
@@ -340,7 +356,7 @@ func (v *Wrapper) Encrypt(ctx context.Context, plaintext []byte, opt ...wrapping
 	}
 
 	// Store the current key version
-	keyVersion := ParseKeyVersion(resp.KID.Version())
+	keyVersion := resp.KID.Version()
 	v.currentKeyId.Store(keyVersion)
 
 	ret := &wrapping.BlobInfo{
@@ -355,7 +371,7 @@ func (v *Wrapper) Encrypt(ctx context.Context, plaintext []byte, opt ...wrapping
 	return ret, nil
 }
 
-// Decrypt is used to decrypt the ciphertext
+// Decrypt is used to decrypt the ciphertext.
 func (v *Wrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, opt ...wrapping.Option) ([]byte, error) {
 	if in == nil {
 		return nil, errors.New("given input for decryption is nil")
@@ -391,10 +407,6 @@ func (v *Wrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, opt ...wra
 	return wrapping.EnvelopeDecrypt(envInfo, opt...)
 }
 
-func (v *Wrapper) buildBaseURL() string {
-	return fmt.Sprintf("https://%s.%s/", v.vaultName, v.environment.KeyVaultDNSSuffix)
-}
-
 func (v *Wrapper) getManagedIdentityID() azidentity.ManagedIDKind {
 	switch v.managedIdKind {
 	case clientId, undefined:
@@ -406,30 +418,39 @@ func (v *Wrapper) getManagedIdentityID() azidentity.ManagedIDKind {
 	}
 }
 
+// getDefaultAzureCredential attempts to authenticate with each of these credential types, in the following order:
+//   - [EnvironmentCredential]
+//   - [WorkloadIdentityCredential]
+//   - [ManagedIdentityCredential]
+//   - [AzureCLICredential]
+//   - [AzureDeveloperCLICredential]
+//   - [AzurePowerShellCredential]
 func (v *Wrapper) getDefaultAzureCredential() (azcore.TokenCredential, error) {
 	if v.tenantID == "" {
-		return nil, errors.New("tenant id is required for default azure credential authentication")
+		return nil, errors.New("tenant_id is required for default azure credential authentication")
 	}
-	options := azidentity.DefaultAzureCredentialOptions{TenantID: v.tenantID}
-	cred, err := azidentity.NewDefaultAzureCredential(&options)
+	cred, err := azidentity.NewDefaultAzureCredential(&azidentity.DefaultAzureCredentialOptions{TenantID: v.tenantID})
 	if err != nil {
-		return nil, fmt.Errorf("failed to acquire default identity credentials: %w", err)
+		return nil, fmt.Errorf("failed to get default identity credentials: %w", err)
 	}
 	return cred, nil
 }
 
+// getEnvironmentCredential attempts to authenticate by reading environment variables.
 func (v *Wrapper) getEnvironmentCredential() (azcore.TokenCredential, error) {
 	cred, err := azidentity.NewEnvironmentCredential(nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to acquire environment credentials: %w", err)
+		return nil, fmt.Errorf("failed to get environment credentials: %w", err)
 	}
 	return cred, nil
 }
 
+// getManagedIdentityCredential attempts to authenticate by an [Azure managed identity]
+// in any hosting environment supporting managed identities, determined by the env vars.
 func (v *Wrapper) getManagedIdentityCredential() (azcore.TokenCredential, error) {
 	id := v.getManagedIdentityID()
 	if id == nil || id.String() == "" {
-		return nil, errors.New("either client or resource id is required for managed identity authentication")
+		return nil, errors.New("either client_id or resource_id is required for managed identity authentication")
 	}
 	cred, err := azidentity.NewManagedIdentityCredential(&azidentity.ManagedIdentityCredentialOptions{ID: id})
 	if err != nil {
@@ -438,10 +459,17 @@ func (v *Wrapper) getManagedIdentityCredential() (azcore.TokenCredential, error)
 	return cred, nil
 }
 
+// getClientSecretCredential attempts to authenticate by providing static credentials.
 func (v *Wrapper) getClientSecretCredential() (azcore.TokenCredential, error) {
 	if v.tenantID == "" {
-		return nil, errors.New("tenant id is required for azure client secret authentication")
+		return nil, errors.New("tenant_id is required for azure client secret authentication")
 	}
+
+	// there's no validation of clientID in azure-sdk, but I'm pretty sure it's required.
+	if v.clientID == "" {
+		return nil, errors.New("client_id is required for azure client secret authentication")
+	}
+
 	cred, err := azidentity.NewClientSecretCredential(v.tenantID, v.clientID, v.clientSecret, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get client secret credentials: %w", err)
@@ -449,25 +477,48 @@ func (v *Wrapper) getClientSecretCredential() (azcore.TokenCredential, error) {
 	return cred, nil
 }
 
+// getCertificateCredential attempts to authenticate by providing certificate.
 func (v *Wrapper) getCertificateCredential() (azcore.TokenCredential, error) {
-	certData, err := os.ReadFile(v.certPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read certificate file %s: %v", v.certPath, err)
+	if v.tenantID == "" {
+		return nil, errors.New("tenant_id is required for azure certificate authentication")
 	}
+
+	// there's no validation of clientID in azure-sdk, but I'm pretty sure it's required.
 	if v.clientID == "" {
-		return nil, errors.New("client id is required for certificate authentication")
+		return nil, errors.New("client_id is required for certificate authentication")
 	}
+
+	var certData []byte
+	var err error
+
+	switch {
+	case v.certPath == "" && v.certBytes == "":
+		return nil, errors.New("either cert_path or cert_bytes are required for certificate authentication")
+	case v.certPath != "":
+		certData, err = os.ReadFile(v.certPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read certificate file %s: %v", v.certPath, err)
+		}
+	}
+
+	if len(certData) < 1 {
+		certData = []byte(v.certBytes)
+	}
+
+	if len(certData) < 1 {
+		return nil, errors.New("missing required certificate contents")
+	}
+
 	var password []byte
-	if v.certPass != "" {
-		password = []byte(v.certPass)
+	if v.certPassword != "" {
+		password = []byte(v.certPassword)
 	}
+
 	certs, key, err := azidentity.ParseCertificates(certData, password)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse client certificate: %w", err)
 	}
-	if v.tenantID == "" {
-		return nil, errors.New("tenant id is required for azure certificate authentication")
-	}
+
 	cred, err := azidentity.NewClientCertificateCredential(v.tenantID, v.clientID, certs, key, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get client certificate credentials: %w", err)
@@ -475,20 +526,22 @@ func (v *Wrapper) getCertificateCredential() (azcore.TokenCredential, error) {
 	return cred, nil
 }
 
+// getWorkloadIdentityCredential attempts to authenticate by using Azure workload identity on Kubernetes.
+// Requires a TokenFilePath file containing a Kubernetes service account token, which is read from env vars.
 func (v *Wrapper) getWorkloadIdentityCredential() (azcore.TokenCredential, error) {
 	if v.tenantID == "" {
-		return nil, errors.New("tenant id is required for azure workload identity authentication")
+		return nil, errors.New("tenant_id is required for azure workload identity authentication")
 	}
-	options := azidentity.WorkloadIdentityCredentialOptions{TenantID: v.tenantID}
-	cred, err := azidentity.NewWorkloadIdentityCredential(&options)
+	cred, err := azidentity.NewWorkloadIdentityCredential(&azidentity.WorkloadIdentityCredentialOptions{TenantID: v.tenantID})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get workload identity credentials: %w", err)
 	}
 	return cred, nil
 }
 
-func (v *Wrapper) getCredential(method authenticationMethod) (azcore.TokenCredential, error) {
-	switch method {
+// getCredential routes to appropriate authentication method depending on the authMethod.
+func (v *Wrapper) getCredential() (azcore.TokenCredential, error) {
+	switch v.authMethod {
 	case DefaultAzureCredential:
 		return v.getDefaultAzureCredential()
 	case EnvironmentCredential:
@@ -506,27 +559,8 @@ func (v *Wrapper) getCredential(method authenticationMethod) (azcore.TokenCreden
 	}
 }
 
-func (v *Wrapper) getAutomaticCredential() (azcore.TokenCredential, error) {
-	switch v.authMethod {
-	case Automatic:
-		switch {
-		case v.tenantID != "" && v.clientID != "" && v.clientSecret != "":
-			return v.getCredential(ClientSecretCredential)
-		case v.clientID != "":
-			return v.getCredential(ManagedIdentityCredential)
-		default:
-			return v.getCredential(DefaultAzureCredential)
-		}
-	default:
-		return v.getCredential(v.authMethod)
-	}
-}
-
-func (v *Wrapper) getKeyVaultClient(withCertPool *x509.CertPool) (*azkeys.Client, error) {
-	var err error
-	var cred azcore.TokenCredential
-
-	cred, err = v.getAutomaticCredential()
+func (v *Wrapper) getKeyVaultClient() (*azkeys.Client, error) {
+	cred, err := v.getCredential()
 	if err != nil {
 		return nil, err
 	}
@@ -546,7 +580,6 @@ func (v *Wrapper) getKeyVaultClient(withCertPool *x509.CertPool) (*azkeys.Client
 		TLSClientConfig: &tls.Config{
 			MinVersion:    tls.VersionTLS12,
 			Renegotiation: tls.RenegotiateFreelyAsClient,
-			RootCAs:       withCertPool,
 		},
 	}
 	if http2Transport, err := http2.ConfigureTransports(customTransport); err == nil {
@@ -582,11 +615,4 @@ func (v *Wrapper) Logger() hclog.Logger {
 // on the Azure Vault name and environment.
 func (v *Wrapper) BaseURL() string {
 	return v.baseURL
-}
-
-// Kid gets returned as a full URL, get the last bit which is just
-// the version
-func ParseKeyVersion(kid string) string {
-	keyVersionParts := strings.Split(kid, "/")
-	return keyVersionParts[len(keyVersionParts)-1]
 }

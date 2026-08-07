@@ -9,6 +9,10 @@ import (
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
 
+func getDefaultOptions() options {
+	return options{}
+}
+
 // getOpts iterates the inbound Options and returns a struct
 func getOpts(opt ...wrapping.Option) (*options, error) {
 	opts := getDefaultOptions()
@@ -45,8 +49,10 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 			opts.withAuthMethod = v
 		case "cert_path":
 			opts.withCertPath = v
+		case "cert_bytes":
+			opts.withCertBytes = v
 		case "cert_password":
-			opts.withCertPass = v
+			opts.withCertPassword = v
 		case "managed_id_kind":
 			opts.withManagedIdKind = v
 		case "resource_id":
@@ -79,9 +85,6 @@ type options struct {
 	withKeyName        string
 	withAuthMethod     string
 	withCertPath       string
-	withCertPass       string
-}
-
-func getDefaultOptions() options {
-	return options{}
+	withCertBytes      string
+	withCertPassword   string
 }
