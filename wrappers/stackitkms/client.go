@@ -8,7 +8,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"os"
 
 	"github.com/stackitcloud/stackit-sdk-go/core/config"
 	"github.com/stackitcloud/stackit-sdk-go/services/kms/v1api"
@@ -71,12 +70,14 @@ func newSdkClient(cc clientConfig) (kmsClient, error) {
 
 	if cc.disallowEnvVars {
 		switch {
-		case cc.serviceAccountKey != "" || cc.serviceAccountKeyPath != "":
+		case cc.serviceAccountKeyPath != "" || cc.privateKeyPath != "":
+			return nil, fmt.Errorf("'service_account_key_path' and 'private_key_path' cannot be used when environment variables are disallowed")
+		case cc.serviceAccountKey != "":
 			// The SDK consults the environment and the credentials file
 			// for a private key before the one embedded in the service
 			// account key, so resolve the embedded key up front.
-			if cc.privateKey == "" && cc.privateKeyPath == "" {
-				privateKey, err := embeddedPrivateKey(cc.serviceAccountKey, cc.serviceAccountKeyPath)
+			if cc.privateKey == "" {
+				privateKey, err := embeddedPrivateKey(cc.serviceAccountKey)
 				if err != nil {
 					return nil, err
 				}
@@ -154,22 +155,14 @@ func (c *sdkClient) listVersions(ctx context.Context, keyId string) ([]v1api.Ver
 }
 
 // embeddedPrivateKey returns the private key embedded in a service account
-// key, given inline or as a file path.
-func embeddedPrivateKey(saKey, saKeyPath string) (string, error) {
-	raw := []byte(saKey)
-	if saKey == "" {
-		var err error
-		raw, err = os.ReadFile(saKeyPath)
-		if err != nil {
-			return "", fmt.Errorf("failed to read service account key: %w", err)
-		}
-	}
+// key.
+func embeddedPrivateKey(saKey string) (string, error) {
 	var parsed struct {
 		Credentials struct {
 			PrivateKey string `json:"privateKey"`
 		} `json:"credentials"`
 	}
-	if err := json.Unmarshal(raw, &parsed); err != nil {
+	if err := json.Unmarshal([]byte(saKey), &parsed); err != nil {
 		return "", fmt.Errorf("failed to parse service account key: %w", err)
 	}
 	if parsed.Credentials.PrivateKey == "" {

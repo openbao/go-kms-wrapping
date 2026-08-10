@@ -5,8 +5,6 @@ package stackitkms
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -16,24 +14,15 @@ func TestEmbeddedPrivateKey(t *testing.T) {
 	const key = "-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY-----\n"
 	saKey := fmt.Sprintf(`{"credentials": {"privateKey": %q}}`, key)
 
-	got, err := embeddedPrivateKey(saKey, "")
+	got, err := embeddedPrivateKey(saKey)
 	require.NoError(t, err)
 	require.Equal(t, key, got)
 
-	path := filepath.Join(t.TempDir(), "sa_key.json")
-	require.NoError(t, os.WriteFile(path, []byte(saKey), 0o600))
-	got, err = embeddedPrivateKey("", path)
-	require.NoError(t, err)
-	require.Equal(t, key, got)
-
-	_, err = embeddedPrivateKey(`{"credentials": {}}`, "")
+	_, err = embeddedPrivateKey(`{"credentials": {}}`)
 	require.ErrorContains(t, err, "no private key")
 
-	_, err = embeddedPrivateKey("not json", "")
+	_, err = embeddedPrivateKey("not json")
 	require.ErrorContains(t, err, "parse")
-
-	_, err = embeddedPrivateKey("", filepath.Join(t.TempDir(), "missing.json"))
-	require.ErrorContains(t, err, "read")
 }
 
 func TestNewSdkClientDisallowEnvVars(t *testing.T) {
@@ -58,6 +47,18 @@ func TestNewSdkClientDisallowEnvVars(t *testing.T) {
 	cc.serviceAccountKey = `{"credentials": {}}`
 	_, err = newSdkClient(cc)
 	require.ErrorContains(t, err, "no private key")
+
+	// file reads are rejected even for explicitly configured paths
+	cc = base
+	cc.serviceAccountKeyPath = "/some/sa_key.json"
+	_, err = newSdkClient(cc)
+	require.ErrorContains(t, err, "cannot be used")
+
+	cc = base
+	cc.serviceAccountKey = `{"credentials": {}}`
+	cc.privateKeyPath = "/some/key.pem"
+	_, err = newSdkClient(cc)
+	require.ErrorContains(t, err, "cannot be used")
 
 	cc = base
 	cc.token = "some-token"
