@@ -176,6 +176,7 @@ func test(t *testing.T, k kms.KMS, opts *kms.OpenOptions) {
 				SaltLength: rsa.PSSSaltLengthAuto,
 				Hash:       crypto.SHA256,
 			})
+			roundtrip(t, key, crypto.SHA256) // PKCS#1 v1.5.
 		})
 
 		for name, hash := range map[string]crypto.Hash{

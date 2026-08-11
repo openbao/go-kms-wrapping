@@ -170,12 +170,15 @@ func (r *rsaKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte, error
 		return nil, errors.New("SHA-1 PSS signing is unsupported")
 	}
 
-	if opts, ok := opts.SignerOpts.(*rsa.PSSOptions); ok {
-		switch opts.SaltLength {
+	switch o := opts.SignerOpts.(type) {
+	case *rsa.PSSOptions:
+		switch o.SaltLength {
 		case rsa.PSSSaltLengthAuto, rsa.PSSSaltLengthEqualsHash:
 		default:
 			return nil, errors.New("custom PSS salt lengths are not supported")
 		}
+	default:
+		return nil, errors.New("PKCS#1 v1.5 signing is not implemented")
 	}
 
 	mech := pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS_PSS,
@@ -219,13 +222,13 @@ func (r *rsaKey) Verify(ctx context.Context, opts *kms.VerifyOptions) error {
 		return err
 	}
 
-	// Passing nil options to VerifyPSS is legal.
-	var pssOptions *rsa.PSSOptions
-	if p, ok := opts.SignerOpts.(*rsa.PSSOptions); ok {
-		pssOptions = p
-	}
-	if err := rsa.VerifyPSS(pub, opts.HashFunc(), data, opts.Signature, pssOptions); err != nil {
-		return fmt.Errorf("%w: %w", kms.ErrInvalidSignature, err)
+	switch o := opts.SignerOpts.(type) {
+	case *rsa.PSSOptions:
+		if err := rsa.VerifyPSS(pub, opts.HashFunc(), data, opts.Signature, o); err != nil {
+			return fmt.Errorf("%w: %w", kms.ErrInvalidSignature, err)
+		}
+	default:
+		return errors.New("PKCS#1 v1.5 verification is not implemented")
 	}
 
 	return nil

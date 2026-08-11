@@ -321,6 +321,15 @@ func (k *transitKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte, e
 		if hash != crypto.Hash(0) {
 			return nil, errors.New("pre-hashed Ed25519 variants are not supported")
 		}
+	default:
+		// Unless we've seen an rsa.PSSOptions, assume PKCS#1 v1.5 signing
+		// (We don't know if we're even working with an RSA key here, but can
+		// safely pass this even when using another key type in which case it is
+		// ignored.). If Transit ever adds signature_algorithm values relevant
+		// for other key types, we'll need to start lazily fetching and caching
+		// the public key value here like the PKCS#11 implementation does so the
+		// correct value can be determined by key type.
+		data["signature_algorithm"] = "pkcs1v15"
 	}
 
 	resp, err := k.client.Logical().WriteWithContext(
@@ -402,6 +411,9 @@ func (k *transitKey) Verify(ctx context.Context, opts *kms.VerifyOptions) error 
 		if hash != crypto.Hash(0) {
 			return errors.New("pre-hashed Ed25519 variants are not supported")
 		}
+	default:
+		// See comment in Sign().
+		data["signature_algorithm"] = "pkcs1v15"
 	}
 
 	resp, err := k.client.Logical().WriteWithContext(
