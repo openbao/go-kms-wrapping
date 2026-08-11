@@ -1,0 +1,109 @@
+name: funny
+on:
+  issue_comment:
+    types: [created]
+  
+  permissions:
+    contents: read
+    pull-requests: write
+    issues: read
+
+  jobs:
+    validate-permissions:
+      if: github.event.issue.pull_request && github.event.issue.state == 'open' && contains(github.event.comment.body, '/integration')
+      runs-on: ubuntu-slim
+      outputs:
+        authorized: ${{ steps.evaluate.outputs.authorized }}
+        type: ${{ steps.evaluate.outputs.type }}
+        commit_sha: ${{ steps.evaluate.outputs.commit_sha }}
+      steps:
+      - name: Evaluate user permission
+        id: evaluate
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const allowedTypes = ['aws', 'azure', 'gcp', 'ovh'];
+            const body = context.payload.comment.body.trim();
+            const user = context.payload.comment.user.login;
+            const prNumber = context.payload.issue.number;
+
+            ## TODO: figure out permission
+            # let authorized = false;
+            # try {
+            #   const { data } = await github.rest.teams.getMembershipForUserInOrg({
+            #     org: process.env.ORG_NAME,
+            #     team_slug: process.env.ALLOWED_TEAM_SLUG,
+            #     username: user,
+            #   });
+            #   authorized = data.state === 'active';
+            # } catch (err) {
+            #   authorized = false;
+            # }
+
+            const match = body.match(/^\/integration\s+(\S+)\s+([0-9a-fA-F]{40})\s*$/);
+            if (!match) {
+              core.info('Comment does not match command syntax, ignoring.');
+              core.setOutput('authorized', 'false');
+              return;
+            }
+
+            const [, type, commitSha] = match;
+
+            if (!allowedTypes.includes(type)) {
+              core.setFailed(`Invalid type \`${type}\`. Allowed: ${allowedTypes.join(', ')}`);
+              core.setOutput('authorized', 'false');
+              return;
+            }
+
+            core.setOutput('authorized', authorized);
+            core.setOutput('type', type);
+            core.setOutput('commit_sha', commitSha);
+  
+    run-integration-test:
+      needs: validate-permissions
+      if: needs.validate-permissions.outputs.authorized == 'true'
+      runs-on: ubuntu-slim
+
+      concurrency:
+        group: ci-${{ needs.validate-permissions.outputs.type }}-${{ github.ref }}
+        cancel-in-progress: true
+      
+      steps:
+      - name: Bump comment
+        uses: actions/github-script@v9
+        with:
+          script: |
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content: "+1",
+            });
+
+        # TOCTOU protection: confirm commit_sha is part of this PR's history
+      - name: Verify commit belongs to PR
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const commitSha = '${{ needs.validate-permissions.outputs.commit_sha }}';
+            const prNumber = context.payload.issue.number;
+
+            const commits = await github.paginate(github.rest.pulls.listCommits, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+
+            const found = commits.some((c) => c.sha === commitSha);
+            if (!found) {
+              core.setFailed(`Commit ${commitSha} not in PR history.`);
+            }
+
+      - name: Checkout reviewed commit with provided sha
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate-permissions.outputs.commit_sha }}
+
+      - name: Run ${{ needs.validate-permissions.outputs.type }} integration test 
+        run: |
+          echo "test"
