@@ -1,0 +1,249 @@
+name: Integration tests
+on:
+  issue_comment:
+    types: [created]
+
+  workflow_dispatch:
+    inputs:
+      integration_type:
+        description: Integration test provider
+        required: true
+        type: choice
+        options:
+          - aws
+          - azure
+          - gcp
+          - ovh
+
+permissions: {}
+
+jobs:
+  validate-permissions:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        github.event.issue.state == 'open' &&
+        contains(github.event.comment.body, '/integration')
+      )
+    runs-on: ubuntu-slim
+    permissions: {}
+
+    outputs:
+      type: ${{ steps.dispatch.outputs.type || steps.comment.outputs.type }}
+      ref: ${{ steps.dispatch.outputs.ref || steps.comment.outputs.ref }}
+      pull_request_number: ${{ steps.comment.outputs.pull_request_number }}
+    steps:
+      - name: Validate manual inputs
+        if: github.event_name == 'workflow_dispatch'
+        id: dispatch
+        shell: bash
+        run: |
+          echo "type=${{ inputs.integration_type }}" >> "$GITHUB_OUTPUT"
+          echo "ref=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate comment authorization and command
+        if: github.event_name == 'issue_comment'
+        id: comment
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          # requires org:read permission
+          github-token: ${{ secrets.GH_ORG_READ_TOKEN }}
+          script: |
+            const user = context.payload.comment.user.login;
+            try {
+              const { data } = await github.rest.teams.getMembershipForUserInOrg({
+                org: 'openbao',
+                team_slug: 'openbao-org-maintainers',
+                username: user,
+              });
+
+              if (data.state !== 'active') {
+                core.setFailed(`@${user} is not a part of openbao-org-maintainers group.`);
+                return;
+              }
+            } catch (err) {
+              core.setFailed(`@${user} is not authorized to trigger CI runs.`);
+              return;
+            }
+
+            const body = context.payload.comment.body.trim();
+            const match = body.match(/^\/integration\s+(\S+)\s+([0-9a-fA-F]{40})\s*$/);
+            if (!match) {
+              core.setFailed(`Expected: '/integration <aws|azure|gcp|ovh> <40-character SHA>'' command syntax`);
+              return;
+            }
+
+            const [, type, commitSha] = match;
+            const allowedTypes = ['aws', 'azure', 'gcp', 'ovh'];
+            if (!allowedTypes.includes(type)) {
+              core.setFailed(`Invalid type \`${type}\`. Allowed: ${allowedTypes.join(', ')}`);
+              return;
+            }
+
+            core.setOutput('type', type);
+            core.setOutput('ref', commitSha);
+            core.setOutput('pull_request_number', String(context.payload.issue.number));
+
+  verify-comment-commit:
+    if: github.event_name == 'issue_comment'
+    needs: validate-permissions
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+      pull-requests: read
+
+    steps:
+      - name: Verify commit belongs to PR or default branch
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          COMMIT_SHA: ${{ needs.validate-permissions.outputs.ref }}
+          PR_NUMBER: ${{ needs.validate-permissions.outputs.pull_request_number }}
+        with:
+          script: |
+            const commits = await github.paginate(github.rest.pulls.listCommits, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.issue.number,
+            });
+
+            const commitSha = process.env.COMMIT_SHA
+            const pullNumber = Number(process.env.PR_NUMBER);
+
+            const foundInPullRequest = commits.some((c) => c.sha === commitSha);
+            let foundOnDefaultBranch = false;
+            if (!foundInPullRequest) {
+              const defBranch = context.payload.repository.default_branch;
+              try {
+                const { data } = await github.rest.repos.compareCommitsWithBasehead({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  basehead: `${defBranch}...${commitSha}`,
+                });
+                foundOnDefaultBranch = data.status === 'identical' || data.status === 'behind';
+              } catch (err) {
+                core.info(`Commit comparison failed: ${err.message}`);
+              }
+            }
+
+            if (!foundInPullRequest && !foundOnDefaultBranch) {
+              core.setFailed(`Commit ${commitSha} is neither in the PR history nor on the default branch.`);
+            }
+
+  run-integration-test:
+    needs:
+      - validate-permissions
+      - verify-comment-commit
+    if: >-
+      always() &&
+      needs.validate-permissions.result == 'success' &&
+      (
+        (
+          github.event_name == 'issue_comment' &&
+          needs.verify-comment-commit.result == 'success'
+        ) ||
+        github.event_name == 'workflow_dispatch'
+      )
+
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    concurrency:
+      group: >-
+        integration-${{ needs.validate-permissions.outputs.type }}-${{
+        needs.validate-permissions.outputs.ref }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout selected ref
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.validate-permissions.outputs.ref }}
+          persist-credentials: false
+
+      - name: Map directory to integration test
+        id: map
+        shell: bash
+        env:
+          INTEGRATION_TYPE: ${{ needs.validate-permissions.outputs.type }}
+        run: |
+          case "$INTEGRATION_TYPE" in
+            aws) echo "dir=./wrappers/awskms" >> "$GITHUB_OUTPUT" ;;
+            azure) echo "dir=./wrappers/azurekeyvault" >> "$GITHUB_OUTPUT" ;;
+            gcp) echo "dir=./wrappers/gcpckms" >> "$GITHUB_OUTPUT" ;;
+            ovh) echo "dir=./wrappers/ovhkms" >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "Unsupported integration type: $INTEGRATION_TYPE" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ${{ steps.map.outputs.dir }}/go.mod
+          cache-dependency-path: ${{ steps.map.outputs.dir }}/go.mod
+
+      - name: Run integration test
+        working-directory: ${{ steps.map.outputs.dir }}
+        env:
+          KMS_ACC_TESTS: "true"
+        run: go test ./...
+
+  report-comment-result:
+    needs:
+      - validate-permissions
+      - verify-comment-commit
+      - run-integration-test
+
+    if: >-
+      always() &&
+      github.event_name == 'issue_comment' &&
+      needs.validate-permissions.result == 'success' &&
+      needs.verify-comment-commit.result == 'success'
+    runs-on: ubuntu-slim
+    permissions:
+      issues: write
+
+    steps:
+      - name: Bump comment
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            try {
+              await github.rest.reactions.createForIssueComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: context.payload.comment.id,
+                content: "+1",
+              });
+            } catch (err) {
+              core.warning(`Failed to add thumbs up reaction: ${err.message}`);
+            }
+
+      - name: Comment with integration test result
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          INTEGRATION_TYPE: ${{ needs.validate-permissions.outputs.type }}
+          REF: ${{ needs.validate-permissions.outputs.ref }}
+          TEST_RESULT: ${{ needs.run-integration-test.result }}
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const status = process.env.TEST_RESULT === 'success' ? 'succeeded' : `finished with status \`${process.env.TEST_RESULT}\``;
+
+            try {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.issue.number,
+                body:
+                  `Integration test (\`${process.env.INTEGRATION_TYPE}\`) ` +
+                  `for commit \`${process.env.REF}\` ${status}: ` +
+                  `[View workflow run](${runUrl})`,
+              });
+            } catch (err) {
+              core.setFailed(`Failed to post result comment: ${err.message}`);
+            }
