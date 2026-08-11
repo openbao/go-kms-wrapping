@@ -1,135 +1,83 @@
-# Go-KMS-Wrapping - Go library for encrypting values through various KMS providers
+# go-kms-wrapping
 
-[![Go Reference](https://godoc.org/github.com/hashicorp/go-kms-wrapping/v2?status.svg)](https://godoc.org/github.com/hashicorp/go-kms-wrapping/v2)
+This repository holds glue for OpenBao to integrate with external KMS providers,
+including modules consumed directly by [the main repository] and ones consumed
+by [the plugin repository]. OpenBao integrates with external KMS providers to
+implement the [Auto-Unseal] and [External Keys] features.
 
-*NOTE*: This is version 2 of the library. The `v0` branch contains version 0,
-which may be needed for legacy applications or while transitioning to version 2.
+> [!NOTE]
+> This repository is maintained with OpenBao's requirements in mind only. We do
+> not aim to provide a generic library of KMS packages that other projects can
+> incorporate. Use at your own risk!
 
-Go-KMS-Wrapping is a library that can be used to encrypt things through various
-KMS providers -- public clouds, Vault's Transit plugin, etc. It is similar in
-concept to various other cryptosystems (like NaCl) but focuses on using third
-party KMSes. This library is the underpinning of Vault's auto-unseal
-functionality, and should be ready to use for many other applications.
+## Code organization
 
-For KMS providers that do not support encrypting arbitrarily large values, the
-library will generate an envelope data encryption key (DEK), encrypt the value
-with it using an authenticated cipher, and use the KMS to encrypt the DEK.
+Code is organized into several Go modules and packages:
 
-The key being used by a given implementation can change; the library stores
-information about which key was actually used to encrypt a given value as part
-of the returned data, and this key will be used for decryption. By extension,
-this means that users should be careful not to delete keys in KMS systems
-simply because they're not configured to be used by this library _currently_,
-as they may have been used for past encryption operations.
+- `github.com/openbao/go-kms-wrapping/v2`
+    - `/` - Defines the [`Wrapper`] interface which is the backbone of OpenBao's
+      [Auto-Unseal]. This interface encapsulates an opaque keyring that can
+      encrypt and decrypt arbitrary blobs. To implement a KMS plugin that
+      supports [Auto-Unseal], implement this interface.
+    - `/aead` - An implementation of [`Wrapper`] that uses no external KMS
+      and performs in-memory crypto. Shamir seals in OpenBao delegate to this
+      wrapper once key shares have been combined.
+    - `/kms` - Defines the [`KMS` and `Key`] interfaces which are the backbone
+      of OpenBao's [External Keys]. These interfaces are newer than (but do not
+      supersede) the [`Wrapper`] interface and define semantics not only around
+      encryption and decryption, but signing and verification, too. To implement
+      a KMS plugin that supports [External Keys], implement these interfaces.
 
-<!-- START doctoc generated TOC please keep comment here to allow auto update -->
-<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
+- `github.com/openbao/go-kms-wrapping/plugin/v2` - A plugin server/client
+  SDK that is used to build standalone KMS plugins for OpenBao, supporting
+  both [`Wrapper`] and [`KMS` and `Key`]. Note that `main.go` entrypoints for
+  official KMS plugins are not present in this repository, but in [the plugin
+  repository].
 
+- `github.com/openbao/go-kms-wrapping/wrappers/*/v2` - Various
+  implementations of the [`Wrapper`] interface (such as ones based
+  on AWS, Azure, ...), each in their own Go module. [See the full
+  list](https://github.com/openbao/go-kms-wrapping/tree/main/wrappers).
 
-- [Go-KMS-Wrapping - Go library for encrypting values through various KMS providers](#go-kms-wrapping---go-library-for-encrypting-values-through-various-kms-providers)
-  - [Features](#features)
-  - [Extras](#extras)
-  - [Installation](#installation)
-  - [Overview](#overview)
-  - [Usage](#usage)
+- `github.com/openbao/go-kms-wrapping/kms/*/v2` - Various implementations of
+  the [`KMS` and `Key`] interfaces, each in their own Go module. [See the full
+  list](https://github.com/openbao/go-kms-wrapping/tree/main/kms).
 
-<!-- END doctoc generated TOC please keep comment here to allow auto update -->
+  When implementing both [`Wrapper`] and [`KMS` and `Key`] on top of a shared
+  set of internal code, prefer placing all implementations within a single
+  module under `kms/` instead of creating both `wrappers/*` and `kms/*`. See the
+  [`kms/pkcs11`](https://github.com/openbao/go-kms-wrapping/tree/main/kms/pkcs11)
+  module as an example of this pattern.
 
-## Features
+## Contributing
 
-  * Supports many KMSes:
-  * * AEAD using AES-GCM and a provided key
-  * * Alibaba Cloud KMS (uses envelopes)
-  * * AWS KMS (uses envelopes)
-  * * Azure KeyVault (uses envelopes)
-  * * GCP CKMS (uses envelopes)
-  * * Huawei Cloud KMS (uses envelopes)
-  * * OCI KMS (uses envelopes)
-  * * OVHcloud KMS (uses envelopes)
-  * * Tencent Cloud KMS (uses envelopes)
-  * * Vault Transit mount
-  * * Securosys HSM
-  * Supports generic integrations
-  * * PKCS11
-  * * KMIP
-  * * Static unseal keys (environment/file)
-  * Transparently supports multiple decryption targets, allowing for key rotation
-  * Supports Additional Authenticated Data (AAD) for all KMSes except Vault Transit.
+Contributions to this repository follow the same policies on
+licensing, DCO and LLM usage as defined in [the main repository]'s
+[`CONTRIBUTING.md`](https://github.com/openbao/openbao/blob/main/CONTRIBUTING.md).
 
-## Extras
+Given OpenBao's KMS plugins can be built and distributed as standalone
+binaries via the plugin SDK available in this repository, note that it is
+**not necessary** to upstream your provider-specific implementation into this
+repository such that you can use it with a recent release of OpenBao.
 
-There are several **extra**(s) packages included which build upon the base
-go-kms-wrapping features to provide "extra" capabilities.  
+We do however welcome upstream contributions around KMS providers that may be
+of interest to the broader OpenBao community, especially if globally relevant
+(e.g., AWS), of great relevance to a particular region (e.g., Naver in South
+Korea) or standards-based (e.g., PKCS#11, KMIP).
 
-* The
-[`multi`](https://github.com/hashicorp/go-kms-wrapping/tree/main/extras/multi)
-package is capable of encrypting to a specified wrapper and
-decrypting using one of several wrappers switched on key ID. This can allow
-easy key rotation for KMSes that do not natively support it.
+To get started with new plugin implementations (upstreamed or not), it is
+recommended to review the following package documentation:
 
-## Installation
+- https://pkg.go.dev/github.com/openbao/go-kms-wrapping/v2
+- https://pkg.go.dev/github.com/openbao/go-kms-wrapping/v2/kms
+- https://pkg.go.dev/github.com/openbao/go-kms-wrapping/plugin/v2
 
-`go get github.com/hashicorp/go-kms-wrapping/v2`
+Additionally, interface implementations available in this repository may serve
+as reference implementations to base your plugin on.
 
-## Overview
-
-The library exports a `Wrapper` interface that is implemented by multiple
-providers. For each provider, the standard flow is as follows:
-
-1. Create a wrapper using the New method
-1. Call `SetConfig` to pass either wrapper-specific options or use the
-`wrapping.WithConfigMap` option to pass a configuration map
-1. Use the wrapper as needed
-
-It is possible, in `v2` of this library, to instantiate a wrapper as a
-[`plugin`](https://github.com/hashicorp/go-kms-wrapping/tree/main/plugin). This
-allows avoiding pulling dependencies of the wrapper directly into another
-system's process space. See the [`example plugin-cli`](examples/plugin-cli/) for
-a complete example on how to do build wrapper plugins and use them in an application or the [`test
-plugins`](https://github.com/hashicorp/go-kms-wrapping/tree/main/plugin/testplugins)
-for guidance in how to build a plugin; in this case, you'll definitely want to use
-`wrapping.WithConfigMap` to pass configuration to avoid pulling in
-package-specific options.
-
-The best place to find the currently available set of configuration options
-supported by each provider is its code, but it can also be found in [Vault's
-seal configuration
-documentation](https://www.vaultproject.io/docs/configuration/seal/index.html).
-All environment variables noted there also work in this library, however,
-non-Vault-specific variants of the environment variables are also available for
-each provider. See the code/comments in each given provider for the currently
-allowed env vars.
-
-## Usage
-
-Following is an example usage of the AWS KMS provider. 
-
-```go
-// Context used in this library is passed to various underlying provider
-// libraries; how it's used is dependent on the provider libraries
-ctx := context.Background()
-
-wrapper := awskms.NewWrapper()
-_, err := wrapper.SetConfig(ctx, wrapping.WithConfigMap(map[string]string{
-    "kms_key_id": "1234abcd-12ab-34cd-56ef-1234567890ab",
-}))
-if err != nil {
-    return err
-}
-blobInfo, err := wrapper.Encrypt(ctx, []byte("foo"))
-if err != nil {
-    return err
-}
-
-//
-// Do some things...
-//
-
-plaintext, err := wrapper.Decrypt(ctx, blobInfo)
-if err != nil {
-    return err
-}
-if string(plaintext) != "foo" {
-    return errors.New("mismatch between input and output")
-}
-```
+[the main repository]: https://github.com/openbao/openbao
+[the plugin repository]: https://github.com/openbao/openbao-plugins
+[Auto-Unseal]: https://openbao.org/docs/concepts/seal/#auto-unseal
+[External Keys]: https://openbao.org/community/rfcs/external-keys
+[`Wrapper`]: https://github.com/openbao/go-kms-wrapping/blob/main/wrapper.go
+[`KMS` and `Key`]: https://github.com/openbao/go-kms-wrapping/blob/main/kms/kms.go
