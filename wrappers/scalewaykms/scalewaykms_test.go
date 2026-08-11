@@ -14,6 +14,7 @@ import (
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 	keymanager "github.com/scaleway/scaleway-sdk-go/api/key_manager/v1alpha1"
 	"github.com/scaleway/scaleway-sdk-go/scw"
+	"github.com/stretchr/testify/require"
 )
 
 // fakeKeyManager is an in-memory stand-in for the Scaleway Key Manager API. It
@@ -23,6 +24,7 @@ type fakeKeyManager struct {
 	keyID string
 }
 
+const testKeyID = "11111111-1111-1111-1111-111111111111"
 const fakeWrapPrefix = "scw-wrapped:"
 
 func (f *fakeKeyManager) Encrypt(req *keymanager.EncryptRequest, _ ...scw.RequestOption) (*keymanager.EncryptResponse, error) {
@@ -48,10 +50,10 @@ func (f *fakeKeyManager) GetKey(req *keymanager.GetKeyRequest, _ ...scw.RequestO
 func newTestWrapper(t *testing.T) *Wrapper {
 	t.Helper()
 	k := &Wrapper{
-		keyId:        "11111111-1111-1111-1111-111111111111",
+		keyId:        testKeyID,
 		region:       scw.RegionFrPar,
 		currentKeyId: new(atomic.Value),
-		client:       &fakeKeyManager{keyID: "11111111-1111-1111-1111-111111111111"},
+		client:       &fakeKeyManager{keyID: testKeyID},
 	}
 	k.currentKeyId.Store(k.keyId)
 	return k
@@ -139,5 +141,83 @@ func TestScalewayKmsWrapper_DecryptRejectsNilKeyInfo(t *testing.T) {
 	k := newTestWrapper(t)
 	if _, err := k.Decrypt(context.Background(), &wrapping.BlobInfo{}); err == nil {
 		t.Fatal("decrypting with nil key info should return an error")
+	}
+}
+
+func TestScalewayKmsWrapper_ConfigFromEnv(t *testing.T) {
+	const envProject = "44444444-4444-4444-4444-444444444444"
+
+	for _, tc := range []struct {
+		name        string
+		cfg         map[string]string
+		wantRegion  scw.Region
+		wantProject string
+	}{
+		{
+			name:        "env supplies region and project",
+			cfg:         map[string]string{"key_id": testKeyID},
+			wantRegion:  scw.RegionNlAms,
+			wantProject: envProject,
+		},
+		{
+			name:        "config map overrides env",
+			cfg:         map[string]string{"key_id": testKeyID, "region": "fr-par"},
+			wantRegion:  scw.RegionFrPar,
+			wantProject: envProject,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("SCW_CONFIG_PATH", t.TempDir()+"/absent.yaml")
+			t.Setenv("SCW_ACCESS_KEY", "SCWXXXXXXXXXXXXXXXXX")
+			t.Setenv("SCW_SECRET_KEY", "22222222-2222-2222-2222-222222222222")
+			t.Setenv("SCW_DEFAULT_REGION", "nl-ams")
+			t.Setenv("SCW_DEFAULT_PROJECT_ID", envProject)
+
+			opts, err := getOpts(wrapping.WithConfigMap(tc.cfg))
+			require.NoError(t, err)
+
+			client, region, projectID, err := getScalewayKeyManagerClient(opts)
+			require.NoError(t, err)
+			require.NotNil(t, client)
+			require.Equal(t, tc.wantRegion, region)
+			require.Equal(t, tc.wantProject, projectID)
+		})
+	}
+}
+
+func TestScalewayKmsWrapper_DisallowEnvVars(t *testing.T) {
+	base := map[string]string{
+		"key_id":     testKeyID,
+		"access_key": "SCWYYYYYYYYYYYYYYYYY",
+		"secret_key": "33333333-3333-3333-3333-333333333333",
+	}
+
+	for _, tc := range []struct {
+		name     string
+		disallow bool
+		wantErr  bool
+		want     scw.Region
+	}{
+		{name: "env allowed", disallow: false, want: scw.RegionNlAms},
+		{name: "env disallowed", disallow: true, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("SCW_ACCESS_KEY", "SCWXXXXXXXXXXXXXXXXX")
+			t.Setenv("SCW_SECRET_KEY", "22222222-2222-2222-2222-222222222222")
+			t.Setenv("SCW_DEFAULT_REGION", "nl-ams")
+
+			opts, err := getOpts(
+				wrapping.WithDisallowEnvVars(tc.disallow),
+				wrapping.WithConfigMap(base))
+			require.NoError(t, err)
+
+			_, region, _, err := getScalewayKeyManagerClient(opts)
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, region)
+		})
 	}
 }

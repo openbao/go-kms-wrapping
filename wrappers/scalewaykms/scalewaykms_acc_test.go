@@ -7,10 +7,10 @@ import (
 	"bytes"
 	"context"
 	"os"
-	"reflect"
 	"testing"
 
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
+	"github.com/stretchr/testify/require"
 )
 
 // This test executes real calls against the Scaleway Key Manager API. The API
@@ -29,40 +29,24 @@ func TestAccScalewayKmsWrapper_Lifecycle(t *testing.T) {
 		t.SkipNow()
 	}
 
-	if os.Getenv("SCALEWAYKMS_WRAPPER_KEY_ID") == "" {
-		t.SkipNow()
-	}
-
 	k := NewWrapper()
-	_, err := k.SetConfig(context.Background())
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
+	_, err := k.SetConfig(context.Background(), wrapping.WithConfigMap(map[string]string{
+		"key_id": os.Getenv("SCW_KMS_KEY_ID"),
+	}))
+	require.NoError(t, err)
 
 	input := []byte("foo")
 	swi, err := k.Encrypt(context.Background(), input)
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
-	if bytes.Equal(input, swi.Ciphertext) {
-		t.Fatalf("ciphertext should differ from input")
-	}
+	require.NoError(t, err)
+	require.NotEqual(t, input, swi.Ciphertext)
 
 	pt, err := k.Decrypt(context.Background(), swi)
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
-	if !reflect.DeepEqual(input, pt) {
-		t.Fatalf("expected %s, got %s", input, pt)
-	}
+	require.NoError(t, err)
+	require.Equal(t, input, pt)
 
 	swi2, err := k.Encrypt(context.Background(), input)
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
-	if bytes.Equal(swi.Ciphertext, swi2.Ciphertext) {
-		t.Fatalf("re-encrypting the same input should produce a different ciphertext")
-	}
+	require.NoError(t, err)
+	require.NotEqual(t, swi.Ciphertext, swi2.Ciphertext)
 
 	corruptedSwi := &wrapping.BlobInfo{
 		Ciphertext: bytes.Clone(swi.Ciphertext),
@@ -70,7 +54,6 @@ func TestAccScalewayKmsWrapper_Lifecycle(t *testing.T) {
 		KeyInfo:    swi.KeyInfo,
 	}
 	corruptedSwi.Ciphertext[0] ^= 0xff
-	if _, err := k.Decrypt(context.Background(), corruptedSwi); err == nil {
-		t.Fatalf("decrypt corrupted ciphertext should return an error")
-	}
+	_, err = k.Decrypt(context.Background(), corruptedSwi)
+	require.Error(t, err)
 }
