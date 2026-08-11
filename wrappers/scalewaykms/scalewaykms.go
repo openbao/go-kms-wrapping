@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"sync/atomic"
 
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
@@ -16,9 +15,6 @@ import (
 )
 
 const Type wrapping.WrapperType = "scalewaykms"
-
-// EnvScalewayKmsWrapperKeyId is the accepted env var for the Key Manager key ID.
-const EnvScalewayKmsWrapperKeyId = "SCALEWAYKMS_WRAPPER_KEY_ID"
 
 // keyManagerAPI is the subset of the Scaleway Key Manager API used by the
 // wrapper. It is defined as an interface to allow mocking in tests.
@@ -65,27 +61,23 @@ func (k *Wrapper) KeyId(_ context.Context) (string, error) {
 // config parameter.
 //
 // Order of precedence for Scaleway values:
-//   - Environment variable (SCALEWAYKMS_WRAPPER_KEY_ID for the key id, and the
-//     standard SCW_* variables for credentials and region)
+// SetConfig sets the fields on the Wrapper object based on values from the
+// config parameter.
+//
+// Order of precedence for Scaleway values:
 //   - Passed in config map
-//   - Scaleway configuration file (active profile)
+//   - Standard SCW_* environment variables (unless WithDisallowEnvVars)
+//   - Scaleway configuration file, active profile (unless WithDisallowEnvVars)
 func (k *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapping.WrapperConfig, error) {
 	opts, err := getOpts(opt...)
 	if err != nil {
 		return nil, err
 	}
 
-	// Check and set KeyId
-	switch {
-	case os.Getenv(EnvScalewayKmsWrapperKeyId) != "" && !opts.WithDisallowEnvVars:
-		k.keyId = os.Getenv(EnvScalewayKmsWrapperKeyId)
-	case opts.WithKeyId != "":
-		k.keyId = opts.WithKeyId
-	default:
-		return nil, errors.New("key id not found in env or config for scaleway kms wrapper configuration")
+	if opts.WithKeyId == "" {
+		return nil, errors.New("key id not found in config for scaleway kms wrapper configuration")
 	}
-
-	k.currentKeyId.Store(k.keyId)
+	k.keyId = opts.WithKeyId
 
 	// Build the Scaleway client from the resolved credentials/region.
 	if k.client == nil {
@@ -218,20 +210,21 @@ func (k *Wrapper) Client() keyManagerAPI {
 // file (in that order of precedence) and returns a ready-to-use Key Manager
 // API client along with the resolved region and project id.
 func getScalewayKeyManagerClient(opts *options) (keyManagerAPI, scw.Region, string, error) {
-	// Lowest precedence: the active profile from the Scaleway configuration
-	// file (e.g. ~/.config/scw/config.yaml), when available.
 	profiles := []*scw.Profile{{}}
-	if cfg, err := scw.LoadConfig(); err == nil {
-		if p, err := cfg.GetActiveProfile(); err == nil && p != nil {
-			profiles = append(profiles, p)
-		}
-	}
 
-	// Middle precedence: the standard SCW_* environment variables.
 	if !opts.WithDisallowEnvVars {
+		// Lowest precedence: the active profile from the Scaleway configuration
+		// file (e.g. ~/.config/scw/config.yaml). Note that LoadConfig also reads
+		// SCW_CONFIG_PATH, so it is skipped entirely here.
+		if cfg, err := scw.LoadConfig(); err == nil {
+			if p, err := cfg.GetActiveProfile(); err == nil && p != nil {
+				profiles = append(profiles, p)
+			}
+		}
+
+		// Middle precedence: the standard SCW_* environment variables.
 		profiles = append(profiles, scw.LoadEnvProfile())
 	}
-
 	// Highest precedence: explicit values from the config map / options.
 	configProfile := &scw.Profile{}
 	if opts.withAccessKey != "" {
