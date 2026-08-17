@@ -11,6 +11,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"runtime"
 
 	"github.com/hashicorp/go-plugin"
 	pb "github.com/openbao/go-kms-wrapping/plugin/v2/pb/kms"
@@ -90,10 +91,16 @@ func (c *gRPCKMSClient) GetKey(ctx context.Context, opts *kms.KeyOptions) (kms.K
 	if err != nil {
 		return nil, c.handleRPCError(err)
 	}
-	return &gRPCKeyClient{
+	key := &gRPCKeyClient{
 		id:  resp.KeyId,
 		kms: c,
-	}, nil
+	}
+	runtime.AddCleanup(key, func(id string) {
+		_, _ = c.client.CloseKey(c.ctx, &pb.CloseKeyRequest{
+			KeyId: id,
+		})
+	}, resp.KeyId)
+	return key, nil
 }
 
 type gRPCKeyClient struct {
@@ -218,11 +225,4 @@ func (c *gRPCKeyClient) ExportPublic(ctx context.Context) (crypto.PublicKey, err
 		return nil, err
 	}
 	return crypto.PublicKey(pub), nil
-}
-
-func (c *gRPCKeyClient) Close(ctx context.Context) error {
-	_, err := c.kms.client.CloseKey(ctx, &pb.CloseKeyRequest{
-		KeyId: c.id,
-	})
-	return c.kms.handleRPCError(err)
 }

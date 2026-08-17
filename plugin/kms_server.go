@@ -144,18 +144,8 @@ func (s *gRPCKMSServer) GetKey(ctx context.Context, req *pb.GetKeyRequest) (*pb.
 
 func (s *gRPCKMSServer) CloseKey(ctx context.Context, req *pb.CloseKeyRequest) (*pb.CloseKeyResponse, error) {
 	s.keysLock.Lock()
-	key, ok := s.keys[req.KeyId]
-	if !ok {
-		s.keysLock.Unlock()
-		return nil, status.Error(codes.NotFound, ErrNoInstance.Error())
-	}
-
 	delete(s.keys, req.KeyId)
 	s.keysLock.Unlock()
-
-	if err := key.Close(ctx); err != nil {
-		return nil, s.handleKMSError(err)
-	}
 
 	return &pb.CloseKeyResponse{}, nil
 }

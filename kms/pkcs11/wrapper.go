@@ -303,11 +303,5 @@ func (w *pkcs11Wrapper) with(ctx context.Context, info *wrapping.KeyInfo, f func
 		return err
 	}
 
-	defer func() {
-		if err := key.Close(ctx); err != nil {
-			w.logger.Warn("failed to close key", "error", err.Error())
-		}
-	}()
-
 	return f(key)
 }

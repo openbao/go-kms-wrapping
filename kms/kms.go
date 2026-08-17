@@ -108,15 +108,6 @@ type Key interface {
 	//  - *ecdsa.PublicKey for EC keys
 	//  - ed25519.PublicKey for Ed25519 keys
 	ExportPublic(context.Context) (crypto.PublicKey, error)
-
-	// Close terminates this key, rendering further use of it a semantic error.
-	//
-	// KMS providers likely will not need to directly implement this. Rather,
-	// this is useful for plugin clients to free key references on a remote
-	// plugin server.
-	//
-	// Close should return a nil error if not implemented to signify a no-op.
-	Close(context.Context) error
 }
 
 // ConfigMap represents user-defined data that is used to configure APIs in this
@@ -275,10 +266,6 @@ func (UnimplementedKey) Verify(context.Context, *VerifyOptions) error {
 
 func (UnimplementedKey) ExportPublic(context.Context) (crypto.PublicKey, error) {
 	return nil, ErrNotImplemented
-}
-
-func (UnimplementedKey) Close(context.Context) error {
-	return nil
 }
 
 // NewSigner returns a [crypto.Signer]/[crypto.MessageSigner] built on a [Key]
