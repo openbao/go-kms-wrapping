@@ -71,10 +71,10 @@ func newSdkClient(cc clientConfig) (kmsClient, error) {
 	if cc.disallowEnvVars {
 		switch {
 		case cc.serviceAccountKeyPath != "" || cc.privateKeyPath != "":
-			return nil, fmt.Errorf("'service_account_key_path' and 'private_key_path' cannot be used when environment variables are disallowed")
+			return nil, fmt.Errorf("'service_account_key_path' and 'private_key_path' cannot be used when environment access is disallowed")
 		case cc.serviceAccountKey != "":
-			// The SDK consults the environment and the credentials file
-			// for a private key before the one embedded in the service
+			// KeyAuth/getPrivateKey in the SDK consult the environment and
+			// the credentials file before the key embedded in the service
 			// account key, so resolve the embedded key up front.
 			if cc.privateKey == "" {
 				privateKey, err := embeddedPrivateKey(cc.serviceAccountKey)
@@ -86,7 +86,7 @@ func newSdkClient(cc clientConfig) (kmsClient, error) {
 		case cc.token != "":
 			// token flow, used as-is
 		default:
-			return nil, fmt.Errorf("'service_account_key' or 'token' must be configured explicitly when environment variables are disallowed")
+			return nil, fmt.Errorf("'service_account_key' or 'token' must be configured explicitly when environment access is disallowed")
 		}
 	}
 
@@ -166,7 +166,7 @@ func embeddedPrivateKey(saKey string) (string, error) {
 		return "", fmt.Errorf("failed to parse service account key: %w", err)
 	}
 	if parsed.Credentials.PrivateKey == "" {
-		return "", fmt.Errorf("service account key contains no private key; configure 'private_key' explicitly when environment variables are disallowed")
+		return "", fmt.Errorf("service account key contains no private key; configure 'private_key' explicitly when environment access is disallowed")
 	}
 	return parsed.Credentials.PrivateKey, nil
 }
