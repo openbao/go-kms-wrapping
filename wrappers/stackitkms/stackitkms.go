@@ -190,14 +190,11 @@ func (w *Wrapper) Encrypt(ctx context.Context, plaintext []byte, opt ...wrapping
 		return nil, fmt.Errorf("error encrypting data encryption key: %w", err)
 	}
 
-	keyId := keyVersionId(w.keyId, w.keyVersion)
-	w.currentKeyId.Store(keyId)
-
 	return &wrapping.BlobInfo{
 		Ciphertext: env.Ciphertext,
 		Iv:         env.Iv,
 		KeyInfo: &wrapping.KeyInfo{
-			KeyId:      keyId,
+			KeyId:      keyVersionId(w.keyId, w.keyVersion),
 			WrappedKey: wrappedKey,
 		},
 	}, nil
