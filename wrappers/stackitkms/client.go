@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/stackitcloud/stackit-sdk-go/core/clients"
 	"github.com/stackitcloud/stackit-sdk-go/core/config"
 	"github.com/stackitcloud/stackit-sdk-go/services/kms/v1api"
 )
@@ -75,7 +76,8 @@ func newSdkClient(cc clientConfig) (kmsClient, error) {
 		case cc.serviceAccountKey != "":
 			// KeyAuth/getPrivateKey in the SDK consult the environment and
 			// the credentials file before the key embedded in the service
-			// account key, so resolve the embedded key up front.
+			// account key, so resolve the embedded key up front:
+			// https://github.com/stackitcloud/stackit-sdk-go/blob/core/v0.26.0/core/auth/auth.go#L344-L385
 			if cc.privateKey == "" {
 				privateKey, err := embeddedPrivateKey(cc.serviceAccountKey)
 				if err != nil {
@@ -155,18 +157,15 @@ func (c *sdkClient) listVersions(ctx context.Context, keyId string) ([]v1api.Ver
 }
 
 // embeddedPrivateKey returns the private key embedded in a service account
-// key.
+// key, mirroring the SDK's own last-resort extraction:
+// https://github.com/stackitcloud/stackit-sdk-go/blob/core/v0.26.0/core/auth/auth.go#L193-L206
 func embeddedPrivateKey(saKey string) (string, error) {
-	var parsed struct {
-		Credentials struct {
-			PrivateKey string `json:"privateKey"`
-		} `json:"credentials"`
-	}
+	var parsed clients.ServiceAccountKeyResponse
 	if err := json.Unmarshal([]byte(saKey), &parsed); err != nil {
 		return "", fmt.Errorf("failed to parse service account key: %w", err)
 	}
-	if parsed.Credentials.PrivateKey == "" {
+	if parsed.Credentials == nil || parsed.Credentials.PrivateKey == nil || *parsed.Credentials.PrivateKey == "" {
 		return "", fmt.Errorf("service account key contains no private key; configure 'private_key' explicitly when environment access is disallowed")
 	}
-	return parsed.Credentials.PrivateKey, nil
+	return *parsed.Credentials.PrivateKey, nil
 }
