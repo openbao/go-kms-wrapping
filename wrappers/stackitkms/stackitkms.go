@@ -9,7 +9,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync/atomic"
 
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 	"github.com/stackitcloud/stackit-sdk-go/services/kms/v1api"
@@ -33,8 +32,6 @@ type Wrapper struct {
 	keyId      string
 	keyVersion int64
 
-	currentKeyId *atomic.Value
-
 	// newClient is a hook for tests to substitute a fake client
 	newClient func(cc clientConfig) (kmsClient, error)
 }
@@ -44,12 +41,7 @@ var _ wrapping.Wrapper = (*Wrapper)(nil)
 
 // NewWrapper creates a new STACKIT KMS wrapper
 func NewWrapper() *Wrapper {
-	w := &Wrapper{
-		currentKeyId: new(atomic.Value),
-		newClient:    newSdkClient,
-	}
-	w.currentKeyId.Store("")
-	return w
+	return &Wrapper{newClient: newSdkClient}
 }
 
 func (w *Wrapper) Type(_ context.Context) (wrapping.WrapperType, error) {
@@ -59,7 +51,10 @@ func (w *Wrapper) Type(_ context.Context) (wrapping.WrapperType, error) {
 // KeyId returns the id of the key version new blobs are wrapped with, in the
 // form "<key id>/<version>", so that a key rotation changes the reported id.
 func (w *Wrapper) KeyId(_ context.Context) (string, error) {
-	return w.currentKeyId.Load().(string), nil
+	if w.keyId == "" {
+		return "", nil
+	}
+	return keyVersionId(w.keyId, w.keyVersion), nil
 }
 
 // SetConfig sets the fields on the Wrapper object based on values from the
@@ -157,7 +152,6 @@ func (w *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 
 	w.keyId = keyId
 	w.keyVersion = keyVersion
-	w.currentKeyId.Store(keyVersionId(keyId, keyVersion))
 
 	// Map that holds non-sensitive configuration info
 	wrapConfig := new(wrapping.WrapperConfig)
