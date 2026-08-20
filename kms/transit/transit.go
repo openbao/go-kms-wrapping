@@ -18,7 +18,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hashicorp/go-hclog"
 	"github.com/openbao/go-kms-wrapping/v2/kms"
 	"github.com/openbao/openbao/api/v2"
 )
@@ -40,18 +39,14 @@ type transitKMS struct {
 
 	client *api.Client
 	mount  string // The configured Transit engine mount path.
-
-	// To keep the client's token alive.
-	lifetimeWatcher *api.LifetimeWatcher
 }
 
 func (k *transitKMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 	var cfg struct {
-		Address       string `mapstructure:"address"`
-		Token         string `mapstructure:"token"`
-		Namespace     string `mapstructure:"namespace"`
-		MountPath     string `mapstructure:"mount_path"`
-		EnableRenewal bool   `mapstructure:"enable_renewal"`
+		Address   string `mapstructure:"address"`
+		Token     string `mapstructure:"token"`
+		Namespace string `mapstructure:"namespace"`
+		MountPath string `mapstructure:"mount_path"`
 
 		TLSServerName string `mapstructure:"tls_server_name"`
 		TLSSkipVerify bool   `mapstructure:"tls_skip_verify"`
@@ -103,57 +98,9 @@ func (k *transitKMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 	client.SetToken(cfg.Token)
 	client.SetNamespace(cfg.Namespace)
 
-	logger := opts.Logger
-	if logger == nil {
-		// So we don't need to guard against the logger being nil.
-		logger = hclog.NewNullLogger()
-	}
-
-	var lifetimeWatcher *api.LifetimeWatcher
-	if cfg.EnableRenewal {
-		// Renew the token immediately to get a secret to pass to lifetime
-		// watcher.
-		secret, err := client.Auth().Token().RenewTokenAsSelf(client.Token(), 0)
-		// If we don't get an error renewing, set up a lifetime watcher. The
-		// token may not be renewable or not have permission to renew-self.
-		if err == nil {
-			input := &api.LifetimeWatcherInput{Secret: secret}
-			lifetimeWatcher, err = client.NewLifetimeWatcher(input)
-			if err != nil {
-				return err
-			}
-			go func() {
-				for {
-					select {
-					case err := <-lifetimeWatcher.DoneCh():
-						logger.Info("shutting down token renewal")
-						if err != nil {
-							logger.Error("error renewing token", "error", err)
-						}
-						return
-					case <-lifetimeWatcher.RenewCh():
-						logger.Trace("successfully renewed token")
-					}
-				}
-			}()
-			go lifetimeWatcher.Start()
-		} else {
-			logger.Info("unable to renew token, disabling renewal", "err", err)
-		}
-	}
-
 	k.client = client
-	k.lifetimeWatcher = lifetimeWatcher
 	k.mount = cmp.Or(cfg.MountPath, "transit")
 
-	return nil
-}
-
-func (k *transitKMS) Close(context.Context) error {
-	// We have no resources to clear besides the LifetimeWatcher's Goroutines.
-	if k.lifetimeWatcher != nil {
-		k.lifetimeWatcher.Stop()
-	}
 	return nil
 }
 
