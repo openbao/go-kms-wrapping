@@ -1,3 +1,7 @@
+// Copyright (c) 2025 OpenBao a Series of LF Projects, LLC
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: MPL-2.0
+
 package tpm
 
 import (
@@ -18,10 +22,11 @@ import (
 
 // parameter names used in configuration file
 const (
-	TPM_PATH       = "tpm_path"
-	PCR_VALUES     = "tpm_pcrvalues"
-	USER_AUTH      = "tpm_userauth"
-	HIERARCHY_AUTH = "tpm_hierarchyauth"
+	tpmPath               = "tpm_path"
+	pcrValues             = "tpm_pcrvalues"
+	userAuth              = "tpm_userauth"
+	hierarchyuAuth        = "tpm_hierarchyauth"
+	sessionEncryptionName = "tpm_session_encryption_name"
 )
 
 // struct used to encode the TPM sealing key and specifications about it
@@ -57,6 +62,12 @@ func openTPM(path string) (io.ReadWriteCloser, error) {
 //
 // the expectedPCRMap would be
 // 15:0000000000000000000000000000000000000000000000000000000000000000,23:F5A5FD42D16A20302798EF6ED309979B43003D2320D9F0E8EA9831A92759FB4B
+//
+// the return value is
+//  1. map of pcr_bank and its value (map[uint][]byte)
+//  2. list of the pcr_banks alone ([]uint)
+//  3. the hash of the pcrs taken together in order ([]byte);  This value is used when defining a PolicyPCR
+//     https://github.com/tpm2-software/tpm2-tools/blob/83f6f8ac5de5a989d447d8791525eb6b6472e6ac/lib/tpm2_openssl.c#L206
 func getPCRMap(algo tpm2.TPMAlgID, expectedPCRMap string) (map[uint][]byte, []uint, []byte, error) {
 
 	pcrMap := make(map[uint][]byte)
@@ -65,8 +76,6 @@ func getPCRMap(algo tpm2.TPMAlgID, expectedPCRMap string) (map[uint][]byte, []ui
 		return pcrMap, nil, nil, nil
 	}
 	var hsh hash.Hash
-	// https://github.com/tpm2-software/tpm2-tools/blob/83f6f8ac5de5a989d447d8791525eb6b6472e6ac/lib/tpm2_openssl.c#L206
-
 	switch algo {
 	case tpm2.TPMAlgSHA1:
 		hsh = sha1.New()

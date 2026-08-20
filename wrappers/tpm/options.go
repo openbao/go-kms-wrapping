@@ -1,3 +1,7 @@
+// Copyright (c) 2025 OpenBao a Series of LF Projects, LLC
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: MPL-2.0
+
 package tpm
 
 import (
@@ -18,13 +22,13 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 
 	for k, v := range opts.WithConfigMap {
 		switch k {
-		case TPM_PATH:
+		case tpmPath:
 			opts.withTPMPath = v
-		case PCR_VALUES:
+		case pcrValues:
 			opts.withPCRValues = v
-		case USER_AUTH:
+		case userAuth:
 			opts.withUserAuth = v
-		case HIERARCHY_AUTH:
+		case hierarchyuAuth:
 			opts.withHierarchyAuth = v
 		}
 	}
@@ -46,45 +50,4 @@ type options struct {
 
 func getDefaultOptions() options {
 	return options{}
-}
-
-// WithUserAuth provides a way to chose the user agent
-func WithUserAuth(with string) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withUserAuth = with
-			return nil
-		})
-	}
-}
-
-// WithHierarchyAuth provides a way to set the passphrase on the hierarchy (if any)
-func WithHierarchyAuth(with string) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withHierarchyAuth = with
-			return nil
-		})
-	}
-}
-
-// Path to the TPM device (/dev/tpm0)
-func WithTPMPath(with string) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withTPMPath = with
-			return nil
-		})
-	}
-}
-
-// List of PCR banks Value
-// Multiple PCR values are comma separated (.WithPCRValues("0:123abc,7:abcae"))
-func WithPCRValues(with string) wrapping.Option {
-	return func() interface{} {
-		return OptionFunc(func(o *options) error {
-			o.withPCRValues = with
-			return nil
-		})
-	}
 }

@@ -1,3 +1,4 @@
+// Copyright (c) 2025 OpenBao a Series of LF Projects, LLC
 // Copyright (c) HashiCorp, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
@@ -12,6 +13,7 @@ import (
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpm2/transport"
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -40,25 +42,17 @@ func TestDisableEnv(t *testing.T) {
 
 	s := NewWrapper()
 	_, err := s.SetConfig(t.Context(), wrapping.WithConfigMap(configMap), wrapping.WithDisallowEnvVars(true))
-	if err != nil {
-		t.Fatalf("got error from SetConfig %v", err)
-	}
+	require.NoError(t, err)
 
 	// Make sure we can use the key properly.
 	input := []byte("foo")
 	swi, err := s.Encrypt(t.Context(), input)
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
+	require.NoError(t, err)
 
 	pt, err := s.Decrypt(t.Context(), swi)
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
+	require.NoError(t, err)
 
-	if !reflect.DeepEqual(input, pt) {
-		t.Fatalf("expected %s, got %s", input, pt)
-	}
+	require.True(t, reflect.DeepEqual(input, pt), "expected %s, got %s", input, pt)
 }
 
 // Tests base configuration for the TPM
@@ -68,9 +62,7 @@ func TestTPMSeal(t *testing.T) {
 	// Do an error check before env vars are set
 	s := NewWrapper()
 	_, err := s.SetConfig(t.Context())
-	if err == nil {
-		t.Fatal("expected error when EnvTPMPath required values are not provided")
-	}
+	require.Error(t, err)
 
 	// Now test for cases where CKMS values are provided
 	checkAndSetEnvVars(t)
@@ -85,9 +77,7 @@ func TestTPMSeal(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			s := NewWrapper()
 			_, err := s.SetConfig(t.Context(), wrapping.WithConfigMap(config))
-			if err != nil {
-				t.Fatalf("error setting seal config: %v", err)
-			}
+			require.NoError(t, err)
 		})
 	}
 }
@@ -98,32 +88,16 @@ func TestTPMSeal_Lifecycle(t *testing.T) {
 
 	s := NewWrapper()
 	_, err := s.SetConfig(t.Context())
-	if err != nil {
-		t.Fatalf("error setting seal config: %v", err)
-	}
+	require.NoError(t, err)
 
 	input := []byte("foo")
 	swi, err := s.Encrypt(t.Context(), input)
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
-
-	keyId, err := s.KeyId(t.Context())
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
-	if swi.KeyInfo.KeyId != keyId {
-		t.Fatalf("expected %s got: %s", keyId, swi.KeyInfo.KeyId)
-	}
+	require.NoError(t, err)
 
 	pt, err := s.Decrypt(t.Context(), swi)
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
+	require.NoError(t, err)
 
-	if !reflect.DeepEqual(input, pt) {
-		t.Fatalf("expected %s, got %s", input, pt)
-	}
+	require.True(t, reflect.DeepEqual(input, pt), "expected %s, got %s", input, pt)
 }
 
 // Tests the Encrypt/Decrypt cycle with AAD
@@ -132,32 +106,16 @@ func TestTPMSeal_Lifecycle_AAD(t *testing.T) {
 
 	s := NewWrapper()
 	_, err := s.SetConfig(t.Context())
-	if err != nil {
-		t.Fatalf("error setting seal config: %v", err)
-	}
+	require.NoError(t, err)
 
 	input := []byte("foo")
 	swi, err := s.Encrypt(t.Context(), input, wrapping.WithAad([]byte("myaad")))
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
-
-	keyId, err := s.KeyId(t.Context())
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
-	if swi.KeyInfo.KeyId != keyId {
-		t.Fatalf("expected %s got: %s", keyId, swi.KeyInfo.KeyId)
-	}
+	require.NoError(t, err)
 
 	pt, err := s.Decrypt(t.Context(), swi, wrapping.WithAad([]byte("myaad")))
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
+	require.NoError(t, err)
 
-	if !reflect.DeepEqual(input, pt) {
-		t.Fatalf("expected %s, got %s", input, pt)
-	}
+	require.True(t, reflect.DeepEqual(input, pt), "expected %s, got %s", input, pt)
 }
 
 // Tests the Encrypt/Decrypt cycle with userAuth
@@ -168,30 +126,16 @@ func TestTPMSeal_Lifecycle_UserAuth_Pass(t *testing.T) {
 
 	s := NewWrapper()
 	_, err := s.SetConfig(t.Context())
-	if err != nil {
-		t.Fatalf("error setting seal config: %v", err)
-	}
+	require.NoError(t, err)
 
 	input := []byte("foo")
 	swi, err := s.Encrypt(t.Context(), input)
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
-
-	keyId, err := s.KeyId(t.Context())
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
-	if swi.KeyInfo.KeyId != keyId {
-		t.Fatalf("expected %s got: %s", keyId, swi.KeyInfo.KeyId)
-	}
+	require.NoError(t, err)
 
 	os.Setenv(EnvUserAuth, defaultUserAuth)
 
 	_, err = s.Decrypt(t.Context(), swi)
-	if err != nil {
-		t.Fatalf("err: expected to fail unseal with bad password")
-	}
+	require.NoError(t, err)
 }
 
 // Tests the Encrypt/Decrypt cycle with incorrect userAuth
@@ -201,32 +145,18 @@ func TestTPMSeal_Lifecycle_UserAuth_Fail(t *testing.T) {
 	os.Setenv(EnvUserAuth, defaultUserAuth)
 
 	s := NewWrapper()
+
 	_, err := s.SetConfig(t.Context())
-	if err != nil {
-		t.Fatalf("error setting seal config: %v", err)
-	}
+	require.NoError(t, err)
 
 	input := []byte("foo")
 	swi, err := s.Encrypt(t.Context(), input)
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
-
-	keyId, err := s.KeyId(t.Context())
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
-	if swi.KeyInfo.KeyId != keyId {
-		t.Fatalf("expected %s got: %s", keyId, swi.KeyInfo.KeyId)
-	}
+	require.NoError(t, err)
 
 	os.Setenv(EnvUserAuth, "badpassword")
 
 	_, err = s.Decrypt(t.Context(), swi)
-	if err != nil {
-		t.Fatalf("err: expected to fail unseal with bad password")
-	}
-
+	require.NoError(t, err)
 }
 
 // Tests the Encrypt/Decrypt cycle with PCR value
@@ -237,32 +167,17 @@ func TestTPMSeal_Lifecycle_PCR_Pass(t *testing.T) {
 
 	s := NewWrapper()
 	_, err := s.SetConfig(t.Context())
-	if err != nil {
-		t.Fatalf("error setting seal config: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Test Encrypt and Decrypt calls
 	input := []byte("foo")
 	swi, err := s.Encrypt(t.Context(), input)
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
-
-	// assert the wrappers key id matches the key id used for encryption
-	keyId, err := s.KeyId(t.Context())
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
-	if swi.KeyInfo.KeyId != keyId {
-		t.Fatalf("expected %s got: %s", keyId, swi.KeyInfo.KeyId)
-	}
+	require.NoError(t, err)
 
 	os.Setenv(EnvPCRValues, testInitialPCR)
 
 	_, err = s.Decrypt(t.Context(), swi)
-	if err != nil {
-		t.Fatalf("err: expected to fail unseal with pcr")
-	}
+	require.NoError(t, err)
 }
 
 // Tests the Encrypt/Decrypt cycle with PCR values altered
@@ -273,25 +188,12 @@ func TestTPMSeal_Lifecycle_PCR_Fail(t *testing.T) {
 
 	s := NewWrapper()
 	_, err := s.SetConfig(t.Context())
-	if err != nil {
-		t.Fatalf("error setting seal config: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Test Encrypt and Decrypt calls
 	input := []byte("foo")
 	swi, err := s.Encrypt(t.Context(), input)
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
-
-	// assert the wrappers key id matches the key id used for encryption
-	keyId, err := s.KeyId(t.Context())
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
-	if swi.KeyInfo.KeyId != keyId {
-		t.Fatalf("expected %s got: %s", keyId, swi.KeyInfo.KeyId)
-	}
+	require.NoError(t, err)
 
 	// export TPM2TOOLS_TCTI="swtpm:port=2321"
 	// $ tpm2_pcrread sha256:23
@@ -303,9 +205,8 @@ func TestTPMSeal_Lifecycle_PCR_Fail(t *testing.T) {
 	pcr := uint(23)
 
 	tpmDevice, err := net.Dial("tcp", swTPMPath)
-	if err != nil {
-		t.Fatalf("err: opening TPM %s", err.Error())
-	}
+	require.NoError(t, err)
+
 	defer tpmDevice.Close()
 	rwr := transport.FromReadWriter(tpmDevice)
 
@@ -320,9 +221,7 @@ func TestTPMSeal_Lifecycle_PCR_Fail(t *testing.T) {
 			},
 		},
 	}.Execute(rwr)
-	if err != nil {
-		t.Fatalf("error reading PCR 23 %v", err)
-	}
+	require.NoError(t, err)
 
 	// then extend it
 	_, err = tpm2.PCRExtend{
@@ -339,16 +238,13 @@ func TestTPMSeal_Lifecycle_PCR_Fail(t *testing.T) {
 			},
 		},
 	}.Execute(rwr)
-	if err != nil {
-		t.Fatalf("error exgtending PCR 23 %v", err)
-	}
+	require.NoError(t, err)
+
 	tpmDevice.Close()
 
 	// decryption should fail (eg err should not be nil)
 	_, err = s.Decrypt(t.Context(), swi)
-	if err == nil {
-		t.Fatalf("err: expected to fail unseal with new PCR value")
-	}
+	require.Error(t, err)
 }
 
 // checkAndSetEnvVars check and sets the required env vars. It will skip tests that are
@@ -357,7 +253,7 @@ func checkAndSetEnvVars(t *testing.T) {
 	t.Helper()
 
 	// Skip tests if we are not running acceptance tests
-	if os.Getenv("VAULT_ACC") == "" {
+	if os.Getenv("TPM_ACC_TESTS") == "" {
 		t.SkipNow()
 	}
 

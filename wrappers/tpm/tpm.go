@@ -1,3 +1,7 @@
+// Copyright (c) 2025 OpenBao a Series of LF Projects, LLC
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: MPL-2.0
+
 package tpm
 
 import (
@@ -19,9 +23,7 @@ import (
 	wrapaead "github.com/openbao/go-kms-wrapping/v2/aead"
 )
 
-const (
-	WrapperTypeTPM wrapping.WrapperType = "tpm"
-)
+const Type wrapping.WrapperType = "tpm"
 
 const (
 	EnvTPMPath       = "TPM_PATH"
@@ -61,7 +63,6 @@ func (s *TPMWrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrap
 	if err != nil {
 		return nil, err
 	}
-	opts.GetWithConfigMap()
 
 	// check overrides and require a TPM either way
 	switch {
@@ -98,12 +99,12 @@ func (s *TPMWrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrap
 	// we're returning the PCR's because its not sensitive and can get encoded in the BlobInfo/KeyInfo
 	wrapConfig := new(wrapping.WrapperConfig)
 	wrapConfig.Metadata = make(map[string]string)
-	wrapConfig.Metadata[PCR_VALUES] = s.pcrValues
+	wrapConfig.Metadata[pcrValues] = s.pcrValues
 	return wrapConfig, nil
 }
 
 func (s *TPMWrapper) Type(_ context.Context) (wrapping.WrapperType, error) {
-	return WrapperTypeTPM, nil
+	return Type, nil
 }
 
 func (s *TPMWrapper) KeyId(_ context.Context) (string, error) {
@@ -156,16 +157,12 @@ func (s *TPMWrapper) Encrypt(ctx context.Context, plaintext []byte, opt ...wrapp
 		_, err = flush.Execute(rwr)
 	}()
 
-	// now create a session to specify the pcr digest and password policy
+	// setup trial session variables used for the policy and key operatons
 	sessTrialPolicy, sessTrialPolicycleanup, err := tpm2.PolicySession(rwr, tpm2.TPMAlgSHA256, 16, []tpm2.AuthOption{tpm2.Trial()}...)
 	if err != nil {
 		return nil, fmt.Errorf("go-kms-wrapping: setting up trial session: %v", err)
 	}
-	defer func() {
-		if err := sessTrialPolicycleanup(); err != nil {
-			fmt.Printf("go-kms-wrapping: cleaning up trial session: %v", err)
-		}
-	}()
+	defer sessTrialPolicycleanup()
 
 	sel := tpm2.TPMLPCRSelection{
 		PCRSelections: []tpm2.TPMSPCRSelection{
@@ -205,7 +202,7 @@ func (s *TPMWrapper) Encrypt(ctx context.Context, plaintext []byte, opt ...wrapp
 	}
 
 	// now that we have the digest, create the actual TPM based key based on the parent
-	// remember the sensitive data **is** the encryption we we used in wrapping.EnvelopeEncrypt(plaintext, opt...)
+	// remember the sensitive data **is** the encryption key we will use later for wrapaead.Encrypt(plaintext, opt...)
 	cCreate, err := tpm2.Create{
 		ParentHandle: tpm2.NamedHandle{
 			Handle: cPrimary.ObjectHandle,
@@ -233,7 +230,7 @@ func (s *TPMWrapper) Encrypt(ctx context.Context, plaintext []byte, opt ...wrapp
 		},
 	}.Execute(rwr)
 	if err != nil {
-		return nil, fmt.Errorf("go-kms-wrapping: can't create object TPM  %v", err)
+		return nil, fmt.Errorf("go-kms-wrapping: error creating sealed object  %v", err)
 	}
 
 	// now load the key
@@ -289,11 +286,6 @@ func (s *TPMWrapper) Encrypt(ctx context.Context, plaintext []byte, opt ...wrapp
 		return nil, fmt.Errorf("go-kms-wrapping: Error marshaling to JSON: %v", err)
 	}
 
-	_, err = getOpts(opt...)
-	if err != nil {
-		return nil, err
-	}
-
 	// now encrypt the plaintext using the aes-gcm key which we sealed earlier into the tpm object
 	// the library we're using to do that is "github.com/openbao/go-kms-wrapping/v2/aead"
 	directwrap := wrapaead.NewWrapper()
@@ -332,6 +324,14 @@ func (s *TPMWrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, opt ...
 	}
 	defer rwc.Close()
 	rwr := transport.FromReadWriter(rwc)
+
+	// create a pcr policy along with PolicyAuth Value (to account for a password)
+
+	policySessionUnseal, policySessionUnsealCleanup, err := tpm2.PolicySession(rwr, tpm2.TPMAlgSHA256, 16, []tpm2.AuthOption{tpm2.Auth([]byte(s.userAuth))}...)
+	if err != nil {
+		return nil, fmt.Errorf("go-kms-wrapping: error setting up policy session: %v", err)
+	}
+	defer policySessionUnsealCleanup()
 
 	// create H2 template again
 	cPrimary, err := tpm2.CreatePrimary{
@@ -409,16 +409,8 @@ func (s *TPMWrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, opt ...
 		_, err = flush.Execute(rwr)
 	}()
 
-	// create a pcr policy along with PolicyAuth Value (to account for a password)
-	// remember to set the userAuth into the auth option into the policy session (which'll include it in the final auth calculation)
-	sess2, cleanup2, err := tpm2.PolicySession(rwr, tpm2.TPMAlgSHA256, 16, []tpm2.AuthOption{tpm2.Auth([]byte(s.userAuth))}...)
-	if err != nil {
-		return nil, fmt.Errorf("go-kms-wrapping: error setting up policy session: %v", err)
-	}
-	defer cleanup2()
-
 	_, err = tpm2.PolicyPCR{
-		PolicySession: sess2.Handle(),
+		PolicySession: policySessionUnseal.Handle(),
 		PcrDigest:     tpm2.TPM2BDigest{Buffer: pcrDigest},
 		Pcrs: tpm2.TPMLPCRSelection{
 			PCRSelections: sel.PCRSelections,
@@ -429,7 +421,7 @@ func (s *TPMWrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, opt ...
 	}
 
 	_, err = tpm2.PolicyAuthValue{
-		PolicySession: sess2.Handle(),
+		PolicySession: policySessionUnseal.Handle(),
 	}.Execute(rwr)
 	if err != nil {
 		return nil, fmt.Errorf("go-kms-wrapping: error executing PolicyAuthValue: %v", err)
@@ -440,9 +432,9 @@ func (s *TPMWrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, opt ...
 		ItemHandle: tpm2.AuthHandle{
 			Handle: k.ObjectHandle,
 			Name:   k.Name,
-			Auth:   sess2,
+			Auth:   policySessionUnseal,
 		},
-	}.Execute(rwr) // since we're using an encrypted session already (sess2),  the transmitted data is also encrypted
+	}.Execute(rwr)
 	if err != nil {
 		return nil, fmt.Errorf("go-kms-wrapping: error executing unseal: %v", err)
 	}

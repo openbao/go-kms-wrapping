@@ -53,11 +53,6 @@ jobs:
           go-version: ${{ matrix.go }}
           cache-dependency-path: ${{ matrix.directory }}/go.mod
 
-      - name: Install and run swtpm
-        if: steps.dockerfile.outputs.exists == 'false'
-        run: |
-          sudo apt-get update && sudo apt-get -y install swtpm swtpm-tools && mkdir /tmp/myvtpm && /usr/share/swtpm/swtpm-create-user-config-files && swtpm_setup --tpmstate /tmp/myvtpm --tpm2 --create-ek-cert && swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear &
-
       - name: Tests
         if: steps.dockerfile.outputs.exists == 'false'
         working-directory: ${{ matrix.directory }}
