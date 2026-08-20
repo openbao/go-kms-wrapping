@@ -1,5 +1,4 @@
 // Copyright (c) 2025 OpenBao a Series of LF Projects, LLC
-// Copyright (c) HashiCorp, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
 package tpm
