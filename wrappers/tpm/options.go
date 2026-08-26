@@ -29,6 +29,8 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 			opts.withUserAuth = v
 		case hierarchyuAuth:
 			opts.withHierarchyAuth = v
+		case key:
+			opts.withKey = v
 		}
 	}
 
@@ -45,6 +47,7 @@ type options struct {
 	withPCRValues     string
 	withUserAuth      string
 	withHierarchyAuth string
+	withKey           string
 }
 
 func getDefaultOptions() options {

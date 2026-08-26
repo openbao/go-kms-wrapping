@@ -1,6 +1,5 @@
 // Copyright (c) 2025 OpenBao a Series of LF Projects, LLC
 // SPDX-License-Identifier: MPL-2.0
-
 package tpm
 
 import (
@@ -16,28 +15,14 @@ import (
 	"strings"
 
 	"github.com/google/go-tpm/tpm2"
+	"github.com/google/go-tpm/tpm2/transport"
 	"github.com/google/go-tpm/tpmutil"
 )
 
-// parameter names used in configuration file
-const (
-	tpmPath               = "tpm_path"
-	pcrValues             = "tpm_pcrvalues"
-	userAuth              = "tpm_userauth"
-	hierarchyuAuth        = "tpm_hierarchyauth"
-	sessionEncryptionName = "tpm_session_encryption_name"
-)
-
-// struct used to encode the TPM sealing key and specifications about it
-type Secret struct {
-	PCRs   map[int32]string `json:"pcrs"`
-	TPMKey string           `json:"tpmKey"`
-}
-
-const (
-	TPMSeal   = iota
-	TPMImport // not used now, maybe later if duplication is supported
-)
+// todo: derive the max digest buffer by looking up the TPM's capability
+// TPM's have a min buffer of 1024
+// section 10.3.8:  https://trustedcomputinggroup.org/wp-content/uploads/Trusted-Platform-Module-2.0-Library-Part-2-Structures_Version-185_pub.pdf
+const maxDigestBuffer = 1024
 
 func openTPM(path string) (io.ReadWriteCloser, error) {
 	// first check if we're dealing with a device.  If not, try a socket
@@ -80,11 +65,13 @@ func getPCRMap(algo tpm2.TPMAlgID, expectedPCRMap string) (map[uint][]byte, []ui
 		hsh = sha1.New()
 	case tpm2.TPMAlgSHA256:
 		hsh = sha256.New()
+	case tpm2.TPMAlgSHA384:
+		hsh = sha256.New()
 	default:
-		return nil, nil, nil, fmt.Errorf("unknown Hash Algorithm for TPM PCRs %v", algo)
+		return nil, nil, nil, fmt.Errorf("unsupported Hash Algorithm for TPM PCRs %v", algo)
 	}
 
-	if algo == tpm2.TPMAlgSHA1 || algo == tpm2.TPMAlgSHA256 {
+	if algo == tpm2.TPMAlgSHA1 || algo == tpm2.TPMAlgSHA256 || algo == tpm2.TPMAlgSHA384 {
 		for _, v := range strings.Split(expectedPCRMap, ",") {
 			entry := strings.Split(v, ":")
 			if len(entry) == 2 {
@@ -112,4 +99,35 @@ func getPCRMap(algo tpm2.TPMAlgID, expectedPCRMap string) (map[uint][]byte, []ui
 	}
 
 	return pcrMap, pcrs, hsh.Sum(nil), nil
+}
+
+// symmetric encryption and decryption routine
+func encryptDecryptSymmetric(rwr transport.TPM, keyAuth tpm2.AuthHandle, iv, data []byte, decrypt bool) ([]byte, error) {
+	var out, block []byte
+
+	for rest := data; len(rest) > 0; {
+		if len(rest) > maxDigestBuffer {
+			block, rest = rest[:maxDigestBuffer], rest[maxDigestBuffer:]
+		} else {
+			block, rest = rest, nil
+		}
+		r, err := tpm2.EncryptDecrypt2{
+			KeyHandle: keyAuth,
+			Message: tpm2.TPM2BMaxBuffer{
+				Buffer: block,
+			},
+			Mode:    tpm2.TPMAlgCTR,
+			Decrypt: decrypt,
+			IV: tpm2.TPM2BIV{
+				Buffer: iv,
+			},
+		}.Execute(rwr)
+		if err != nil {
+			return nil, err
+		}
+		block = r.OutData.Buffer
+		iv = r.IV.Buffer
+		out = append(out, block...)
+	}
+	return out, nil
 }

@@ -3,6 +3,8 @@
 
 FROM docker.io/golang:latest
 
+# docker build  --progress=plain   -f wrappers/tpm/Dockerfile .
+
 # Install required packages:
 RUN apt update && \
 	DEBIAN_FRONTEND="noninteractive" apt install -y --no-install-recommends swtpm swtpm-tools
@@ -19,23 +21,20 @@ COPY . /go-kms-wrapping
 
 ENV TPM_ACC_TESTS=true
 
-COPY <<-EOF /swtpm-setup.sh
-	set -e
+COPY <<EOF /go-kms-wrapping/wrappers/tpm/swtpm-setup.sh
+set -e
 
-	mkdir /tmp/swtpmconfig
-	export XDG_CONFIG_HOME="/tmp/swtpmconfig"
-	
-	mkdir /tmp/myvtpm
+mkdir /tmp/myvtpm
 
-	/usr/share/swtpm/swtpm-create-user-config-files
-	swtpm_setup --tpmstate /tmp/myvtpm --tpm2 --create-ek-cert 
-	swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear &
+swtpm_setup --tpmstate /tmp/myvtpm --tpm2 --create-ek-cert 
+swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear &
 
-	sleep 2
+sleep 2
 
-	go test -v 
+go test -v 
 EOF
 
-RUN chmod +x /swtpm-setup.sh
+RUN chmod +x /go-kms-wrapping/wrappers/tpm/swtpm-setup.sh
 
-ENTRYPOINT ["/swtpm-setup.sh"]
+RUN /go-kms-wrapping/wrappers/tpm/swtpm-setup.sh
+ 
