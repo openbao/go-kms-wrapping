@@ -11,7 +11,6 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"path"
@@ -382,18 +381,14 @@ func (k *transitKey) Verify(ctx context.Context, opts *kms.VerifyOptions) error 
 
 // See: https://openbao.org/api-docs/secret/transit/#export-key
 func (k *transitKey) ExportPublic(ctx context.Context) (crypto.PublicKey, error) {
-	resp, err := k.client.Logical().ReadWithContext(
-		ctx, path.Join(k.mount, "export/public-key", k.name, "latest"),
+	resp, err := k.client.Logical().ReadWithDataWithContext(
+		ctx, path.Join(k.mount, "export/public-key", k.name, "latest"), map[string][]string{"format": {"der"}},
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	// Parse the response data:
-	ty, ok := resp.Data["type"].(string)
-	if !ok {
-		return nil, errors.New("expected response to include 'type' field of type string")
-	}
 	keys, ok := resp.Data["keys"].(map[string]any)
 	if !ok {
 		return nil, errors.New("expected response to include 'keys' field of type object")
@@ -407,25 +402,9 @@ func (k *transitKey) ExportPublic(ctx context.Context) (crypto.PublicKey, error)
 	}
 
 	// Parse the public key:
-	switch {
-	case strings.HasPrefix(ty, "rsa-"), strings.HasPrefix(ty, "ecdsa-"):
-		block, _ := pem.Decode([]byte(data))
-		if block == nil {
-			return nil, errors.New("invalid PEM data")
-		}
-		return x509.ParsePKIXPublicKey(block.Bytes)
-
-	case ty == "ed25519":
-		raw, err := base64.StdEncoding.DecodeString(data)
-		switch {
-		case err != nil:
-			return nil, err
-		case len(raw) != ed25519.PublicKeySize:
-			return nil, errors.New("invalid ed25519 public key")
-		}
-		return ed25519.PublicKey(raw), nil
-
-	default:
-		return nil, fmt.Errorf("unknown key type %q", ty)
+	der, err := base64.StdEncoding.DecodeString(data)
+	if err != nil {
+		return nil, err
 	}
+	return x509.ParsePKIXPublicKey(der)
 }
