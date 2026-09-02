@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"strconv"
 	"strings"
@@ -20,26 +21,75 @@ import (
 	"github.com/openbao/go-kms-wrapping/kms/pkcs11/v2/internal/module"
 	"github.com/openbao/go-kms-wrapping/kms/pkcs11/v2/internal/session"
 	"github.com/openbao/go-kms-wrapping/v2/kms"
+	"github.com/openbao/openbao/api/v2"
 )
 
 // SensitiveKMSFields are all fields accepted by Open() that should be censored
 // when presenting a ConfigMap for display.
 var SensitiveKMSFields = []string{"pin"}
 
-// New returns a new KMS that uses PKCS#11 libraries.
-func New() kms.KMS {
-	return &pkcs11KMS{}
+// Option is a system-level option passed to [New] or [NewWrapper].
+type Option func(*options) error
+
+type options struct {
+	aliases map[string]string
 }
 
-// NewWithAliases returns a new KMS that uses PKCS#11 libraries and provides it
-// with a map of library path aliases.
-func NewWithAliases(aliases map[string]string) kms.KMS {
-	return &pkcs11KMS{aliases: aliases}
+func (o *options) mergeAliases(aliases map[string]string) {
+	if o.aliases == nil {
+		o.aliases = aliases
+	} else {
+		maps.Copy(o.aliases, aliases)
+	}
+}
+
+// WithAliases provides a map of named library path aliases.
+func WithAliases(aliases map[string]string) Option {
+	return func(o *options) error {
+		o.mergeAliases(aliases)
+		return nil
+	}
+}
+
+// WithAliasesFromEnv provides a map of named library path aliases via lookup
+// into BAO_PKCS11_ALIASES.
+func WithAliasesFromEnv() Option {
+	return func(o *options) error {
+		aliases, err := envAliases()
+		o.mergeAliases(aliases)
+		return err
+	}
+}
+
+var envAliases = sync.OnceValues(func() (map[string]string, error) {
+	env := api.ReadBaoVariable("BAO_PKCS11_ALIASES")
+	if env == "" {
+		return nil, nil
+	}
+
+	aliases := make(map[string]string)
+	for s := range strings.SplitSeq(env, ",") {
+		parts := strings.SplitN(s, "=", 2)
+		if len(parts) != 2 {
+			return nil, errors.New(`invalid BAO_PKCS11_ALIASES: expected a comma-separated list of "<name>=<path>"`)
+		}
+		aliases[parts[0]] = parts[1]
+	}
+
+	return aliases, nil
+})
+
+// New returns a new KMS that uses PKCS#11 libraries.
+func New(opts ...Option) kms.KMS {
+	return &pkcs11KMS{opts: opts}
 }
 
 // pkcs11KMS implements kms.KMS.
 type pkcs11KMS struct {
 	kms.UnimplementedKMS
+
+	// System-level options passed to New(...), evaluated on Open(...).
+	opts []Option
 
 	mod   *module.Ref
 	token *module.Token
@@ -48,16 +98,17 @@ type pkcs11KMS struct {
 	// Disable preferring local public key encryption over performing public key
 	// encryption via PKCS#11.
 	disableSoftwareEncryption bool
-
-	// aliases map a name (an alias) to a library path. If the KMS is
-	// opened with AllowEnvironment=false, libraries may only be opened via
-	// alias, i.e., the "lib" parameter is always interpreted as one. If
-	// AllowEnvironment=true, aliases take precedence, but "lib" may still be a
-	// plain file path.
-	aliases map[string]string
 }
 
 func (p *pkcs11KMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
+	// Handle system-level options before parsing user-provided ones.
+	var options options
+	for _, o := range p.opts {
+		if err := o(&options); err != nil {
+			return err
+		}
+	}
+
 	var cfg struct {
 		// PKCS#11 library path.
 		Lib string `mapstructure:"lib"`
@@ -98,7 +149,7 @@ func (p *pkcs11KMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 	}
 
 	// Resolve library aliases and fall back to plain path if allowed.
-	lib, ok := p.aliases[cfg.Lib]
+	lib, ok := options.aliases[cfg.Lib]
 	if !ok {
 		if opts.AllowEnvironment {
 			lib = cfg.Lib

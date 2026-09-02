@@ -25,6 +25,10 @@ import (
 type pkcs11Wrapper struct {
 	logger log.Logger
 
+	// System-level options passed to NewWrapper(...), evaluated on
+	// SetConfig(...).
+	opts []Option
+
 	mod   *module.Ref
 	token *module.Token
 
@@ -36,22 +40,22 @@ type pkcs11Wrapper struct {
 	oaepHash  crypto.Hash
 
 	disableSoftwareEncryption bool
-
-	aliases map[string]string
 }
 
 // NewWrapper returns a new PKCS#11 wrapper.
-func NewWrapper() wrapping.Wrapper {
-	return &pkcs11Wrapper{}
-}
-
-// NewWrapperWithAliases returns a new PKCS#11 wrapper and provides it with a
-// map of library path aliases.
-func NewWrapperWithAliases(aliases map[string]string) wrapping.Wrapper {
-	return &pkcs11Wrapper{aliases: aliases}
+func NewWrapper(opts ...Option) wrapping.Wrapper {
+	return &pkcs11Wrapper{opts: opts}
 }
 
 func (w *pkcs11Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapping.WrapperConfig, error) {
+	// Handle system-level options before parsing user-provided ones.
+	var options options
+	for _, o := range w.opts {
+		if err := o(&options); err != nil {
+			return nil, err
+		}
+	}
+
 	opts, err := wrapping.GetOpts(opt...)
 	if err != nil {
 		return nil, err
@@ -173,7 +177,7 @@ func (w *pkcs11Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (
 	}
 
 	// Resolve library aliases and fall back to plain path if allowed.
-	lib, ok := w.aliases[cfg.Lib]
+	lib, ok := options.aliases[cfg.Lib]
 	if !ok {
 		if opts.WithDisallowEnvVars {
 			return nil, fmt.Errorf("unknown library alias: %q", cfg.Lib)
