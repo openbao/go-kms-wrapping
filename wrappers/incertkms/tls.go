@@ -6,6 +6,7 @@ package incertkms
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -15,15 +16,22 @@ import (
 
 const httpClientTimeout = 10 * time.Second
 
+// tlsConfigured reports whether any TLS option was set. When none is, the
+// SDK's default client is used and server certificates are verified against
+// the system roots.
 func (o *options) tlsConfigured() bool {
 	return o.withTlsCaCert != "" ||
 		o.withTlsCaPath != "" ||
+		o.withTlsClientCert != "" ||
+		o.withTlsClientKey != "" ||
+		o.withTlsServerName != "" ||
 		o.withTlsSkipVerify
 }
 
 func (o *options) buildHTTPClient() (*http.Client, error) {
 	tlsConfig := &tls.Config{
 		MinVersion:         tls.VersionTLS12,
+		ServerName:         o.withTlsServerName,
 		InsecureSkipVerify: o.withTlsSkipVerify, //nolint:gosec
 	}
 
@@ -36,6 +44,17 @@ func (o *options) buildHTTPClient() (*http.Client, error) {
 			return nil, err
 		}
 		tlsConfig.RootCAs = pool
+	}
+
+	switch {
+	case o.withTlsClientCert != "" && o.withTlsClientKey != "":
+		cert, err := tls.LoadX509KeyPair(o.withTlsClientCert, o.withTlsClientKey)
+		if err != nil {
+			return nil, fmt.Errorf("incertkms: loading tls_client_cert and tls_client_key: %w", err)
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
+	case o.withTlsClientCert != "" || o.withTlsClientKey != "":
+		return nil, errors.New("incertkms: tls_client_cert and tls_client_key must be set together")
 	}
 
 	// Start from the default transport so proxy-from-environment, handshake

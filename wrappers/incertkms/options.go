@@ -47,6 +47,12 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 				opts.withTlsCaCert = v
 			case "tls_ca_path":
 				opts.withTlsCaPath = v
+			case "tls_client_cert":
+				opts.withTlsClientCert = v
+			case "tls_client_key":
+				opts.withTlsClientKey = v
+			case "tls_server_name":
+				opts.withTlsServerName = v
 			case "tls_skip_verify":
 				opts.withTlsSkipVerify, err = strconv.ParseBool(v)
 				if err != nil {
@@ -71,6 +77,9 @@ type options struct {
 
 	withTlsCaCert     string
 	withTlsCaPath     string
+	withTlsClientCert string
+	withTlsClientKey  string
+	withTlsServerName string
 	withTlsSkipVerify bool
 }
 

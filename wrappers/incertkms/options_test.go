@@ -40,6 +40,9 @@ func Test_GetOpts(t *testing.T) {
 			"key_name":        "openbao-seal-key",
 			"tls_ca_cert":     "/etc/incert/ca.pem",
 			"tls_ca_path":     "/etc/incert/ca.d",
+			"tls_client_cert": "/etc/incert/client.pem",
+			"tls_client_key":  "/etc/incert/client-key.pem",
+			"tls_server_name": "kms.example.com",
 			"tls_skip_verify": "true",
 		}
 
@@ -53,6 +56,9 @@ func Test_GetOpts(t *testing.T) {
 		assert.Equal("openbao-seal-key", opts.withKeyName)
 		assert.Equal("/etc/incert/ca.pem", opts.withTlsCaCert)
 		assert.Equal("/etc/incert/ca.d", opts.withTlsCaPath)
+		assert.Equal("/etc/incert/client.pem", opts.withTlsClientCert)
+		assert.Equal("/etc/incert/client-key.pem", opts.withTlsClientKey)
+		assert.Equal("kms.example.com", opts.withTlsServerName)
 		assert.True(opts.withTlsSkipVerify)
 		assert.True(opts.tlsConfigured())
 	})
