@@ -37,9 +37,9 @@ func newIncertKmsTestWrapper() (*Wrapper, *httptest.Server) {
 	mux.HandleFunc("/api/configs/auth", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(kmssdk.Config{
 			Type: kmssdk.AuthenticationTypeOAuth2,
-			Oauth2: &kmssdk.Oauth2Config{
-				Provider: kmssdk.Oauth2ProviderKeycloak,
-				Keycloak: &kmssdk.Oauth2KeycloakConfig{URL: "/auth"},
+			OAuth2: &kmssdk.OAuth2Config{
+				Provider: kmssdk.OAuth2ProviderKeycloak,
+				Keycloak: &kmssdk.OAuth2KeycloakConfig{URL: "/auth"},
 			},
 		})
 	})
@@ -62,13 +62,6 @@ func newIncertKmsTestWrapper() (*Wrapper, *httptest.Server) {
 				{ID: vslotID, Provider: uuid.New(), ProviderName: "test"},
 			},
 		})
-	})
-
-	// Create-key endpoint, used when no key is configured.
-	mux.HandleFunc("/api/vslots/", func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/p/kg") {
-			_ = json.NewEncoder(w).Encode(map[string]uuid.UUID{"id": keyID})
-		}
 	})
 
 	// Key search endpoint (FindKeys). The configured key path uses the

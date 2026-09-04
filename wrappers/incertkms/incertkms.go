@@ -23,7 +23,10 @@ type Wrapper struct {
 	kms     *kmssdk.Client
 }
 
-var _ wrapping.Wrapper = (*Wrapper)(nil)
+var (
+	_ wrapping.Wrapper       = (*Wrapper)(nil)
+	_ wrapping.InitFinalizer = (*Wrapper)(nil)
+)
 
 func NewWrapper() *Wrapper {
 	s := &Wrapper{
@@ -83,7 +86,7 @@ func (w *Wrapper) SetConfig(ctx context.Context, options ...wrapping.Option) (*w
 
 	clientOpts := []kmssdk.Option{
 		kmssdk.WithUsernameAndPassword(username, password),
-		kmssdk.WithBaseURL(baseURL + "/api"),
+		kmssdk.WithBaseURL(baseURL),
 	}
 
 	// TLS verification is enabled by default. Only override the SDK's default
@@ -97,7 +100,7 @@ func (w *Wrapper) SetConfig(ctx context.Context, options ...wrapping.Option) (*w
 		clientOpts = append(clientOpts, kmssdk.WithHTTPClient(httpClient))
 	}
 
-	w.kms = kmssdk.NewClient(ctx, clientOpts...)
+	w.kms = kmssdk.NewClient(clientOpts...)
 
 	err = w.kms.Connect(ctx)
 	if err != nil {
@@ -209,7 +212,7 @@ func (w *Wrapper) Encrypt(ctx context.Context, plaintext []byte, options ...wrap
 	ciphertext, err := w.kms.Crypto(ctx, kmssdk.OperationEncrypt, w.key, kmssdk.CryptoRequest{
 		Data:       plaintext,
 		Algorithm:  "AES_GCM",
-		Attributes: kmssdk.Attributes{IV: iv},
+		Attributes: map[string]any{"iv": iv},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("error encrypting data: %w", err)
@@ -252,11 +255,23 @@ func (w *Wrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, options ..
 	plaintext, err := w.kms.Crypto(ctx, kmssdk.OperationDecrypt, keyIdUuid, kmssdk.CryptoRequest{
 		Data:       in.Ciphertext,
 		Algorithm:  "AES_GCM",
-		Attributes: kmssdk.Attributes{IV: in.Iv},
+		Attributes: map[string]any{"iv": in.Iv},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("error encrypting data: %w", err)
+		return nil, fmt.Errorf("error decrypting data: %w", err)
 	}
 
 	return plaintext, nil
+}
+
+func (w *Wrapper) Init(_ context.Context, _ ...wrapping.Option) error {
+	return nil
+}
+
+// Finalize logs out of the KMS, invalidating the authenticated session.
+func (w *Wrapper) Finalize(ctx context.Context, _ ...wrapping.Option) error {
+	if w.kms == nil {
+		return nil
+	}
+	return w.kms.Logout(ctx)
 }

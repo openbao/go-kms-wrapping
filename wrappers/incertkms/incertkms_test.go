@@ -30,6 +30,7 @@ func TestIncertKmsWrapper_Lifecycle(t *testing.T) {
 	w, srv := newIncertKmsTestWrapper()
 	defer srv.Close()
 	testEncryptionRoundTrip(t, w)
+	require.NoError(t, w.Finalize(t.Context()))
 }
 
 func TestIncertKmsWrapper_SetConfig_RequiredFields(t *testing.T) {
@@ -111,6 +112,8 @@ func TestIncertKmsWrapper_Unconfigured(t *testing.T) {
 
 	_, err = w.Decrypt(t.Context(), &wrapping.BlobInfo{})
 	require.Error(err, "expected error when wrapper is unconfigured")
+
+	require.NoError(w.Finalize(t.Context()), "Finalize on an unconfigured wrapper should be a no-op")
 }
 
 func testEncryptionRoundTrip(t *testing.T, w *Wrapper) {
