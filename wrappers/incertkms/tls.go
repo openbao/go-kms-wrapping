@@ -38,9 +38,14 @@ func (o *options) buildHTTPClient() (*http.Client, error) {
 		tlsConfig.RootCAs = pool
 	}
 
+	// Start from the default transport so proxy-from-environment, handshake
+	// timeouts, HTTP/2 and connection pooling behave as they do everywhere else.
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = tlsConfig
+
 	return &http.Client{
 		Timeout:   httpClientTimeout,
-		Transport: &http.Transport{TLSClientConfig: tlsConfig},
+		Transport: transport,
 	}, nil
 }
 

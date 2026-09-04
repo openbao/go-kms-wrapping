@@ -159,8 +159,10 @@ func (w *Wrapper) vslotInit(ctx context.Context) error {
 	return fmt.Errorf("configured vslot ID %s is not found on your account", w.vSlot)
 }
 
-// Configure a key to use for sealing.
-// Look for the key ID configured in the configuration, or the seal key name.
+// keyInit selects the key used for sealing. A configured key id is verified
+// to exist; otherwise the key is looked up by name in the vslot. Not finding a
+// usable key is an error so that misconfiguration surfaces at SetConfig time
+// rather than on the first Encrypt or Decrypt.
 func (w *Wrapper) keyInit(ctx context.Context) error {
 	// The configured key ID is valid? If yes, use it.
 	if w.key != uuid.Nil {
@@ -172,22 +174,25 @@ func (w *Wrapper) keyInit(ctx context.Context) error {
 		return nil
 	}
 
-	// Look for the seal key name.
-	filter := kmssdk.KeyFilter{Name: w.keyName}
-	keys, err := w.kms.FindKeys(ctx, w.vSlot, filter)
+	// Look for the seal key by name. The results come back newest first,
+	//so only accept an exact name match and take the most recent one.
+	keys, err := w.kms.FindKeys(ctx, w.vSlot, kmssdk.KeyFilter{Name: w.keyName})
 	if err != nil {
 		return fmt.Errorf("finding keys: %w", err)
 	}
 
-	if len(keys) > 0 {
-		if keys[0].AlgType != "AES" {
-			return fmt.Errorf("error: unsupported algorithm type for configured key %s: %s", keys[0].ID.String(), keys[0].AlgType)
+	for _, k := range keys {
+		if k.Name != w.keyName {
+			continue
 		}
-		w.key = keys[0].ID
+		if k.AlgType != "AES" {
+			return fmt.Errorf("unsupported algorithm type: %s", k.AlgType)
+		}
+		w.key = k.ID
 		return nil
 	}
 
-	return nil
+	return fmt.Errorf("no key named %q in vslot %s", w.keyName, w.vSlot)
 }
 
 func (w *Wrapper) Encrypt(ctx context.Context, plaintext []byte, options ...wrapping.Option) (*wrapping.BlobInfo, error) {
@@ -195,19 +200,13 @@ func (w *Wrapper) Encrypt(ctx context.Context, plaintext []byte, options ...wrap
 		return nil, fmt.Errorf("given plaintext for encryption is nil")
 	}
 
-	if w.kms == nil {
-		return nil, errors.New("incertkms is not configured in the seal")
-	}
-
-	// Create a key if an existing one is not configured
 	if w.key == uuid.Nil {
 		return nil, fmt.Errorf("incertkms key is not available (key id: %s, key name: %q, vslot: %s)", w.key, w.keyName, w.vSlot)
 	}
 
+	// crypto/rand.Read never returns an error
 	iv := make([]byte, 12)
-	if _, err := rand.Read(iv); err != nil {
-		return nil, fmt.Errorf("error generating IV: %w", err)
-	}
+	_, _ = rand.Read(iv)
 
 	ciphertext, err := w.kms.Crypto(ctx, kmssdk.OperationEncrypt, w.key, kmssdk.CryptoRequest{
 		Data:       plaintext,
@@ -231,10 +230,6 @@ func (w *Wrapper) Encrypt(ctx context.Context, plaintext []byte, options ...wrap
 func (w *Wrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, options ...wrapping.Option) ([]byte, error) {
 	if in == nil {
 		return nil, fmt.Errorf("given input for decryption is nil")
-	}
-
-	if w.kms == nil {
-		return nil, errors.New("incertkms is not configured in the seal")
 	}
 
 	if w.key == uuid.Nil {

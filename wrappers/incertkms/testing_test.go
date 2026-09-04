@@ -22,16 +22,29 @@ const (
 	incertkmsTestKeyName  = "openbao-seal-key"
 )
 
-// newIncertKmsTestWrapper returns a Wrapper configured against an in-process
-// httptest.Server that fakes the KMS API. The crypto endpoints echo the
-// submitted bytes back so encrypt/decrypt round-trips preserve the plaintext.
-// The fake KMS server is shut down automatically when the calling test
-// ends. If SetConfig fails against it, the calling test is aborted.
-func newIncertKmsTestWrapper(t *testing.T) *Wrapper {
+// fakeKMS is an in-process httptest.Server that fakes the KMS API. The crypto
+// endpoints echo the submitted bytes back so encrypt/decrypt round-trips
+// preserve the plaintext.
+type fakeKMS struct {
+	srv     *httptest.Server
+	vslotID uuid.UUID
+	keyID   uuid.UUID
+
+	// searchResults is what the key search endpoint (FindKeys) returns. Tests
+	// that exercise lookup by name set it before calling SetConfig. The
+	// server-side name filter is not emulated.
+	searchResults []kmssdk.KeySearchResult
+}
+
+// newFakeKMS starts a fake KMS exposing a single vslot and a single AES key.
+// The server is closed when the test finishes.
+func newFakeKMS(t *testing.T) *fakeKMS {
 	t.Helper()
 
-	vslotID := uuid.New()
-	keyID := uuid.New()
+	f := &fakeKMS{
+		vslotID: uuid.New(),
+		keyID:   uuid.New(),
+	}
 
 	mux := http.NewServeMux()
 
@@ -62,17 +75,18 @@ func newIncertKmsTestWrapper(t *testing.T) *Wrapper {
 	mux.HandleFunc("/api/vslots", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"content": []kmssdk.Vslot{
-				{ID: vslotID, Provider: uuid.New(), ProviderName: "test"},
+				{ID: f.vslotID, Provider: uuid.New(), ProviderName: "test"},
 			},
 		})
 	})
 
-	// Key search endpoint (FindKeys). The configured key path uses the
-	// trailing-slash handler below, so this stays empty.
+	// Key search endpoint (FindKeys). Returns whatever the test configured.
 	mux.HandleFunc("/api/keys", func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"content": []kmssdk.KeySearchResult{},
-		})
+		results := f.searchResults
+		if results == nil {
+			results = []kmssdk.KeySearchResult{}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"content": results})
 	})
 
 	// Key detail / encrypt / decrypt endpoints. Encrypt and decrypt echo the
@@ -86,24 +100,46 @@ func newIncertKmsTestWrapper(t *testing.T) *Wrapper {
 			_ = json.NewEncoder(w).Encode(map[string][]byte{"data": req.Data})
 		default:
 			_ = json.NewEncoder(w).Encode(kmssdk.KeyDetail{
-				ID:   keyID,
+				ID:   f.keyID,
 				Name: incertkmsTestKeyName,
 				Alg:  "AES256",
 			})
 		}
 	})
 
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
+	f.srv = httptest.NewServer(mux)
+	t.Cleanup(f.srv.Close)
 
-	wrapper := NewWrapper()
-	_, err := wrapper.SetConfig(t.Context(), wrapping.WithConfigMap(map[string]string{
-		"url":      srv.URL,
+	return f
+}
+
+// config returns a seal configuration pointing at the fake, without any key
+// selector, with extra merged on top.
+func (f *fakeKMS) config(extra map[string]string) map[string]string {
+	cfg := map[string]string{
+		"url":      f.srv.URL,
 		"username": incertkmsTestUsername,
 		"password": incertkmsTestPassword,
-		"vslot":    vslotID.String(),
-		"key":      keyID.String(),
-	}))
+		"vslot":    f.vslotID.String(),
+	}
+	for k, v := range extra {
+		cfg[k] = v
+	}
+	return cfg
+}
+
+// newIncertKmsTestWrapper returns a Wrapper configured against a fake KMS by
+// key id. The server is closed when the test finishes, and the test fails
+// immediately if the wrapper cannot be configured against the fake.
+func newIncertKmsTestWrapper(t *testing.T) *Wrapper {
+	t.Helper()
+
+	f := newFakeKMS(t)
+
+	wrapper := NewWrapper()
+	_, err := wrapper.SetConfig(t.Context(), wrapping.WithConfigMap(f.config(map[string]string{
+		"key": f.keyID.String(),
+	})))
 	require.NoError(t, err, "configuring wrapper against the fake KMS")
 
 	return wrapper
