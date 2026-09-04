@@ -4,15 +4,16 @@
 package incertkms
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"testing"
 
 	"github.com/google/uuid"
 	kmssdk "github.com/incert-kms/kms-sdk-go"
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -24,9 +25,11 @@ const (
 // newIncertKmsTestWrapper returns a Wrapper configured against an in-process
 // httptest.Server that fakes the KMS API. The crypto endpoints echo the
 // submitted bytes back so encrypt/decrypt round-trips preserve the plaintext.
-// The caller is responsible for closing the returned server, typically via
-// defer srv.Close() at the call site.
-func newIncertKmsTestWrapper() (*Wrapper, *httptest.Server) {
+// The fake KMS server is shut down automatically when the calling test
+// ends. If SetConfig fails against it, the calling test is aborted.
+func newIncertKmsTestWrapper(t *testing.T) *Wrapper {
+	t.Helper()
+
 	vslotID := uuid.New()
 	keyID := uuid.New()
 
@@ -91,15 +94,17 @@ func newIncertKmsTestWrapper() (*Wrapper, *httptest.Server) {
 	})
 
 	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
 
 	wrapper := NewWrapper()
-	_, _ = wrapper.SetConfig(context.Background(), wrapping.WithConfigMap(map[string]string{
+	_, err := wrapper.SetConfig(t.Context(), wrapping.WithConfigMap(map[string]string{
 		"url":      srv.URL,
 		"username": incertkmsTestUsername,
 		"password": incertkmsTestPassword,
 		"vslot":    vslotID.String(),
 		"key":      keyID.String(),
 	}))
+	require.NoError(t, err, "configuring wrapper against the fake KMS")
 
-	return wrapper, srv
+	return wrapper
 }

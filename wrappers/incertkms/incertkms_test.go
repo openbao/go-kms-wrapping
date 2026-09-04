@@ -12,14 +12,12 @@ import (
 )
 
 func TestIncertKmsWrapper(t *testing.T) {
-	_, srv := newIncertKmsTestWrapper()
-	defer srv.Close()
+	newIncertKmsTestWrapper(t)
 }
 
 func TestIncertKmsWrapper_Type(t *testing.T) {
 	assert, require := assert.New(t), require.New(t)
-	w, srv := newIncertKmsTestWrapper()
-	defer srv.Close()
+	w := newIncertKmsTestWrapper(t)
 
 	typ, err := w.Type(t.Context())
 	require.NoError(err)
@@ -27,8 +25,7 @@ func TestIncertKmsWrapper_Type(t *testing.T) {
 }
 
 func TestIncertKmsWrapper_Lifecycle(t *testing.T) {
-	w, srv := newIncertKmsTestWrapper()
-	defer srv.Close()
+	w := newIncertKmsTestWrapper(t)
 	testEncryptionRoundTrip(t, w)
 	require.NoError(t, w.Finalize(t.Context()))
 }
@@ -87,8 +84,7 @@ func TestIncertKmsWrapper_SetConfig_RequiredFields(t *testing.T) {
 
 func TestIncertKmsWrapper_Encrypt_NilPlaintext(t *testing.T) {
 	require := require.New(t)
-	w, srv := newIncertKmsTestWrapper()
-	defer srv.Close()
+	w := newIncertKmsTestWrapper(t)
 
 	_, err := w.Encrypt(t.Context(), nil)
 	require.Error(err, "expected error for nil plaintext")
@@ -96,8 +92,7 @@ func TestIncertKmsWrapper_Encrypt_NilPlaintext(t *testing.T) {
 
 func TestIncertKmsWrapper_Decrypt_NilInput(t *testing.T) {
 	require := require.New(t)
-	w, srv := newIncertKmsTestWrapper()
-	defer srv.Close()
+	w := newIncertKmsTestWrapper(t)
 
 	_, err := w.Decrypt(t.Context(), nil)
 	require.Error(err, "expected error for nil input")
