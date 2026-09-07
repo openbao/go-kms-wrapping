@@ -29,8 +29,11 @@ func (wp *gRPCWrapperPlugin) GRPCClient(ctx context.Context, broker *plugin.GRPC
 }
 
 func (c *gRPCWrapperClient) handleRPCError(err error) error {
-	code := status.Code(err)
+	s, _ := status.FromError(err)
+	code := s.Code()
 	switch {
+	case code == codes.Unknown:
+		return errors.New(s.Message())
 	case code == codes.Unimplemented:
 		return wrapping.ErrFunctionNotImplemented
 	case code == codes.NotFound:

@@ -13,6 +13,7 @@ import (
 	"errors"
 	"io"
 
+	"github.com/go-viper/mapstructure/v2"
 	"github.com/hashicorp/go-hclog"
 )
 
@@ -73,7 +74,8 @@ type KMS interface {
 // omitted APIs.
 type Key interface {
 	// Encrypt encrypts data according to the passed options and returns
-	// ciphertext.
+	// ciphertext. If ciphertext is created in combination with a nonce, prepend
+	// the nonce to the returned ciphertext.
 	//
 	// Also see [CipherOptions].
 	Encrypt(context.Context, *CipherOptions) ([]byte, error)
@@ -106,24 +108,16 @@ type Key interface {
 	//  - *ecdsa.PublicKey for EC keys
 	//  - ed25519.PublicKey for Ed25519 keys
 	ExportPublic(context.Context) (crypto.PublicKey, error)
-
-	// Close terminates this key, rendering further use of it a semantic error.
-	//
-	// KMS providers likely will not need to directly implement this. Rather,
-	// this is useful for plugin clients to free key references on a remote
-	// plugin server.
-	//
-	// Close should return a nil error if not implemented to signify a no-op.
-	Close(context.Context) error
 }
 
 // ConfigMap represents user-defined data that is used to configure APIs in this
 // package via provider-specific parameters.
 //
-// A ConfigMap MUST use JSON-serializable types only. Providers are expected
-// to decode ConfigMaps using mapstructure.WeakDecode. For a reference
-// implementation, see the github.com/openbao/go-kms-wrapping/v2/kms/transit
-// package.
+// A ConfigMap MUST use JSON-serializable types only. Use the [DecodeConfigMap]
+// helper to validate and decode a ConfigMap into a struct with concrete fields.
+//
+// For a reference implementation of config map decoding, see the
+// github.com/openbao/go-kms-wrapping/v2/kms/transit package.
 type ConfigMap map[string]any
 
 // OpenOptions is passed to [KMS.Open].
@@ -156,7 +150,7 @@ type KeyOptions struct {
 	// ConfigMap is the ConfigMap that will configure the Key. Configuration is
 	// provider-specific, but common categories of information passed here are:
 	//
-	//  - A Key name or ID to uniquely identify a key to use.
+	//  - A Key name, version and/or ID to uniquely identify key material.
 	//  - Per-key authentication parameters.
 	//  - An algorithm that this key must be enforced to use.
 	//  - The key type to avoid +1 key type lookup calls if required to set up
@@ -171,31 +165,14 @@ type KeyOptions struct {
 // CipherOptions is passed to [Key.Encrypt] and [Key.Decrypt].
 type CipherOptions struct {
 	// Data is the raw plaintext or ciphertext to operate on, depending on the
-	// operation. This may hold a provider-specific encoding if most practical.
+	// operation. When ciphertext must be provided in combination with a nonce,
+	// prepend the nonce to the ciphertext.
 	Data []byte
 
 	// AAD is Additional Authenticated Data to pass to an encrypt or decrypt
 	// operation. Not all providers or cipher modes will honor this field, but
 	// should respect it if applicable to the underlying cipher mode used.
 	AAD []byte
-
-	// Nonce holds the (optional) nonce value either produced by a Encrypt
-	// operation or taken by a Decrypt operation. That is, Nonce is never
-	// manually passed to Encrypt, but Encrypt generates a secure nonce itself
-	// using the KMS and writes it back to this field.
-	//
-	// If the nonce cannot trivially be split from the ciphertext, e.g., because
-	// it would require additional API calls to determine the used cipher mode
-	// parameters or key type, it is allowed not to split it and bundle it with
-	// the ciphertext in provider-specific encoding.
-	Nonce []byte
-
-	// KeyVersion is a provider-specific reference to the key version used to
-	// create a ciphertext. This may optionally be required by certain providers
-	// (e.g., OpenBao Transit) to target the correct key for decryption. This
-	// value is produced and written back by Encrypt calls and read by Decrypt
-	// calls, much like the Nonce field. Human-readable encodings are preferred.
-	KeyVersion string
 }
 
 // SignOptions is passed to [Key.Sign].
@@ -220,13 +197,6 @@ type SignOptions struct {
 	// that indicate (at minimum) a hash function or the absence of one via
 	// crypto.Hash(0).
 	crypto.SignerOpts
-
-	// KeyVersion is a provider-specific reference to the key version used
-	// to create a signature. This may optionally be required by certain
-	// providers (e.g., OpenBao Transit) to target the correct key for signature
-	// verification. This value is written back to this field by Sign calls.
-	// Human-readable encodings are preferred.
-	KeyVersion string
 }
 
 // VerifyOptions is passed to [Key.Verify].
@@ -248,14 +218,6 @@ type VerifyOptions struct {
 	// that indicate (at minimum) a hash function or the absence of one via
 	// crypto.Hash(0).
 	crypto.SignerOpts
-
-	// KeyVersion is a provider-specific reference to the key version used
-	// to create a signature. This may optionally be required by certain
-	// providers (e.g., OpenBao Transit) to target the correct key for signature
-	// verification. If required by the provider, this field should be populated
-	// when calling Verify and be set to the KeyVersion produced by a Sign call.
-	// Human-readable encodings are preferred.
-	KeyVersion string
 }
 
 // UnimplementedKMS should be embedded in all implementations of [KMS] to ensure
@@ -306,18 +268,26 @@ func (UnimplementedKey) ExportPublic(context.Context) (crypto.PublicKey, error) 
 	return nil, ErrNotImplemented
 }
 
-func (UnimplementedKey) Close(context.Context) error {
-	return nil
-}
-
 // NewSigner returns a [crypto.Signer]/[crypto.MessageSigner] built on a [Key]
-// for compatibility with crypto/x509 and the likes.
+// for compatibility with crypto/x509 and the likes. This exports the public key
+// on construction. If the public key is already known (e.g., it was exported
+// and stored previously), prefer [NewSignerWithPublicKey].
 func NewSigner(ctx context.Context, key Key) (crypto.Signer, error) {
 	pub, err := key.ExportPublic(ctx)
 	if err != nil {
 		return nil, err
 	}
 	return &signer{key: key, pub: pub, ctx: ctx}, nil
+}
+
+// NewSignerWithPublicKey is like [NewSigner] but does not export the public
+// key from the KMS and takes a pre-exported public key to use instead. This is
+// useful to skip re-exporting the public key when it was already exported and
+// stored before. While the caller cannot easily ensure that the public key and
+// underlying KMS private key match, APIs such as x509.CreateCeritificate will
+// assert this based on signatures that it creates.
+func NewSignerWithPublicKey(ctx context.Context, key Key, pub crypto.PublicKey) crypto.Signer {
+	return &signer{key: key, pub: pub, ctx: ctx}
 }
 
 type signer struct {
@@ -346,4 +316,19 @@ func (s *signer) SignMessage(_ io.Reader, data []byte, opts crypto.SignerOpts) (
 		Data:       data,
 		SignerOpts: opts,
 	})
+}
+
+// DecodeConfigMap is a helper to decode a [ConfigMap] with the recommended
+// [mapstructure.DecoderConfig].
+func DecodeConfigMap(v any, config ConfigMap) error {
+	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+		Result:           v,
+		ErrorUnused:      true,
+		WeaklyTypedInput: true,
+		RootName:         "config",
+	})
+	if err != nil {
+		return err
+	}
+	return decoder.Decode(config)
 }

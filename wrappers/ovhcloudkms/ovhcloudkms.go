@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"os"
 	"sync/atomic"
@@ -47,7 +48,6 @@ func NewWrapper() *Wrapper {
 		currentKeyId: new(atomic.Value),
 	}
 	ow.currentKeyId.Store("")
-
 	return ow
 }
 
@@ -62,9 +62,9 @@ func (ow *Wrapper) KeyId(_ context.Context) (string, error) {
 // SetConfig sets the fields on the OkmsWrapper object based on
 // values from the config parameter.
 //
-// Order of precedence Okms values:
-// * Environment variable
-// * Value from Vault configuration file
+// Order of precedence for Okms values:
+// * Environment variables (if WithDisallowEnvVars not provided)
+// * Value from OpenBao/Vault configuration file
 // * Instance metadata role (access key and secret key)
 func (ow *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapping.WrapperConfig, error) {
 	opts, err := getOpts(opt...)
@@ -74,7 +74,7 @@ func (ow *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrap
 
 	// Check and set KeyId
 	switch {
-	case os.Getenv(EnvOkmsKeyId) != "" && !opts.Options.WithDisallowEnvVars:
+	case !opts.Options.WithDisallowEnvVars && os.Getenv(EnvOkmsKeyId) != "":
 		ow.keyId, err = uuid.Parse(os.Getenv(EnvOkmsKeyId))
 	case opts.WithKeyId != "":
 		ow.keyId, err = uuid.Parse(opts.WithKeyId)
@@ -119,42 +119,76 @@ func (ow *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrap
 		token = opts.withToken
 	}
 
-	// configure mTLS
-	clientCertFile := ""
+	// File-provided mTLS setup.
+	var clientCertBytes []byte
 	if !opts.Options.WithDisallowEnvVars {
-		clientCertFile = os.Getenv(EnvOkmsClientCert)
-	}
-	if clientCertFile == "" {
-		clientCertFile = opts.withClientCert
+		clientCertFile := os.Getenv(EnvOkmsClientCert)
+		if clientCertFile == "" {
+			clientCertFile = opts.withClientCert
+		}
+
+		if clientCertFile != "" {
+			clientCertBytes, err = os.ReadFile(clientCertFile)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 
-	clientKeyFile := ""
+	var clientKeyBytes []byte
 	if !opts.Options.WithDisallowEnvVars {
-		clientKeyFile = os.Getenv(EnvOkmsClientKey)
-	}
-	if clientKeyFile == "" {
-		clientKeyFile = opts.withClientKey
+		clientKeyFile := os.Getenv(EnvOkmsClientKey)
+		if clientKeyFile == "" {
+			clientKeyFile = opts.withClientKey
+		}
+
+		if clientKeyFile != "" {
+			clientKeyBytes, err = os.ReadFile(clientKeyFile)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 
-	caCert := ""
+	var caCertBytes []byte
 	if !opts.Options.WithDisallowEnvVars {
-		caCert = os.Getenv(EnvOkmsCaCert)
+		caCertFile := os.Getenv(EnvOkmsCaCert)
+		if caCertFile == "" {
+			caCertFile = opts.withCACert
+		}
+
+		if caCertFile != "" {
+			caCertBytes, err = os.ReadFile(caCertFile)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
-	if caCert == "" {
-		caCert = opts.withCACert
+
+	// In-memory mTLS setup.
+	if len(clientCertBytes) == 0 {
+		clientCertBytes = []byte(opts.withClientCertBytes)
+	}
+
+	if len(clientKeyBytes) == 0 {
+		clientKeyBytes = []byte(opts.withClientKeyBytes)
+	}
+
+	if len(caCertBytes) == 0 {
+		caCertBytes = []byte(opts.withCACertBytes)
 	}
 
 	// One authentication method must be provided: mTLS or token.
-	hasMTLS := clientCertFile != "" || clientKeyFile != ""
+	hasMTLS := len(clientCertBytes) > 0 || len(clientKeyBytes) > 0
 	hasToken := token != ""
 	switch {
 	case hasMTLS && hasToken:
-		return nil, fmt.Errorf("ambiguous authentication: provide either mTLS (client_cert/client_key) or token (token/kms_id), not both")
+		return nil, errors.New("ambiguous authentication: provide either mTLS (client_cert/client_key) or token (token/kms_id), not both")
 	case hasMTLS:
-		if clientCertFile == "" || clientKeyFile == "" {
-			return nil, fmt.Errorf("missing client certificate/key for mTLS authentication")
+		if len(clientCertBytes) == 0 || len(clientKeyBytes) == 0 {
+			return nil, errors.New("missing client certificate/key for mTLS authentication")
 		}
-		clientCfg, err := getMTLSConfig(clientCertFile, clientKeyFile, caCert)
+		clientCfg, err := getMTLSConfig(clientCertBytes, clientKeyBytes, caCertBytes)
 		if err != nil {
 			return nil, err
 		}
@@ -163,10 +197,15 @@ func (ow *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrap
 			return nil, err
 		}
 	case hasToken:
-		clientCfg, err := getTokenConfig(caCert)
-		if err != nil {
-			return nil, err
+		clientCfg := okms.ClientConfig{}
+		if len(caCertBytes) > 0 {
+			caCertPool := x509.NewCertPool()
+			caCertPool.AppendCertsFromPEM(caCertBytes)
+			clientCfg.TlsCfg = &tls.Config{
+				RootCAs: caCertPool,
+			}
 		}
+
 		ow.client, err = okms.NewRestAPIClient(endpoint, clientCfg)
 		if err != nil {
 			return nil, err
@@ -205,16 +244,8 @@ func (ow *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrap
 	return wrapConfig, nil
 }
 
-func getMTLSConfig(clientCertFile, clientKeyFile, caCertFile string) (okms.ClientConfig, error) {
-	clientCertBytes, err := os.ReadFile(clientCertFile)
-	if err != nil {
-		return okms.ClientConfig{}, err
-	}
-	clientKeyBytes, err := os.ReadFile(clientKeyFile)
-	if err != nil {
-		return okms.ClientConfig{}, err
-	}
-	tlsCert, err := tls.X509KeyPair(clientCertBytes, clientKeyBytes)
+func getMTLSConfig(clientCert, clientKey, caCert []byte) (okms.ClientConfig, error) {
+	tlsCert, err := tls.X509KeyPair(clientCert, clientKey)
 	if err != nil {
 		return okms.ClientConfig{}, err
 	}
@@ -224,35 +255,16 @@ func getMTLSConfig(clientCertFile, clientKeyFile, caCertFile string) (okms.Clien
 			Certificates: []tls.Certificate{tlsCert},
 		},
 	}
-	if caCertFile != "" {
-		caCertBytes, err := os.ReadFile(caCertFile)
-		if err != nil {
-			return okms.ClientConfig{}, err
-		}
+
+	if len(caCert) > 0 {
 		caCertPool := x509.NewCertPool()
-		caCertPool.AppendCertsFromPEM(caCertBytes)
+		caCertPool.AppendCertsFromPEM(caCert)
 		clientConfig.TlsCfg.RootCAs = caCertPool
 	}
 
 	// Uncomment this line to enable tracing of HTTP requests and responses
 	// clientConfig.Middleware = okms.DebugTransport(os.Stderr)
 
-	return clientConfig, nil
-}
-
-func getTokenConfig(caCertFile string) (okms.ClientConfig, error) {
-	clientConfig := okms.ClientConfig{}
-	if caCertFile != "" {
-		caCertBytes, err := os.ReadFile(caCertFile)
-		if err != nil {
-			return okms.ClientConfig{}, err
-		}
-		caCertPool := x509.NewCertPool()
-		caCertPool.AppendCertsFromPEM(caCertBytes)
-		clientConfig.TlsCfg = &tls.Config{
-			RootCAs: caCertPool,
-		}
-	}
 	return clientConfig, nil
 }
 

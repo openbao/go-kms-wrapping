@@ -4,15 +4,17 @@
 package gcpckms
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync/atomic"
 
 	cloudkms "cloud.google.com/go/kms/apiv1"
 	"cloud.google.com/go/kms/apiv1/kmspb"
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
-	context "golang.org/x/net/context"
+	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
 )
 
@@ -40,20 +42,25 @@ const (
 )
 
 type Wrapper struct {
-	// Values specific to IAM
-	credsPath string // Path to the creds file generated during service account creation
+	// Path to the creds file generated during service account creation
+	credsPath string
+
+	// Credentials configuration fields required if env var reading is not allowed.
+	credsJSON string // Stringified JSON credentials
+	credsType string // Provided credentials type, must be one of the google.CredentialsType
+
+	// Optionally provided credentials scopes, defaults to `DefaultAuthScopes`
+	credsScopes string
 
 	// Values specific to Cloud KMS service
-	project    string
-	location   string
-	keyRing    string
-	cryptoKey  string
-	parentName string // Parent path built from the above values
-
-	userAgent string
+	project   string
+	location  string
+	keyRing   string
+	cryptoKey string
 
 	currentKeyId   *atomic.Value
 	keyNotRequired bool
+	userAgent      string
 
 	client *cloudkms.KeyManagementClient
 }
@@ -77,26 +84,26 @@ func NewWrapper() *Wrapper {
 }
 
 // SetConfig sets the fields on the Wrapper object based on values from the
-// config parameter.   Environment variables take precedence over values provided
+// config parameter. Environment variables take precedence over values provided
 // in the config struct.
 //
 // Order of precedence for GCP credentials file:
-// * GOOGLE_CREDENTIALS environment variable
-// * `credentials` value from Value configuration file
+// * GOOGLE_CREDENTIALS environment variable (if WithDisallowEnvVars not provided)
+// * `credentials` (credsPath) path value from OpenBao/Vault configuration file
 // * GOOGLE_APPLICATION_CREDENTIALS
 // (https://developers.google.com/identity/protocols/application-default-credentials)
+// * `credentials` (credsJSON) stringified JSON value from OpenBao/Vault configuration file
 //
 // Unless the WithKeyNotRequired(true) option is provided, as a result of
 // successful configuration, the wrapper's KeyId will be set to the primary
 // CryptoKeyVersion.
-func (s *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrapping.WrapperConfig, error) {
+func (s *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapping.WrapperConfig, error) {
 	opts, err := getOpts(opt...)
 	if err != nil {
 		return nil, err
 	}
 
 	s.keyNotRequired = opts.withKeyNotRequired
-
 	s.userAgent = opts.withUserAgent
 
 	// Do not return an error in this case. Let client initialization in
@@ -105,14 +112,14 @@ func (s *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 	// it error out there if none is found. This is here to establish precedence on
 	// non-default input methods.
 	switch {
-	case os.Getenv(EnvGcpCkmsWrapperCredsPath) != "" && !opts.Options.WithDisallowEnvVars:
+	case !opts.Options.WithDisallowEnvVars && os.Getenv(EnvGcpCkmsWrapperCredsPath) != "":
 		s.credsPath = os.Getenv(EnvGcpCkmsWrapperCredsPath)
-	case opts.withCredentials != "":
-		s.credsPath = opts.withCredentials
+	case opts.withCredentialsPath != "":
+		s.credsPath = opts.withCredentialsPath
 	}
 
 	switch {
-	case os.Getenv(EnvGcpCkmsWrapperProject) != "" && !opts.Options.WithDisallowEnvVars:
+	case !opts.Options.WithDisallowEnvVars && os.Getenv(EnvGcpCkmsWrapperProject) != "":
 		s.project = os.Getenv(EnvGcpCkmsWrapperProject)
 	case opts.withProject != "":
 		s.project = opts.withProject
@@ -121,7 +128,7 @@ func (s *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 	}
 
 	switch {
-	case os.Getenv(EnvGcpCkmsWrapperLocation) != "" && !opts.Options.WithDisallowEnvVars:
+	case !opts.Options.WithDisallowEnvVars && os.Getenv(EnvGcpCkmsWrapperLocation) != "":
 		s.location = os.Getenv(EnvGcpCkmsWrapperLocation)
 	case opts.withRegion != "":
 		s.location = opts.withRegion
@@ -130,9 +137,9 @@ func (s *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 	}
 
 	switch {
-	case os.Getenv(EnvGcpCkmsWrapperKeyRing) != "" && !opts.Options.WithDisallowEnvVars:
+	case !opts.Options.WithDisallowEnvVars && os.Getenv(EnvGcpCkmsWrapperKeyRing) != "":
 		s.keyRing = os.Getenv(EnvGcpCkmsWrapperKeyRing)
-	case os.Getenv(EnvVaultGcpCkmsSealKeyRing) != "" && !opts.Options.WithDisallowEnvVars:
+	case !opts.Options.WithDisallowEnvVars && os.Getenv(EnvVaultGcpCkmsSealKeyRing) != "":
 		s.keyRing = os.Getenv(EnvVaultGcpCkmsSealKeyRing)
 	case opts.withKeyRing != "":
 		s.keyRing = opts.withKeyRing
@@ -141,9 +148,9 @@ func (s *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 	}
 
 	switch {
-	case os.Getenv(EnvGcpCkmsWrapperCryptoKey) != "" && !opts.Options.WithDisallowEnvVars:
+	case !opts.Options.WithDisallowEnvVars && os.Getenv(EnvGcpCkmsWrapperCryptoKey) != "":
 		s.cryptoKey = os.Getenv(EnvGcpCkmsWrapperCryptoKey)
-	case os.Getenv(EnvVaultGcpCkmsSealCryptoKey) != "" && !opts.Options.WithDisallowEnvVars:
+	case !opts.Options.WithDisallowEnvVars && os.Getenv(EnvVaultGcpCkmsSealCryptoKey) != "":
 		s.cryptoKey = os.Getenv(EnvVaultGcpCkmsSealCryptoKey)
 	case opts.withCryptoKey != "":
 		s.cryptoKey = opts.withCryptoKey
@@ -153,12 +160,13 @@ func (s *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 		return nil, errors.New("'crypto_key' not found for GCP CKMS wrapper configuration")
 	}
 
-	// Set the parent name for encrypt/decrypt requests
-	s.parentName = fmt.Sprintf("projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s", s.project, s.location, s.keyRing, s.cryptoKey)
+	s.credsJSON = opts.withCredentialsJSON
+	s.credsType = opts.withCredentialsType
+	s.credsScopes = opts.withCredentialsScopes
 
 	// Set and check s.client
 	if s.client == nil {
-		kmsClient, err := s.createClient()
+		kmsClient, err := s.createClient(ctx, opts.WithDisallowEnvVars)
 		if err != nil {
 			return nil, fmt.Errorf("error initializing GCP CKMS wrapper client: %w", err)
 		}
@@ -166,14 +174,13 @@ func (s *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 
 		// Make sure user has permissions to encrypt or sign and check if key exists
 		if !s.keyNotRequired {
-			ctx := context.Background()
-			k, err := s.client.GetCryptoKey(ctx, &kmspb.GetCryptoKeyRequest{Name: s.parentName})
+			k, err := s.client.GetCryptoKey(ctx, &kmspb.GetCryptoKeyRequest{Name: s.ParentName()})
 			if err != nil {
 				return nil, fmt.Errorf("error checking key existence: %s", err)
 			}
 			s.currentKeyId.Store(k.GetPrimary().GetName())
 
-			permissions, err := s.client.ResourceIAM(s.parentName).TestPermissions(ctx, keyPermissions)
+			permissions, err := s.client.ResourceIAM(s.ParentName()).TestPermissions(ctx, keyPermissions)
 			if err != nil {
 				return nil, err
 			}
@@ -195,6 +202,51 @@ func (s *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 	wrapConfig.Metadata["crypto_key"] = s.cryptoKey
 
 	return wrapConfig, nil
+}
+
+// createClient returns a configured GCP KMS client.
+func (s *Wrapper) createClient(ctx context.Context, disallowEnv bool) (*cloudkms.KeyManagementClient, error) {
+	clientOpts := []option.ClientOption{option.WithUserAgent(s.userAgent)}
+	if s.credsJSON != "" && s.credsType != "" {
+		credScopes := make([]string, 0)
+		if s.credsScopes != "" {
+			// TODO(wslabosz): is it safe to split based on ","?
+			credScopes = append(credScopes, strings.Split(s.credsScopes, ",")...)
+		}
+		if len(credScopes) == 0 {
+			credScopes = append(credScopes, cloudkms.DefaultAuthScopes()...)
+		}
+
+		creds, err := google.CredentialsFromJSONWithType(ctx, []byte(s.credsJSON), google.CredentialsType(s.credsType), credScopes...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create credentials from provided configuration: %w", err)
+		}
+
+		clientOpts = append(clientOpts, option.WithCredentials(creds))
+	}
+
+	if !disallowEnv && s.credsPath != "" {
+		clientOpts = append(clientOpts, option.WithCredentialsFile(s.credsPath))
+	}
+
+	client, err := cloudkms.NewKeyManagementClient(
+		ctx,
+		clientOpts...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create KMS client: %w", err)
+	}
+
+	return client, nil
+}
+
+func (s *Wrapper) ParentName() string {
+	return fmt.Sprintf("projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s", s.project, s.location, s.keyRing, s.cryptoKey)
+}
+
+// Client returns the GCP KMS client used by the wrapper.
+func (s *Wrapper) Client() *cloudkms.KeyManagementClient {
+	return s.client
 }
 
 // Type returns the type for this particular wrapper implementation
@@ -228,7 +280,7 @@ func (s *Wrapper) Encrypt(ctx context.Context, plaintext []byte, opt ...wrapping
 	}
 
 	resp, err := s.client.Encrypt(ctx, &kmspb.EncryptRequest{
-		Name:      s.parentName,
+		Name:      s.ParentName(),
 		Plaintext: env.Key,
 	})
 	if err != nil {
@@ -271,7 +323,7 @@ func (s *Wrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, opt ...wra
 	switch in.KeyInfo.Mechanism {
 	case GcpCkmsEncrypt:
 		resp, err := s.client.Decrypt(ctx, &kmspb.DecryptRequest{
-			Name:       s.parentName,
+			Name:       s.ParentName(),
 			Ciphertext: in.Ciphertext,
 		})
 		if err != nil {
@@ -282,7 +334,7 @@ func (s *Wrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, opt ...wra
 
 	case GcpCkmsEnvelopeAesGcmEncrypt:
 		resp, err := s.client.Decrypt(ctx, &kmspb.DecryptRequest{
-			Name:       s.parentName,
+			Name:       s.ParentName(),
 			Ciphertext: in.KeyInfo.WrappedKey,
 		})
 		if err != nil {
@@ -304,33 +356,4 @@ func (s *Wrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, opt ...wra
 	}
 
 	return plaintext, nil
-}
-
-// Client returns the GCP KMS client used by the wrapper.
-func (s *Wrapper) Client() *cloudkms.KeyManagementClient {
-	return s.client
-}
-
-// createClient returns a configured GCP KMS client.
-func (s *Wrapper) createClient() (*cloudkms.KeyManagementClient, error) {
-	client, err := cloudkms.NewKeyManagementClient(
-		context.Background(),
-		option.WithCredentialsFile(s.credsPath),
-		option.WithUserAgent(s.userAgent),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create KMS client: %w", err)
-	}
-
-	return client, nil
-}
-
-// KeyRingResourceName returns the relative resource name of the configured key ring.
-func (s *Wrapper) KeyRingResourceName() string {
-	return fmt.Sprintf("projects/%s/locations/%s/keyRings/%s", s.project, s.location, s.keyRing)
-}
-
-// LocationName returns the relative location name.
-func (s *Wrapper) LocationName() string {
-	return fmt.Sprintf("projects/%s/locations/%s", s.project, s.location)
 }

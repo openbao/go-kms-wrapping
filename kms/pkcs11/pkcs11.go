@@ -16,16 +16,25 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/go-viper/mapstructure/v2"
 	"github.com/miekg/pkcs11"
 	"github.com/openbao/go-kms-wrapping/kms/pkcs11/v2/internal/module"
 	"github.com/openbao/go-kms-wrapping/kms/pkcs11/v2/internal/session"
 	"github.com/openbao/go-kms-wrapping/v2/kms"
 )
 
+// SensitiveKMSFields are all fields accepted by Open() that should be censored
+// when presenting a ConfigMap for display.
+var SensitiveKMSFields = []string{"pin"}
+
 // New returns a new KMS that uses PKCS#11 libraries.
 func New() kms.KMS {
 	return &pkcs11KMS{}
+}
+
+// NewWithAliases returns a new KMS that uses PKCS#11 libraries and provides it
+// with a map of library path aliases.
+func NewWithAliases(aliases map[string]string) kms.KMS {
+	return &pkcs11KMS{aliases: aliases}
 }
 
 // pkcs11KMS implements kms.KMS.
@@ -39,6 +48,13 @@ type pkcs11KMS struct {
 	// Disable preferring local public key encryption over performing public key
 	// encryption via PKCS#11.
 	disableSoftwareEncryption bool
+
+	// aliases map a name (an alias) to a library path. If the KMS is
+	// opened with AllowEnvironment=false, libraries may only be opened via
+	// alias, i.e., the "lib" parameter is always interpreted as one. If
+	// AllowEnvironment=true, aliases take precedence, but "lib" may still be a
+	// plain file path.
+	aliases map[string]string
 }
 
 func (p *pkcs11KMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
@@ -47,9 +63,9 @@ func (p *pkcs11KMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 		Lib string `mapstructure:"lib"`
 
 		// Token slot selectors.
-		Slot   *uint  `mapstructure:"slot"`
-		Serial string `mapstructure:"serial"`
-		Token  string `mapstructure:"token_label"`
+		Slot       *uint  `mapstructure:"slot"`
+		Serial     string `mapstructure:"serial"`
+		TokenLabel string `mapstructure:"token_label"`
 
 		// PIN to authenticate against the chosen token.
 		PIN string `mapstructure:"pin"`
@@ -57,9 +73,11 @@ func (p *pkcs11KMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 		// Other tweaks.
 		DisableSoftwareEncryption bool `mapstructure:"disable_software_encryption"`
 	}
-	if err := mapstructure.WeakDecode(opts.ConfigMap, &cfg); err != nil {
+
+	if err := kms.DecodeConfigMap(&cfg, opts.ConfigMap); err != nil {
 		return err
 	}
+
 	if cfg.Lib == "" {
 		return errors.New("missing required parameter 'lib'")
 	}
@@ -72,15 +90,25 @@ func (p *pkcs11KMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 	if cfg.Serial != "" {
 		selectors = append(selectors, module.SelectSerial(cfg.Serial))
 	}
-	if cfg.Token != "" {
-		selectors = append(selectors, module.SelectLabel(cfg.Token))
+	if cfg.TokenLabel != "" {
+		selectors = append(selectors, module.SelectLabel(cfg.TokenLabel))
 	}
 	if len(selectors) == 0 {
-		return errors.New("at least one of 'slot', 'serial', 'token' is required")
+		return errors.New("at least one of 'slot', 'serial', 'token_label' is required")
+	}
+
+	// Resolve library aliases and fall back to plain path if allowed.
+	lib, ok := p.aliases[cfg.Lib]
+	if !ok {
+		if opts.AllowEnvironment {
+			lib = cfg.Lib
+		} else {
+			return fmt.Errorf("unknown library alias: %q", cfg.Lib)
+		}
 	}
 
 	// Open the library:
-	mod, err := module.Open(cfg.Lib)
+	mod, err := module.Open(lib)
 	if err != nil {
 		return err
 	}
@@ -118,8 +146,18 @@ func (p *pkcs11KMS) GetKey(ctx context.Context, opts *kms.KeyOptions) (kms.Key, 
 		Mechanism   string `mapstructure:"mechanism"`
 		RSAOAEPHash string `mapstructure:"rsa_oaep_hash"`
 	}
-	if err := mapstructure.WeakDecode(opts.ConfigMap, &cfg); err != nil {
+
+	if err := kms.DecodeConfigMap(&cfg, opts.ConfigMap); err != nil {
 		return nil, err
+	}
+
+	if cfg.ID == "" && cfg.Label == "" {
+		return nil, errors.New("must set one of 'id', 'label'")
+	}
+
+	keyID, err := hex.DecodeString(strings.TrimPrefix(cfg.ID, "0x"))
+	if err != nil {
+		return nil, fmt.Errorf("parse 'id': %w", err)
 	}
 
 	// Parse and optionally pin the mechanism:
@@ -134,23 +172,31 @@ func (p *pkcs11KMS) GetKey(ctx context.Context, opts *kms.KeyOptions) (kms.Key, 
 		return nil, fmt.Errorf("parse 'rsa_oaep_hash': %w", err)
 	}
 
+	return resolveKey(ctx, p.pool, keyID, cfg.Label, mech, oaepHash, p.disableSoftwareEncryption)
+}
+
+// resolveKey performs key resolution magic and maps objects to the correct key
+// implementation. This is decoupled from [pkcs11KMS] so logic can be shared
+// with [pkcs11Wrapper] without passing through the former.
+func resolveKey(
+	ctx context.Context,
+	pool *session.PoolRef,
+	id []byte,
+	label string,
+	mech *uint,
+	oaepHash crypto.Hash,
+	disableSoftwareEncryption bool,
+) (kms.Key, error) {
 	// Build a template to perform the initial key lookup:
 	var temp []*pkcs11.Attribute
-	if cfg.ID != "" {
-		id, err := parseKeyID(cfg.ID)
-		if err != nil {
-			return nil, fmt.Errorf("parse 'id': %w", err)
-		}
+	if len(id) != 0 {
 		temp = append(temp, pkcs11.NewAttribute(pkcs11.CKA_ID, id))
 	}
-	if cfg.Label != "" {
-		temp = append(temp, pkcs11.NewAttribute(pkcs11.CKA_LABEL, cfg.Label))
-	}
-	if len(temp) == 0 {
-		return nil, errors.New("one of 'id', 'label' must be set")
+	if label != "" {
+		temp = append(temp, pkcs11.NewAttribute(pkcs11.CKA_LABEL, label))
 	}
 
-	return session.Scope(ctx, p.pool, func(s *session.Handle) (kms.Key, error) {
+	return session.Scope(ctx, pool, func(s *session.Handle) (kms.Key, error) {
 		objs, err := find(s, temp, 2)
 		if err != nil {
 			return nil, err
@@ -160,7 +206,7 @@ func (p *pkcs11KMS) GetKey(ctx context.Context, opts *kms.KeyOptions) (kms.Key, 
 			switch objs[0].class {
 			// A single secret key:
 			case pkcs11.CKO_SECRET_KEY:
-				return p.newSymmetric(objs[0], mech)
+				return newSymmetric(pool, objs[0], mech)
 
 			// A single private key: the matching public key may have a different
 			// label so search for the public key.
@@ -182,7 +228,7 @@ func (p *pkcs11KMS) GetKey(ctx context.Context, opts *kms.KeyOptions) (kms.Key, 
 				if err != nil {
 					return nil, err
 				}
-				return p.newAsymmetric(pubs[0], objs[0], mech, oaepHash)
+				return newAsymmetric(pool, pubs[0], objs[0], mech, oaepHash, disableSoftwareEncryption)
 
 			default:
 				return nil, fmt.Errorf("expected CKO_SECRET_KEY or CKO_PRIVATE_KEY but got %s", classToString(objs[0].class))
@@ -203,7 +249,7 @@ func (p *pkcs11KMS) GetKey(ctx context.Context, opts *kms.KeyOptions) (kms.Key, 
 			return nil, fmt.Errorf("private key of type %s does not match public key of type %s",
 				keyTypeToString(private.keytype), keyTypeToString(public.keytype))
 		}
-		return p.newAsymmetric(public, private, mech, oaepHash)
+		return newAsymmetric(pool, public, private, mech, oaepHash, disableSoftwareEncryption)
 	})
 }
 
@@ -253,21 +299,27 @@ func find(s *session.Handle, temp []*pkcs11.Attribute, limit int) ([]object, err
 }
 
 // newSymmetric constructs a symmetric key implementation from an object.
-func (p *pkcs11KMS) newSymmetric(o object, mech *uint) (kms.Key, error) {
+func newSymmetric(pool *session.PoolRef, o object, mech *uint) (kms.Key, error) {
 	switch o.keytype {
 	case pkcs11.CKK_AES:
-		return p.newAES(o, mech)
+		return newAES(pool, o, mech)
 	}
 	return nil, fmt.Errorf("unsupported symmetric key type: %s", keyTypeToString(o.keytype))
 }
 
 // newAsymmetric constructs an asymmetric key implementation from two objects.
-func (p *pkcs11KMS) newAsymmetric(public, private object, mech *uint, oaepHash crypto.Hash) (kms.Key, error) {
+func newAsymmetric(
+	pool *session.PoolRef,
+	public, private object,
+	mech *uint,
+	oaepHash crypto.Hash,
+	disableSoftwareEncryption bool,
+) (kms.Key, error) {
 	switch public.keytype {
 	case pkcs11.CKK_EC:
-		return p.newEC(public, private, mech)
+		return newEC(pool, public, private, mech)
 	case pkcs11.CKK_RSA:
-		return p.newRSA(public, private, mech, oaepHash)
+		return newRSA(pool, public, private, mech, oaepHash, disableSoftwareEncryption)
 	}
 	return nil, fmt.Errorf("unsupported asymmetric key type: %s", keyTypeToString(public.keytype))
 }
@@ -289,16 +341,6 @@ func bytesToUint(value []byte) (uint, error) {
 		return uint(u64), nil
 	default:
 		return 0, fmt.Errorf("cannot convert byte slice of length %d to uint", len(value))
-	}
-}
-
-// parseKeyID parses a key ID string to bytes either by interpreting it as hex
-// or by casting the string to bytes directly.
-func parseKeyID(s string) (b []byte, err error) {
-	if strings.HasPrefix(strings.ToLower(s), "0x") {
-		return hex.DecodeString(s[2:])
-	} else {
-		return []byte(s), nil
 	}
 }
 
@@ -327,6 +369,23 @@ func parseMechanism(s string) (*uint, error) {
 		ret = uint(mech)
 	}
 	return &ret, nil
+}
+
+// mechToString stringifies known mechanisms into PKCS#11's canonical constant
+// name.
+func mechToString(mech uint) string {
+	switch mech {
+	case pkcs11.CKM_AES_GCM:
+		return "CKM_AES_GCM"
+	case pkcs11.CKM_ECDSA:
+		return "CKM_ECDSA"
+	case pkcs11.CKM_RSA_PKCS_PSS:
+		return "CKM_RSA_PKCS_PSS"
+	case pkcs11.CKM_RSA_PKCS_OAEP:
+		return "CKM_RSA_PKCS_OAEP"
+	default:
+		return fmt.Sprintf("Unknown (%x)", mech)
+	}
 }
 
 // parseOAEPHash parses the hash to use with RSA-OAEP from a literal.

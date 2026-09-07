@@ -16,8 +16,10 @@ EOF
 export PKCS11_PIN=abcd-1234
 export PKCS11_TOKEN=go-kms-wrapping
 
-softhsm2-util \
-  --init-token --slot 0 \
+pkcs11-tool \
+  --init-token \
+  --init-pin \
+  --slot 0 \
   --module "${PKCS11_LIBRARY}" \
   --label  "${PKCS11_TOKEN}" \
   --so-pin "${PKCS11_PIN}" \

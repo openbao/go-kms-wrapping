@@ -51,10 +51,10 @@ func Test(t *testing.T) {
 
 	opts := &kms.OpenOptions{
 		ConfigMap: kms.ConfigMap{
-			"token":       client.Token(),
-			"address":     client.Address(),
-			"mount_path":  "transit",
-			"tls_ca_cert": string(cluster.CACertPEM),
+			"token":             client.Token(),
+			"address":           client.Address(),
+			"mount_path":        "transit",
+			"tls_ca_cert_bytes": string(cluster.CACertPEM),
 		},
 	}
 
@@ -90,9 +90,8 @@ func test(t *testing.T, k kms.KMS, opts *kms.OpenOptions) {
 			require.NotEmpty(t, ciphertext)
 			require.NotEqual(t, input, ciphertext)
 			plaintext, err := key.Decrypt(ctx, &kms.CipherOptions{
-				Data:       ciphertext,
-				AAD:        aad,
-				KeyVersion: opts.KeyVersion,
+				Data: ciphertext,
+				AAD:  aad,
 			})
 			require.NoError(t, err)
 			require.Equal(t, input, plaintext)
@@ -104,7 +103,10 @@ func test(t *testing.T, k kms.KMS, opts *kms.OpenOptions) {
 		} {
 			t.Run(name, func(t *testing.T) {
 				key, err := k.GetKey(ctx, &kms.KeyOptions{
-					ConfigMap: kms.ConfigMap{"name": name},
+					ConfigMap: kms.ConfigMap{
+						"name":    name,
+						"version": 1,
+					},
 				})
 				require.NoError(t, err)
 				t.Run("aad", func(t *testing.T) { roundtrip(t, key, input, aad) })
@@ -114,7 +116,10 @@ func test(t *testing.T, k kms.KMS, opts *kms.OpenOptions) {
 
 		t.Run("rsa-4096", func(t *testing.T) {
 			key, err := k.GetKey(ctx, &kms.KeyOptions{
-				ConfigMap: kms.ConfigMap{"name": "rsa-4096"},
+				ConfigMap: kms.ConfigMap{
+					"name":    "rsa-4096",
+					"version": 1,
+				},
 			})
 			require.NoError(t, err)
 			roundtrip(t, key, input, nil)
@@ -140,7 +145,6 @@ func test(t *testing.T, k kms.KMS, opts *kms.OpenOptions) {
 				Data:       opts.Data,
 				SignerOpts: sopts,
 				Signature:  signature,
-				KeyVersion: opts.KeyVersion,
 			}))
 
 			// Pre-hashed:
@@ -157,19 +161,22 @@ func test(t *testing.T, k kms.KMS, opts *kms.OpenOptions) {
 				Prehashed:  true,
 				SignerOpts: opts.SignerOpts,
 				Signature:  signature,
-				KeyVersion: opts.KeyVersion,
 			}))
 		}
 
 		t.Run("rsa-4096", func(t *testing.T) {
 			key, err := k.GetKey(ctx, &kms.KeyOptions{
-				ConfigMap: kms.ConfigMap{"name": "rsa-4096"},
+				ConfigMap: kms.ConfigMap{
+					"name":    "rsa-4096",
+					"version": "1",
+				},
 			})
 			require.NoError(t, err)
 			roundtrip(t, key, &rsa.PSSOptions{
 				SaltLength: rsa.PSSSaltLengthAuto,
 				Hash:       crypto.SHA256,
 			})
+			roundtrip(t, key, crypto.SHA256) // PKCS#1 v1.5.
 		})
 
 		for name, hash := range map[string]crypto.Hash{
@@ -179,7 +186,10 @@ func test(t *testing.T, k kms.KMS, opts *kms.OpenOptions) {
 		} {
 			t.Run(name, func(t *testing.T) {
 				key, err := k.GetKey(ctx, &kms.KeyOptions{
-					ConfigMap: kms.ConfigMap{"name": name},
+					ConfigMap: kms.ConfigMap{
+						"name":    name,
+						"version": 1,
+					},
 				})
 				require.NoError(t, err)
 				roundtrip(t, key, hash)
@@ -188,7 +198,10 @@ func test(t *testing.T, k kms.KMS, opts *kms.OpenOptions) {
 
 		t.Run("ed25519", func(t *testing.T) {
 			key, err := k.GetKey(ctx, &kms.KeyOptions{
-				ConfigMap: kms.ConfigMap{"name": "ed25519"},
+				ConfigMap: kms.ConfigMap{
+					"name":    "ed25519",
+					"version": 1,
+				},
 			})
 			require.NoError(t, err)
 			opts := &kms.SignOptions{
@@ -202,7 +215,6 @@ func test(t *testing.T, k kms.KMS, opts *kms.OpenOptions) {
 				Data:       opts.Data,
 				SignerOpts: opts.SignerOpts,
 				Signature:  signature,
-				KeyVersion: opts.KeyVersion,
 			}))
 		})
 
@@ -210,6 +222,7 @@ func test(t *testing.T, k kms.KMS, opts *kms.OpenOptions) {
 			key, err := k.GetKey(ctx, &kms.KeyOptions{
 				ConfigMap: kms.ConfigMap{
 					"name":               "ecdsa-p256",
+					"version":            1,
 					"disable_prehashing": true,
 				},
 			})
@@ -237,7 +250,10 @@ func test(t *testing.T, k kms.KMS, opts *kms.OpenOptions) {
 		for name, want := range tests {
 			t.Run(name, func(t *testing.T) {
 				key, err := k.GetKey(ctx, &kms.KeyOptions{
-					ConfigMap: kms.ConfigMap{"name": name},
+					ConfigMap: kms.ConfigMap{
+						"name":    name,
+						"version": 1,
+					},
 				})
 				require.NoError(t, err)
 				pub, err := key.ExportPublic(ctx)
@@ -250,7 +266,10 @@ func test(t *testing.T, k kms.KMS, opts *kms.OpenOptions) {
 		// part.
 		t.Run("aes256-gcm96", func(t *testing.T) {
 			key, err := k.GetKey(ctx, &kms.KeyOptions{
-				ConfigMap: kms.ConfigMap{"name": "aes256-gcm96"},
+				ConfigMap: kms.ConfigMap{
+					"name":    "aes256-gcm96",
+					"version": 1,
+				},
 			})
 			require.NoError(t, err)
 			_, err = key.ExportPublic(ctx)
@@ -269,7 +288,10 @@ func test(t *testing.T, k kms.KMS, opts *kms.OpenOptions) {
 		for name, algo := range tests {
 			t.Run(name, func(t *testing.T) {
 				key, err := k.GetKey(ctx, &kms.KeyOptions{
-					ConfigMap: kms.ConfigMap{"name": name},
+					ConfigMap: kms.ConfigMap{
+						"name":    name,
+						"version": 1,
+					},
 				})
 				require.NoError(t, err)
 				signer, err := kms.NewSigner(ctx, key)
