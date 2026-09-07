@@ -106,9 +106,9 @@ func (w *Wrapper) SetConfig(ctx context.Context, options ...wrapping.Option) (*w
 	if err != nil {
 		var apiErr *kmssdk.APIError
 		if errors.As(err, &apiErr) {
-			return nil, fmt.Errorf("API error %d (%s): %s\n", apiErr.StatusCode, apiErr.Code, apiErr.Message)
+			return nil, fmt.Errorf("API error %d (%s): %s", apiErr.StatusCode, apiErr.Code, apiErr.Message)
 		}
-		return nil, fmt.Errorf("unexpected error: %v\n", err)
+		return nil, fmt.Errorf("unexpected error: %w", err)
 	}
 
 	err = w.vslotInit(ctx)
