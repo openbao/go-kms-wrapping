@@ -11,6 +11,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"runtime"
 
 	"github.com/hashicorp/go-plugin"
 	pb "github.com/openbao/go-kms-wrapping/plugin/v2/pb/kms"
@@ -37,8 +38,11 @@ func (kp *gRPCKMSPlugin) GRPCClient(ctx context.Context, broker *plugin.GRPCBrok
 }
 
 func (c *gRPCKMSClient) handleRPCError(err error) error {
-	code := status.Code(err)
+	s, _ := status.FromError(err)
+	code := s.Code()
 	switch {
+	case code == codes.Unknown:
+		return errors.New(s.Message())
 	case code == codes.Unimplemented:
 		return kms.ErrNotImplemented
 	case code == codes.NotFound:
@@ -87,10 +91,16 @@ func (c *gRPCKMSClient) GetKey(ctx context.Context, opts *kms.KeyOptions) (kms.K
 	if err != nil {
 		return nil, c.handleRPCError(err)
 	}
-	return &gRPCKeyClient{
+	key := &gRPCKeyClient{
 		id:  resp.KeyId,
 		kms: c,
-	}, nil
+	}
+	runtime.AddCleanup(key, func(id string) {
+		_, _ = c.client.CloseKey(c.ctx, &pb.CloseKeyRequest{
+			KeyId: id,
+		})
+	}, resp.KeyId)
+	return key, nil
 }
 
 type gRPCKeyClient struct {
@@ -109,18 +119,14 @@ func (c *gRPCKeyClient) Encrypt(ctx context.Context, opts *kms.CipherOptions) ([
 	if err != nil {
 		return nil, c.kms.handleRPCError(err)
 	}
-	opts.Nonce = resp.Nonce
-	opts.KeyVersion = resp.KeyVersion
 	return resp.Ciphertext, nil
 }
 
 func (c *gRPCKeyClient) Decrypt(ctx context.Context, opts *kms.CipherOptions) ([]byte, error) {
 	resp, err := c.kms.client.Decrypt(ctx, &pb.DecryptRequest{
-		KeyId:      c.id,
-		Data:       opts.Data,
-		Aad:        opts.AAD,
-		Nonce:      opts.Nonce,
-		KeyVersion: opts.KeyVersion,
+		KeyId: c.id,
+		Data:  opts.Data,
+		Aad:   opts.AAD,
 	})
 	if err != nil {
 		return nil, c.kms.handleRPCError(err)
@@ -175,7 +181,6 @@ func (c *gRPCKeyClient) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte
 	if err != nil {
 		return nil, c.kms.handleRPCError(err)
 	}
-	opts.KeyVersion = resp.KeyVersion
 	return resp.Signature, nil
 }
 
@@ -192,13 +197,12 @@ func (c *gRPCKeyClient) Verify(ctx context.Context, opts *kms.VerifyOptions) err
 		}
 	}
 	_, err = c.kms.client.Verify(ctx, &pb.VerifyRequest{
-		KeyId:      c.id,
-		Data:       opts.Data,
-		Prehashed:  opts.Prehashed,
-		Hash:       hash,
-		Opts:       signerOpts,
-		Signature:  opts.Signature,
-		KeyVersion: opts.KeyVersion,
+		KeyId:     c.id,
+		Data:      opts.Data,
+		Prehashed: opts.Prehashed,
+		Hash:      hash,
+		Opts:      signerOpts,
+		Signature: opts.Signature,
 	})
 	switch {
 	case status.Code(err) == codes.InvalidArgument:
@@ -221,11 +225,4 @@ func (c *gRPCKeyClient) ExportPublic(ctx context.Context) (crypto.PublicKey, err
 		return nil, err
 	}
 	return crypto.PublicKey(pub), nil
-}
-
-func (c *gRPCKeyClient) Close(ctx context.Context) error {
-	_, err := c.kms.client.CloseKey(ctx, &pb.CloseKeyRequest{
-		KeyId: c.id,
-	})
-	return c.kms.handleRPCError(err)
 }

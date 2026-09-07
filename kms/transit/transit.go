@@ -11,19 +11,21 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"path"
+	"strconv"
 	"strings"
 
-	"github.com/go-viper/mapstructure/v2"
-	"github.com/hashicorp/go-hclog"
 	"github.com/openbao/go-kms-wrapping/v2/kms"
 	"github.com/openbao/openbao/api/v2"
 )
 
 var ErrPrehashingDisabled = errors.New("pre-hashing is disabled")
+
+// SensitiveKMSFields are all fields accepted by Open() that should be censored
+// when presenting a ConfigMap for display.
+var SensitiveKMSFields = []string{"token"}
 
 // New returns a new KMS that uses OpenBao's Transit engine.
 func New() kms.KMS {
@@ -36,27 +38,24 @@ type transitKMS struct {
 
 	client *api.Client
 	mount  string // The configured Transit engine mount path.
-
-	// To keep the client's token alive.
-	lifetimeWatcher *api.LifetimeWatcher
 }
 
 func (k *transitKMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 	var cfg struct {
-		Address        string `mapstructure:"address"`
-		Token          string `mapstructure:"token"`
-		Namespace      string `mapstructure:"namespace"`
-		MountPath      string `mapstructure:"mount_path"`
-		DisableRenewal bool   `mapstructure:"disable_renewal"`
+		Address   string `mapstructure:"address"`
+		Token     string `mapstructure:"token"`
+		Namespace string `mapstructure:"namespace"`
+		MountPath string `mapstructure:"mount_path"`
 
-		TLSCaCert     string `mapstructure:"tls_ca_cert"`
 		TLSServerName string `mapstructure:"tls_server_name"`
 		TLSSkipVerify bool   `mapstructure:"tls_skip_verify"`
 
-		// This is missing client cert configuration, but that is blocked on
-		// https://github.com/openbao/openbao/issues/2762.
+		TLSCACertBytes     string `mapstructure:"tls_ca_cert_bytes"`
+		TLSClientCertBytes string `mapstructure:"tls_client_cert_bytes"`
+		TLSClientKeyBytes  string `mapstructure:"tls_client_key_bytes"`
 	}
-	if err := mapstructure.WeakDecode(opts.ConfigMap, &cfg); err != nil {
+
+	if err := kms.DecodeConfigMap(&cfg, opts.ConfigMap); err != nil {
 		return err
 	}
 
@@ -64,26 +63,32 @@ func (k *transitKMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 		return errors.New("missing required parameter 'token'")
 	}
 
-	// TODO(satoqz): This reads environment variables, and we don't have a good
-	// way around it yet. Fix this once the api package offers ways to create a
-	// clean config.
-	apiConfig := api.DefaultConfig()
-	if cfg.Address != "" {
-		apiConfig.Address = cfg.Address
+	var apiConfig *api.Config
+
+	if opts.AllowEnvironment {
+		apiConfig = api.DefaultConfig()
+	} else {
+		apiConfig = api.NewConfig()
 	}
 
-	if cfg.TLSCaCert != "" || cfg.TLSServerName != "" || cfg.TLSSkipVerify {
+	if cfg.Address != "" {
+		apiConfig.Address = cfg.Address
+	} else {
+		apiConfig.Address = "https://127.0.0.1:8200"
+	}
+
+	if cfg.TLSSkipVerify || cmp.Or(cfg.TLSCACertBytes, cfg.TLSClientCertBytes, cfg.TLSClientKeyBytes, cfg.TLSServerName) != "" {
 		if err := apiConfig.ConfigureTLS(&api.TLSConfig{
-			CACertBytes:   []byte(cfg.TLSCaCert),
-			TLSServerName: cfg.TLSServerName,
-			Insecure:      cfg.TLSSkipVerify,
+			CACertBytes:     []byte(cfg.TLSCACertBytes),
+			ClientCertBytes: []byte(cfg.TLSClientCertBytes),
+			ClientKeyBytes:  []byte(cfg.TLSClientKeyBytes),
+			TLSServerName:   cfg.TLSServerName,
+			Insecure:        cfg.TLSSkipVerify,
 		}); err != nil {
 			return err
 		}
 	}
 
-	// TODO(satoqz): This also reads environment variables, with no way to
-	// circumvent it at all.
 	client, err := api.NewClient(apiConfig)
 	if err != nil {
 		return err
@@ -92,76 +97,35 @@ func (k *transitKMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 	client.SetToken(cfg.Token)
 	client.SetNamespace(cfg.Namespace)
 
-	logger := opts.Logger
-	if logger == nil {
-		// So we don't need to guard against the logger being nil.
-		logger = hclog.NewNullLogger()
-	}
-
-	var lifetimeWatcher *api.LifetimeWatcher
-	if !cfg.DisableRenewal {
-		// Renew the token immediately to get a secret to pass to lifetime
-		// watcher.
-		secret, err := client.Auth().Token().RenewTokenAsSelf(client.Token(), 0)
-		// If we don't get an error renewing, set up a lifetime watcher. The
-		// token may not be renewable or not have permission to renew-self.
-		if err == nil {
-			input := &api.LifetimeWatcherInput{Secret: secret}
-			lifetimeWatcher, err = client.NewLifetimeWatcher(input)
-			if err != nil {
-				return err
-			}
-			go func() {
-				for {
-					select {
-					case err := <-lifetimeWatcher.DoneCh():
-						logger.Info("shutting down token renewal")
-						if err != nil {
-							logger.Error("error renewing token", "error", err)
-						}
-						return
-					case <-lifetimeWatcher.RenewCh():
-						logger.Trace("successfully renewed token")
-					}
-				}
-			}()
-			go lifetimeWatcher.Start()
-		} else {
-			logger.Info("unable to renew token, disabling renewal", "err", err)
-		}
-	}
-
 	k.client = client
-	k.lifetimeWatcher = lifetimeWatcher
 	k.mount = cmp.Or(cfg.MountPath, "transit")
 
-	return nil
-}
-
-func (k *transitKMS) Close(context.Context) error {
-	// We have no resources to clear besides the LifetimeWatcher's Goroutines.
-	if k.lifetimeWatcher != nil {
-		k.lifetimeWatcher.Stop()
-	}
 	return nil
 }
 
 func (k *transitKMS) GetKey(_ context.Context, opts *kms.KeyOptions) (kms.Key, error) {
 	var cfg struct {
 		Name              string `mapstructure:"name"`
+		Version           uint64 `mapstructure:"version"`
 		DisablePrehashing bool   `mapstructure:"disable_prehashing"`
 	}
-	if err := mapstructure.WeakDecode(opts.ConfigMap, &cfg); err != nil {
+
+	if err := kms.DecodeConfigMap(&cfg, opts.ConfigMap); err != nil {
 		return nil, err
 	}
-	if cfg.Name == "" {
+
+	switch {
+	case cfg.Name == "":
 		return nil, errors.New("missing required parameter 'name'")
+	case cfg.Version <= 0:
+		return nil, errors.New("missing required parameter 'version'")
 	}
 
 	return &transitKey{
 		client:            k.client,
 		mount:             k.mount,
 		name:              cfg.Name,
+		version:           cfg.Version,
 		disablePrehashing: cfg.DisablePrehashing,
 	}, nil
 }
@@ -172,8 +136,9 @@ type transitKey struct {
 
 	client *api.Client
 
-	mount string // The configured Transit engine mount path.
-	name  string // The configured key name.
+	mount   string // The configured Transit engine mount path.
+	name    string // The configured key name.
+	version uint64 // The configured key version.
 
 	disablePrehashing bool
 }
@@ -181,7 +146,8 @@ type transitKey struct {
 // See: https://openbao.org/api-docs/secret/transit/#encrypt-data
 func (k *transitKey) Encrypt(ctx context.Context, opts *kms.CipherOptions) ([]byte, error) {
 	data := map[string]any{
-		"plaintext": base64.StdEncoding.EncodeToString(opts.Data),
+		"plaintext":   base64.StdEncoding.EncodeToString(opts.Data),
+		"key_version": strconv.FormatUint(k.version, 10),
 	}
 	if len(opts.AAD) != 0 {
 		data["associated_data"] = base64.StdEncoding.EncodeToString(opts.AAD)
@@ -207,15 +173,21 @@ func (k *transitKey) Encrypt(ctx context.Context, opts *kms.CipherOptions) ([]by
 	if err != nil {
 		return nil, fmt.Errorf("decode ciphertext: %w", err)
 	}
-	opts.KeyVersion = parts[1]
+	version, err := strconv.ParseUint(parts[1][1:], 10, 64)
+	switch {
+	case err != nil:
+		return nil, fmt.Errorf("parse key version: %w", err)
+	case version != k.version:
+		return nil, fmt.Errorf("expected used key version to match configured version %d, got %d", k.version, version)
+	}
 	return out, nil
 }
 
 // See: https://openbao.org/api-docs/secret/transit/#decrypt-data
 func (k *transitKey) Decrypt(ctx context.Context, opts *kms.CipherOptions) ([]byte, error) {
 	data := map[string]any{
-		"ciphertext": fmt.Sprintf("vault:%s:%s",
-			opts.KeyVersion, base64.StdEncoding.EncodeToString(opts.Data)),
+		"ciphertext": fmt.Sprintf("vault:v%d:%s",
+			k.version, base64.StdEncoding.EncodeToString(opts.Data)),
 	}
 	if len(opts.AAD) != 0 {
 		data["associated_data"] = base64.StdEncoding.EncodeToString(opts.AAD)
@@ -258,7 +230,7 @@ func (k *transitKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte, e
 		return nil, ErrPrehashingDisabled
 	}
 
-	data := make(map[string]any)
+	data := map[string]any{"key_version": strconv.FormatUint(k.version, 10)}
 	if transitHash, ok := hash2transit[hash]; ok {
 		data["hash_algorithm"] = transitHash
 	} else if hash != crypto.Hash(0) {
@@ -295,6 +267,15 @@ func (k *transitKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte, e
 		if hash != crypto.Hash(0) {
 			return nil, errors.New("pre-hashed Ed25519 variants are not supported")
 		}
+	default:
+		// Unless we've seen an rsa.PSSOptions, assume PKCS#1 v1.5 signing
+		// (We don't know if we're even working with an RSA key here, but can
+		// safely pass this even when using another key type in which case it is
+		// ignored.). If Transit ever adds signature_algorithm values relevant
+		// for other key types, we'll need to start lazily fetching and caching
+		// the public key value here like the PKCS#11 implementation does so the
+		// correct value can be determined by key type.
+		data["signature_algorithm"] = "pkcs1v15"
 	}
 
 	resp, err := k.client.Logical().WriteWithContext(
@@ -317,7 +298,13 @@ func (k *transitKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte, e
 	if err != nil {
 		return nil, fmt.Errorf("decode signature: %w", err)
 	}
-	opts.KeyVersion = parts[1]
+	version, err := strconv.ParseUint(parts[1][1:], 10, 64)
+	switch {
+	case err != nil:
+		return nil, fmt.Errorf("parse key version: %w", err)
+	case version != k.version:
+		return nil, fmt.Errorf("expected used key version to match configured version %d, got %d", k.version, version)
+	}
 	return out, nil
 }
 
@@ -330,8 +317,8 @@ func (k *transitKey) Verify(ctx context.Context, opts *kms.VerifyOptions) error 
 	}
 
 	data := map[string]any{
-		"signature": fmt.Sprintf("vault:%s:%s",
-			opts.KeyVersion, base64.StdEncoding.EncodeToString(opts.Signature)),
+		"signature": fmt.Sprintf("vault:v%d:%s",
+			k.version, base64.StdEncoding.EncodeToString(opts.Signature)),
 	}
 
 	if transitHash, ok := hash2transit[hash]; ok {
@@ -370,6 +357,9 @@ func (k *transitKey) Verify(ctx context.Context, opts *kms.VerifyOptions) error 
 		if hash != crypto.Hash(0) {
 			return errors.New("pre-hashed Ed25519 variants are not supported")
 		}
+	default:
+		// See comment in Sign().
+		data["signature_algorithm"] = "pkcs1v15"
 	}
 
 	resp, err := k.client.Logical().WriteWithContext(
@@ -391,18 +381,14 @@ func (k *transitKey) Verify(ctx context.Context, opts *kms.VerifyOptions) error 
 
 // See: https://openbao.org/api-docs/secret/transit/#export-key
 func (k *transitKey) ExportPublic(ctx context.Context) (crypto.PublicKey, error) {
-	resp, err := k.client.Logical().ReadWithContext(
-		ctx, path.Join(k.mount, "export/public-key", k.name, "latest"),
+	resp, err := k.client.Logical().ReadWithDataWithContext(
+		ctx, path.Join(k.mount, "export/public-key", k.name, "latest"), map[string][]string{"format": {"der"}},
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	// Parse the response data:
-	ty, ok := resp.Data["type"].(string)
-	if !ok {
-		return nil, errors.New("expected response to include 'type' field of type string")
-	}
 	keys, ok := resp.Data["keys"].(map[string]any)
 	if !ok {
 		return nil, errors.New("expected response to include 'keys' field of type object")
@@ -416,25 +402,9 @@ func (k *transitKey) ExportPublic(ctx context.Context) (crypto.PublicKey, error)
 	}
 
 	// Parse the public key:
-	switch {
-	case strings.HasPrefix(ty, "rsa-"), strings.HasPrefix(ty, "ecdsa-"):
-		block, _ := pem.Decode([]byte(data))
-		if block == nil {
-			return nil, errors.New("invalid PEM data")
-		}
-		return x509.ParsePKIXPublicKey(block.Bytes)
-
-	case ty == "ed25519":
-		raw, err := base64.StdEncoding.DecodeString(data)
-		switch {
-		case err != nil:
-			return nil, err
-		case len(raw) != ed25519.PublicKeySize:
-			return nil, errors.New("invalid ed25519 public key")
-		}
-		return ed25519.PublicKey(raw), nil
-
-	default:
-		return nil, fmt.Errorf("unknown key type %q", ty)
+	der, err := base64.StdEncoding.DecodeString(data)
+	if err != nil {
+		return nil, err
 	}
+	return x509.ParsePKIXPublicKey(der)
 }

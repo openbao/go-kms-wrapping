@@ -48,9 +48,9 @@ func NewWrapper() *Wrapper {
 // SetConfig sets the fields on the AliCloudKMSWrapper object based on
 // values from the config parameter.
 //
-// Order of precedence AliCloud values:
-// * Environment variable
-// * Value from Vault configuration file
+// Order of precedence for AliCloud values:
+// * Environment variables (if WithDisallowEnvVars not provided)
+// * Value from OpenBao/Vault configuration file
 // * Instance metadata role (access key and secret key)
 func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrapping.WrapperConfig, error) {
 	opts, err := getOpts(opt...)
@@ -99,11 +99,19 @@ func (k *Wrapper) SetConfig(_ context.Context, opt ...wrapping.Option) (*wrappin
 			credConfig.AccessKeySecret = opts.withAccessSecret
 		}
 
-		credentialChain := []providers.Provider{
-			providers.NewEnvCredentialProvider(),
-			providers.NewConfigurationCredentialProvider(credConfig),
-			providers.NewInstanceMetadataProvider(),
+		credentialChain := []providers.Provider{}
+		if !opts.WithDisallowEnvVars {
+			credentialChain = append(credentialChain, providers.NewEnvCredentialProvider())
 		}
+
+		credentialChain = append(credentialChain,
+			providers.NewConfigurationCredentialProvider(credConfig),
+		)
+
+		if !opts.WithDisallowEnvVars {
+			credentialChain = append(credentialChain, providers.NewInstanceMetadataProvider())
+		}
+
 		credProvider := providers.NewChainProvider(credentialChain)
 
 		creds, err := credProvider.Retrieve()

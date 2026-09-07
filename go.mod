@@ -3,6 +3,7 @@ module github.com/openbao/go-kms-wrapping/v2
 go 1.24.0
 
 require (
+	github.com/go-viper/mapstructure/v2 v2.5.0
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/hashicorp/go-secure-stdlib/parseutil v0.1.9
 	github.com/hashicorp/go-uuid v1.0.3
