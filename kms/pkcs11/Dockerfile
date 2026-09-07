@@ -4,7 +4,7 @@
 FROM registry.fedoraproject.org/fedora-minimal
 
 RUN dnf -y update && \
-	dnf -y install --nodocs --setopt=install_weak_deps=False golang softhsm kryoptic
+	dnf -y install --nodocs --setopt=install_weak_deps=False golang opensc softhsm kryoptic
 
 ENV SOFTHSM2_LIBRARY=/usr/lib64/pkcs11/libsofthsm2.so
 ENV KRYOPTIC_LIBRARY=/usr/lib64/pkcs11/libkryoptic_pkcs11.so

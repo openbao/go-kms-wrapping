@@ -7,6 +7,7 @@ package static
 import (
 	"testing"
 
+	wrapping "github.com/openbao/go-kms-wrapping/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -25,8 +26,10 @@ func Test_GetOpts(t *testing.T) {
 		assert.Equal(opts, testOpts)
 
 		const with = "/test/path"
-		opts, err = getOpts(WithPreviousKey(with))
+		cfg := map[string]string{"previous_key": with}
+		opts, err = getOpts(wrapping.WithConfigMap(cfg))
 		require.NoError(err)
+		testOpts.WithConfigMap = cfg
 		testOpts.withPreviousKey = with
 		assert.Equal(opts, testOpts)
 	})
@@ -41,8 +44,10 @@ func Test_GetOpts(t *testing.T) {
 		assert.Equal(opts, testOpts)
 
 		const with = "/test/path"
-		opts, err = getOpts(WithCurrentKey(with))
+		cfg := map[string]string{"current_key": with}
+		opts, err = getOpts(wrapping.WithConfigMap(cfg))
 		require.NoError(err)
+		testOpts.WithConfigMap = cfg
 		testOpts.withCurrentKey = with
 		assert.Equal(opts, testOpts)
 	})

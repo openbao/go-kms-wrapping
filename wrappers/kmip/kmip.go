@@ -110,9 +110,9 @@ func NewWrapper() *Wrapper {
 // SetConfig sets the fields on the KmipWrapper object based on
 // values from the config parameter.
 //
-// Order of precedence Kmip values:
-// * Environment variable
-// * Value from Vault configuration file
+// Order of precedence for Kmip values:
+// * Environment variables (if WithDisallowEnvVars not provided)
+// * Value from OpenBao/Vault configuration file
 // * Instance metadata role (access key and secret key)
 func (k *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapping.WrapperConfig, error) {
 	opts, err := getOpts(opt...)
@@ -143,33 +143,42 @@ func (k *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 		k.endpoint = opts.withEndpoint
 	}
 
-	caCertFile := ""
+	// File-provided mTLS setup.
 	if !opts.Options.WithDisallowEnvVars {
-		caCertFile = os.Getenv(EnvKmipCaCert)
+		caCertFile := os.Getenv(EnvKmipCaCert)
+		if caCertFile == "" {
+			caCertFile = opts.withCaCertFile
+		}
+		k.opts = append(k.opts, kmipclient.WithRootCAFile(caCertFile))
 	}
-	if caCertFile == "" {
-		caCertFile = opts.withCaCert
-	}
-	k.opts = append(k.opts, kmipclient.WithRootCAFile(caCertFile))
 
 	clientCertFile := ""
 	if !opts.Options.WithDisallowEnvVars {
 		clientCertFile = os.Getenv(EnvKmipClientCert)
-	}
-	if clientCertFile == "" {
-		clientCertFile = opts.withClientCert
+		if clientCertFile == "" {
+			clientCertFile = opts.withClientCertFile
+		}
 	}
 
 	clientKeyFile := ""
 	if !opts.Options.WithDisallowEnvVars {
 		clientKeyFile = os.Getenv(EnvKmipClientKey)
-	}
-	if clientKeyFile == "" {
-		clientKeyFile = opts.withClientKey
+		if clientKeyFile == "" {
+			clientKeyFile = opts.withClientKeyFile
+		}
 	}
 
-	if clientKeyFile != "" || clientCertFile != "" {
+	if clientKeyFile != "" && clientCertFile != "" {
 		k.opts = append(k.opts, kmipclient.WithClientCertFiles(clientCertFile, clientKeyFile))
+	}
+
+	// In-memory mTLS setup.
+	if opts.withCaCertBytes != "" {
+		k.opts = append(k.opts, kmipclient.WithRootCAPem([]byte(opts.withCaCertBytes)))
+	}
+
+	if opts.withClientCertBytes != "" && opts.withClientKeyBytes != "" {
+		k.opts = append(k.opts, kmipclient.WithClientCertPEM([]byte(opts.withClientCertBytes), []byte(opts.withClientKeyBytes)))
 	}
 
 	serverName := ""

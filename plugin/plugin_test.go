@@ -139,3 +139,33 @@ func TestKMS(t *testing.T) {
 	require.ErrorIs(t, service.Close(ctx), plugin.ErrNoInstance)
 	require.ErrorIs(t, service.Open(ctx, &kms.OpenOptions{}), kms.ErrNotImplemented)
 }
+
+var metadata = plugin.Metadata{
+	SensitiveKMSFields: []string{"foo", "bar"},
+	SensitiveKeyFields: []string{"baz"},
+}
+
+func TestServer_Metadata(t *testing.T) {
+	plugintest.Server(t, &plugin.ServeOpts{
+		Metadata: metadata,
+	})
+}
+
+func TestMetadata(t *testing.T) {
+	// A plugin that explicitly defines metadata:
+	raw, err := plugintest.Client(t, "TestServer_Metadata").Dispense("metadata")
+	require.NoError(t, err)
+
+	meta, ok := raw.(plugin.Metadata)
+	require.True(t, ok)
+	require.Equal(t, metadata, meta)
+
+	// A plugin that defines no metadata, should still successfully yield empty
+	// values:
+	raw, err = plugintest.Client(t, "TestServer_AeadWrapper").Dispense("metadata")
+	require.NoError(t, err)
+
+	meta, ok = raw.(plugin.Metadata)
+	require.True(t, ok)
+	require.Equal(t, plugin.Metadata{}, meta)
+}

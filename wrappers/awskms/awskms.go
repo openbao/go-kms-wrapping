@@ -11,7 +11,10 @@ import (
 	"sync/atomic"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 	cleanhttp "github.com/hashicorp/go-cleanhttp"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-secure-stdlib/awsutil/v2"
@@ -42,11 +45,12 @@ type KMSAPI interface {
 // Wrapper represents credentials and Key information for the KMS Key used to
 // encryption and decryption
 type Wrapper struct {
-	accessKey            string
-	secretKey            string
-	sessionToken         string
+	// static creds
+	accessKey    string
+	secretKey    string
+	sessionToken string
+
 	region               string
-	keyId                string
 	endpoint             string
 	sharedCredsFilename  string
 	sharedCredsProfile   string
@@ -55,6 +59,7 @@ type Wrapper struct {
 	webIdentityTokenFile string
 	keyNotRequired       bool
 
+	keyId        string
 	currentKeyId *atomic.Value
 
 	client KMSAPI
@@ -77,8 +82,8 @@ func NewWrapper() *Wrapper {
 // SetConfig sets the fields on the Wrapper object based on
 // values from the config parameter.
 //
-// Order of precedence AWS values:
-// * Environment variable
+// Order of precedence for AWS values:
+// * Environment variable (if WithDisallowEnvVars not provided)
 // * Passed in config map
 // * Instance metadata role (access key and secret key)
 // * Default values
@@ -93,9 +98,9 @@ func (k *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 
 	// Check and set KeyId
 	switch {
-	case os.Getenv(EnvAwsKmsWrapperKeyId) != "" && !opts.WithDisallowEnvVars:
+	case !opts.WithDisallowEnvVars && os.Getenv(EnvAwsKmsWrapperKeyId) != "":
 		k.keyId = os.Getenv(EnvAwsKmsWrapperKeyId)
-	case os.Getenv(EnvVaultAwsKmsSealKeyId) != "" && !opts.WithDisallowEnvVars:
+	case !opts.WithDisallowEnvVars && os.Getenv(EnvVaultAwsKmsSealKeyId) != "":
 		k.keyId = os.Getenv(EnvVaultAwsKmsSealKeyId)
 	case opts.WithKeyId != "":
 		k.keyId = opts.WithKeyId
@@ -107,32 +112,40 @@ func (k *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 
 	k.currentKeyId.Store(k.keyId)
 
-	// Please see GetRegion for an explanation of the order in which region is parsed.
-	k.region, err = awsutil.GetRegion(ctx, opts.withRegion)
-	if err != nil {
-		return nil, err
+	if !opts.Options.WithDisallowEnvVars {
+		// See GetRegion for an explanation of the order in which region is parsed.
+		k.region, err = awsutil.GetRegion(ctx, opts.withRegion)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		k.region = awsutil.DefaultRegion
+		if opts.withRegion != "" {
+			k.region = opts.withRegion
+		}
 	}
 
 	// Check and set AWS access key, secret key, and session token
 	k.accessKey = opts.withAccessKey
 	k.secretKey = opts.withSecretKey
 	k.sessionToken = opts.withSessionToken
-	k.sharedCredsFilename = opts.withSharedCredsFilename
-	k.sharedCredsProfile = opts.withSharedCredsProfile
-	k.webIdentityTokenFile = opts.withWebIdentityTokenFile
 	k.roleSessionName = opts.withRoleSessionName
 	k.roleArn = opts.withRoleArn
 
 	if !opts.WithDisallowEnvVars {
+		k.sharedCredsFilename = opts.withSharedCredsFilename
+		k.sharedCredsProfile = opts.withSharedCredsProfile
+		k.webIdentityTokenFile = opts.withWebIdentityTokenFile
 		k.endpoint = os.Getenv("AWS_KMS_ENDPOINT")
 	}
+
 	if k.endpoint == "" {
 		k.endpoint = opts.withEndpoint
 	}
 
 	// Check and set k.client
 	if k.client == nil {
-		client, err := k.GetAwsKmsClient(ctx)
+		client, err := k.GetAwsKmsClient(ctx, opts.WithDisallowEnvVars)
 		if err != nil {
 			return nil, fmt.Errorf("error initializing AWS KMS wrapping client: %w", err)
 		}
@@ -290,32 +303,62 @@ func (k *Wrapper) Client() KMSAPI {
 }
 
 // GetAwsKmsClient returns an instance of the KMS client.
-func (k *Wrapper) GetAwsKmsClient(ctx context.Context) (*kms.Client, error) {
-	credsConfig := &awsutil.CredentialsConfig{}
+func (k *Wrapper) GetAwsKmsClient(ctx context.Context, disallowEnv bool) (*kms.Client, error) {
+	var awsConfig *aws.Config
+	if disallowEnv {
+		// Have one or the other but not both and not neither
+		if (k.accessKey != "" && k.secretKey == "") || (k.accessKey == "" && k.secretKey != "") {
+			return nil, errors.New("static AWS client credentials haven't been properly configured (the access key or secret key were provided but not both)")
+		}
 
-	credsConfig.AccessKey = k.accessKey
-	credsConfig.SecretKey = k.secretKey
-	credsConfig.SessionToken = k.sessionToken
-	credsConfig.Filename = k.sharedCredsFilename
-	credsConfig.Profile = k.sharedCredsProfile
-	credsConfig.RoleARN = k.roleArn
-	credsConfig.RoleSessionName = k.roleSessionName
-	credsConfig.WebIdentityTokenFile = k.webIdentityTokenFile
-	credsConfig.Region = k.region
-	credsConfig.Logger = k.logger
+		awsConfig = &aws.Config{
+			HTTPClient: cleanhttp.DefaultClient(),
+		}
 
-	credsConfig.HTTPClient = cleanhttp.DefaultClient()
+		if k.region != "" {
+			awsConfig.Region = k.region
+		}
 
-	awsConfig, err := credsConfig.GenerateCredentialChain(ctx)
-	if err != nil {
-		return nil, err
+		if k.accessKey != "" && k.secretKey != "" {
+			awsConfig.Credentials = credentials.NewStaticCredentialsProvider(k.accessKey, k.secretKey, k.sessionToken)
+		}
+
+		if k.roleArn != "" {
+			stsClient := sts.NewFromConfig(*awsConfig)
+			// override config with role assumption credentials.
+			awsConfig = &aws.Config{
+				Region: awsConfig.Region,
+				Credentials: aws.NewCredentialsCache(
+					stscreds.NewAssumeRoleProvider(stsClient, k.roleArn, func(o *stscreds.AssumeRoleOptions) {
+						o.RoleSessionName = k.roleSessionName
+					}),
+				),
+			}
+		}
+	} else {
+		credsConfig := &awsutil.CredentialsConfig{
+			AccessKey:            k.accessKey,
+			SecretKey:            k.secretKey,
+			SessionToken:         k.sessionToken,
+			Filename:             k.sharedCredsFilename,
+			Profile:              k.sharedCredsProfile,
+			RoleARN:              k.roleArn,
+			RoleSessionName:      k.roleSessionName,
+			WebIdentityTokenFile: k.webIdentityTokenFile,
+			Region:               k.region,
+			Logger:               k.logger,
+			HTTPClient:           cleanhttp.DefaultClient(),
+		}
+		var err error
+		awsConfig, err = credsConfig.GenerateCredentialChain(ctx)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if k.endpoint != "" {
 		awsConfig.BaseEndpoint = aws.String(k.endpoint)
 	}
 
-	client := kms.NewFromConfig(*awsConfig)
-
-	return client, nil
+	return kms.NewFromConfig(*awsConfig), nil
 }
