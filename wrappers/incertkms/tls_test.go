@@ -12,72 +12,21 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
+	wrapping "github.com/openbao/go-kms-wrapping/v2"
 	"github.com/stretchr/testify/require"
 )
 
-func TestBuildHTTPClient_SkipVerify(t *testing.T) {
-	assert, require := assert.New(t), require.New(t)
-
-	o := &options{withTlsSkipVerify: true}
-	require.True(o.tlsConfigured())
-
-	hc, err := o.buildHTTPClient()
-	require.NoError(err)
-	require.NotNil(hc)
-
-	tr, ok := hc.Transport.(*http.Transport)
-	require.True(ok)
-	require.NotNil(tr.TLSClientConfig)
-	assert.True(tr.TLSClientConfig.InsecureSkipVerify)
-	assert.Equal(httpClientTimeout, hc.Timeout)
-}
-
-func TestBuildHTTPClient_BadCaFile(t *testing.T) {
-	require := require.New(t)
-
-	o := &options{withTlsCaCert: "/no/such/ca.pem"}
-	_, err := o.buildHTTPClient()
-	require.Error(err)
-	require.Contains(err.Error(), "tls_ca_cert")
-}
-
-func TestBuildHTTPClient_CaFileNoCerts(t *testing.T) {
-	require := require.New(t)
-
-	// A readable file that contains no PEM certificates is a misconfiguration.
-	bogus := filepath.Join(t.TempDir(), "empty.pem")
-	require.NoError(os.WriteFile(bogus, []byte("not a certificate"), 0o600))
-
-	o := &options{withTlsCaCert: bogus}
-	_, err := o.buildHTTPClient()
-	require.Error(err)
-	require.Contains(err.Error(), "no valid certificates")
-}
-
-// newTLSFake starts a TLS server with a self-signed certificate and writes
-// that certificate as a PEM file named name inside dir.
-func newTLSFake(t *testing.T, dir, name string) (*httptest.Server, string) {
-	t.Helper()
-
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-	t.Cleanup(srv.Close)
-
-	return srv, writeCertPEM(t, dir, name, srv.Certificate().Raw)
-}
-
-// writeCertPEM writes a DER certificate as a PEM file named name inside dir
-// and returns its path.
+// writeCertPEM writes a DER certificate as a PEM file named name inside dir,
+// creating dir as needed, and returns its path.
 func writeCertPEM(t *testing.T, dir, name string, der []byte) string {
 	t.Helper()
 
+	require.NoError(t, os.MkdirAll(dir, 0o750))
 	path := filepath.Join(dir, name)
 	block := &pem.Block{Type: "CERTIFICATE", Bytes: der}
 	require.NoError(t, os.WriteFile(path, pem.EncodeToMemory(block), 0o600))
@@ -117,145 +66,149 @@ func writeClientCert(t *testing.T, dir string) (certPath, keyPath string, cert *
 	return writeCertPEM(t, dir, "client.pem", der), keyPath, cert
 }
 
-func TestBuildHTTPClient_CaFile(t *testing.T) {
-	require := require.New(t)
-	srv, caFile := newTLSFake(t, t.TempDir(), "ca.pem")
+// configure creates a wrapper and configures it against f by key id with the
+// given extra (TLS) keys, returning the wrapper and the SetConfig error.
+func configure(t *testing.T, f *fakeKMS, extra map[string]string) (*Wrapper, error) {
+	t.Helper()
 
-	o := &options{withTlsCaCert: caFile}
-	require.True(o.tlsConfigured())
-
-	hc, err := o.buildHTTPClient()
-	require.NoError(err)
-	require.False(hc.Transport.(*http.Transport).TLSClientConfig.InsecureSkipVerify)
-
-	resp, err := hc.Get(srv.URL)
-	require.NoError(err, "server certificate should verify against tls_ca_cert")
-	defer resp.Body.Close()
-	require.Equal(http.StatusOK, resp.StatusCode)
+	cfg := f.config(extra)
+	cfg["key"] = f.keyID.String()
+	w := NewWrapper()
+	_, err := w.SetConfig(t.Context(), wrapping.WithConfigMap(cfg))
+	return w, err
 }
 
-func TestBuildHTTPClient_CaPath(t *testing.T) {
-	require := require.New(t)
-	dir := t.TempDir()
-	srv, _ := newTLSFake(t, dir, "kms-ca.pem")
-	// Non-certificate files in the directory are skipped, not fatal.
-	require.NoError(os.WriteFile(filepath.Join(dir, "README"), []byte("not a certificate"), 0o600))
-
-	o := &options{withTlsCaPath: dir}
-	hc, err := o.buildHTTPClient()
-	require.NoError(err)
-
-	resp, err := hc.Get(srv.URL)
-	require.NoError(err, "server certificate should verify against tls_ca_path")
-	defer resp.Body.Close()
-	require.Equal(http.StatusOK, resp.StatusCode)
-}
-
-func TestBuildHTTPClient_CaPathNoCerts(t *testing.T) {
-	require := require.New(t)
-	dir := t.TempDir()
-	require.NoError(os.WriteFile(filepath.Join(dir, "README"), []byte("not a certificate"), 0o600))
-
-	o := &options{withTlsCaPath: dir}
-	_, err := o.buildHTTPClient()
-	require.Error(err)
-	require.Contains(err.Error(), "no valid certificates")
-}
-
-func TestBuildHTTPClient_KeepsTransportDefaults(t *testing.T) {
-	assert, require := assert.New(t), require.New(t)
-
-	o := &options{withTlsSkipVerify: true}
-	hc, err := o.buildHTTPClient()
-	require.NoError(err)
-
-	tr, ok := hc.Transport.(*http.Transport)
-	require.True(ok)
-	def := http.DefaultTransport.(*http.Transport)
-
-	assert.NotNil(tr.Proxy, "proxy-from-environment should be inherited")
-	assert.Equal(def.TLSHandshakeTimeout, tr.TLSHandshakeTimeout)
-	assert.Equal(def.MaxIdleConns, tr.MaxIdleConns)
-	assert.Equal(def.ForceAttemptHTTP2, tr.ForceAttemptHTTP2)
-	assert.Equal(uint16(tls.VersionTLS12), tr.TLSClientConfig.MinVersion)
-}
-
-func TestBuildHTTPClient_ClientCert(t *testing.T) {
-	require := require.New(t)
-	dir := t.TempDir()
-	clientCert, clientKey, parsed := writeClientCert(t, dir)
-
-	// A server that demands a client certificate it trusts.
-	clientPool := x509.NewCertPool()
-	clientPool.AddCert(parsed)
-	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-	srv.TLS = &tls.Config{
-		ClientAuth: tls.RequireAndVerifyClientCert,
-		ClientCAs:  clientPool,
+// noServerConfig returns a configuration whose url points at a closed port,
+// for tests that must fail before any connection is made.
+func noServerConfig(extra map[string]string) map[string]string {
+	cfg := map[string]string{
+		"url":      "https://127.0.0.1:1",
+		"username": incertkmsTestUsername,
+		"password": incertkmsTestPassword,
 	}
-	srv.StartTLS()
-	t.Cleanup(srv.Close)
-	caFile := writeCertPEM(t, dir, "server-ca.pem", srv.Certificate().Raw)
+	for k, v := range extra {
+		cfg[k] = v
+	}
+	return cfg
+}
+
+func TestIncertKmsWrapper_TLS_DefaultVerifies(t *testing.T) {
+	require := require.New(t)
+	f := newFakeKMSTLS(t, nil)
+
+	_, err := configure(t, f, nil)
+	require.ErrorContains(err, "failed to verify certificate")
+}
+
+func TestIncertKmsWrapper_TLS_CACert(t *testing.T) {
+	require := require.New(t)
+	f := newFakeKMSTLS(t, nil)
+
+	w, err := configure(t, f, map[string]string{"tls_ca_cert": f.caFile(t)})
+	require.NoError(err)
+	testEncryptionRoundTrip(t, w)
+}
+
+func TestIncertKmsWrapper_TLS_CAPath(t *testing.T) {
+	require := require.New(t)
+	f := newFakeKMSTLS(t, nil)
+	dir := t.TempDir()
+	writeCertPEM(t, filepath.Join(dir, "sub", "nested"), "kms-ca.pem", f.srv.Certificate().Raw)
+	require.NoError(os.WriteFile(filepath.Join(dir, "README"), []byte("not a certificate"), 0o600))
+
+	w, err := configure(t, f, map[string]string{"tls_ca_path": dir})
+	require.NoError(err)
+	testEncryptionRoundTrip(t, w)
+}
+
+func TestIncertKmsWrapper_TLS_SkipVerify(t *testing.T) {
+	require := require.New(t)
+	f := newFakeKMSTLS(t, nil)
+
+	w, err := configure(t, f, map[string]string{"tls_skip_verify": "true"})
+	require.NoError(err)
+	testEncryptionRoundTrip(t, w)
+}
+
+func TestIncertKmsWrapper_TLS_ClientCert(t *testing.T) {
+	require := require.New(t)
+	certPath, keyPath, clientCert := writeClientCert(t, t.TempDir())
+	pool := x509.NewCertPool()
+	pool.AddCert(clientCert)
+	f := newFakeKMSTLS(t, &tls.Config{ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: pool})
+	caFile := f.caFile(t)
 
 	// Without a client certificate the server must refuse us, otherwise the
 	// positive case below proves nothing.
-	o := &options{withTlsCaCert: caFile}
-	hc, err := o.buildHTTPClient()
-	require.NoError(err)
-	_, err = hc.Get(srv.URL)
-	require.Error(err, "server should reject a client without a certificate")
+	_, err := configure(t, f, map[string]string{"tls_ca_cert": caFile})
+	require.ErrorContains(err, "getting config")
 
-	o = &options{withTlsCaCert: caFile, withTlsClientCert: clientCert, withTlsClientKey: clientKey}
-	require.True(o.tlsConfigured())
-	hc, err = o.buildHTTPClient()
+	w, err := configure(t, f, map[string]string{
+		"tls_ca_cert":     caFile,
+		"tls_client_cert": certPath,
+		"tls_client_key":  keyPath,
+	})
 	require.NoError(err)
-	resp, err := hc.Get(srv.URL)
-	require.NoError(err, "client certificate should satisfy the server")
-	defer resp.Body.Close()
-	require.Equal(http.StatusOK, resp.StatusCode)
+	testEncryptionRoundTrip(t, w)
 }
 
-func TestBuildHTTPClient_ClientCertNeedsBoth(t *testing.T) {
-	require := require.New(t)
+func TestIncertKmsWrapper_TLS_ServerName(t *testing.T) {
+	f := newFakeKMSTLS(t, nil)
+	caFile := f.caFile(t)
 
-	for _, o := range []*options{
-		{withTlsClientCert: "/etc/incert/client.pem"},
-		{withTlsClientKey: "/etc/incert/client-key.pem"},
-	} {
-		_, err := o.buildHTTPClient()
-		require.Error(err)
-		require.Contains(err.Error(), "must be set together")
+	t.Run("name in certificate", func(t *testing.T) {
+		w, err := configure(t, f, map[string]string{"tls_ca_cert": caFile, "tls_server_name": "example.com"})
+		require.NoError(t, err)
+		testEncryptionRoundTrip(t, w)
+	})
+	t.Run("name not in certificate", func(t *testing.T) {
+		_, err := configure(t, f, map[string]string{"tls_ca_cert": caFile, "tls_server_name": "kms.invalid"})
+		require.ErrorContains(t, err, "failed to verify certificate")
+		require.ErrorContains(t, err, "kms.invalid")
+	})
+}
+
+func TestIncertKmsWrapper_TLS_ClientCertNeedsBoth(t *testing.T) {
+	cases := []struct{ name, key string }{
+		{"cert only", "tls_client_cert"},
+		{"key only", "tls_client_key"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := NewWrapper()
+			_, err := w.SetConfig(t.Context(), wrapping.WithConfigMap(noServerConfig(map[string]string{
+				tc.key: "/etc/incert/client.pem",
+			})))
+			require.EqualError(t, err, "incertkms: tls_client_cert and tls_client_key must be set together")
+		})
 	}
 }
 
-func TestBuildHTTPClient_BadClientCert(t *testing.T) {
-	require := require.New(t)
-	bogus := filepath.Join(t.TempDir(), "client.pem")
-	require.NoError(os.WriteFile(bogus, []byte("not a certificate"), 0o600))
+func TestIncertKmsWrapper_TLS_BadMaterial(t *testing.T) {
+	dir := t.TempDir()
+	bogus := filepath.Join(dir, "bogus.pem")
+	require.NoError(t, os.WriteFile(bogus, []byte("not a certificate"), 0o600))
+	noCerts := filepath.Join(dir, "no-certs")
+	require.NoError(t, os.MkdirAll(noCerts, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(noCerts, "README"), []byte("not a certificate"), 0o600))
 
-	o := &options{withTlsClientCert: bogus, withTlsClientKey: bogus}
-	_, err := o.buildHTTPClient()
-	require.Error(err)
-	require.Contains(err.Error(), "tls_client_cert")
-}
-
-func TestBuildHTTPClient_ServerName(t *testing.T) {
-	require := require.New(t)
-	// The httptest certificate is issued for example.com and the loopback
-	// addresses, while srv.URL addresses the server by IP.
-	srv, caFile := newTLSFake(t, t.TempDir(), "ca.pem")
-
-	o := &options{withTlsCaCert: caFile, withTlsServerName: "example.com"}
-	require.True(o.tlsConfigured())
-	hc, err := o.buildHTTPClient()
-	require.NoError(err)
-	resp, err := hc.Get(srv.URL)
-	require.NoError(err, "certificate should verify for the configured server name")
-	resp.Body.Close()
-
-	o = &options{withTlsCaCert: caFile, withTlsServerName: "kms.invalid"}
-	hc, err = o.buildHTTPClient()
-	require.NoError(err)
-	_, err = hc.Get(srv.URL)
-	require.Error(err, "certificate must not verify for a name it was not issued for")
+	cases := []struct {
+		name    string
+		config  map[string]string
+		wantErr string
+	}{
+		{"missing ca file", map[string]string{"tls_ca_cert": filepath.Join(dir, "missing.pem")}, "reading ca certificate file"},
+		{"ca file without certificates", map[string]string{"tls_ca_cert": bogus}, "no certificates found in ca certificate file"},
+		{"missing ca path", map[string]string{"tls_ca_path": filepath.Join(dir, "missing")}, "reading ca certificate directory"},
+		{"ca path without certificates", map[string]string{"tls_ca_path": noCerts}, "no certificates found in ca certificate directory"},
+		{"unparsable client cert", map[string]string{"tls_client_cert": bogus, "tls_client_key": bogus}, "loading client certificate"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := NewWrapper()
+			_, err := w.SetConfig(t.Context(), wrapping.WithConfigMap(noServerConfig(tc.config)))
+			require.ErrorContains(t, err, "unexpected error: tls configuration: ")
+			require.ErrorContains(t, err, tc.wantErr)
+		})
+	}
 }

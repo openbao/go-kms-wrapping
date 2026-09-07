@@ -26,7 +26,9 @@ func Test_GetOpts(t *testing.T) {
 		assert.Empty(opts.withKeyName)
 		// TLS verification is on by default; no TLS material configured.
 		assert.False(opts.withTlsSkipVerify)
-		assert.False(opts.tlsConfigured())
+		tlsOpts, err := opts.tlsClientOptions()
+		require.NoError(err)
+		assert.Empty(tlsOpts)
 	})
 	t.Run("WithConfigMap", func(t *testing.T) {
 		assert, require := assert.New(t), require.New(t)
@@ -60,7 +62,9 @@ func Test_GetOpts(t *testing.T) {
 		assert.Equal("/etc/incert/client-key.pem", opts.withTlsClientKey)
 		assert.Equal("kms.example.com", opts.withTlsServerName)
 		assert.True(opts.withTlsSkipVerify)
-		assert.True(opts.tlsConfigured())
+		tlsOpts, err := opts.tlsClientOptions()
+		require.NoError(err)
+		assert.Len(tlsOpts, 5)
 	})
 	t.Run("tls_skip_verify invalid", func(t *testing.T) {
 		require := require.New(t)

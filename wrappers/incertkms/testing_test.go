@@ -4,6 +4,7 @@
 package incertkms
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -36,16 +37,53 @@ type fakeKMS struct {
 	searchResults []kmssdk.KeySearchResult
 }
 
-// newFakeKMS starts a fake KMS exposing a single vslot and a single AES key.
-// The server is closed when the test finishes.
-func newFakeKMS(t *testing.T) *fakeKMS {
+// newUnstartedFakeKMS prepares a fake KMS exposing a single vslot and a
+// single AES key without starting its server, so the caller can pick plain
+// HTTP or TLS. The server is closed when the test finishes.
+func newUnstartedFakeKMS(t *testing.T) *fakeKMS {
 	t.Helper()
 
 	f := &fakeKMS{
 		vslotID: uuid.New(),
 		keyID:   uuid.New(),
 	}
+	f.srv = httptest.NewUnstartedServer(f.handler())
+	t.Cleanup(f.srv.Close)
+	return f
+}
 
+// newFakeKMS starts a fake KMS over plain HTTP.
+func newFakeKMS(t *testing.T) *fakeKMS {
+	t.Helper()
+
+	f := newUnstartedFakeKMS(t)
+	f.srv.Start()
+	return f
+}
+
+// newFakeKMSTLS starts a fake KMS over TLS using httptest's self-signed
+// certificate, which is issued for example.com and the loopback addresses.
+// srvTLS seeds the server's TLS configuration and may be nil; use it, for
+// example, to demand a client certificate.
+func newFakeKMSTLS(t *testing.T, srvTLS *tls.Config) *fakeKMS {
+	t.Helper()
+
+	f := newUnstartedFakeKMS(t)
+	f.srv.TLS = srvTLS
+	f.srv.StartTLS()
+	return f
+}
+
+// caFile writes the TLS server's certificate as a PEM file and returns its
+// path, for use as tls_ca_cert.
+func (f *fakeKMS) caFile(t *testing.T) string {
+	t.Helper()
+
+	return writeCertPEM(t, t.TempDir(), "ca.pem", f.srv.Certificate().Raw)
+}
+
+// handler serves the fake KMS API.
+func (f *fakeKMS) handler() http.Handler {
 	mux := http.NewServeMux()
 
 	// Auth configuration endpoint (unauthenticated). Tells the SDK to use a
@@ -107,10 +145,7 @@ func newFakeKMS(t *testing.T) *fakeKMS {
 		}
 	})
 
-	f.srv = httptest.NewServer(mux)
-	t.Cleanup(f.srv.Close)
-
-	return f
+	return mux
 }
 
 // config returns a seal configuration pointing at the fake, without any key

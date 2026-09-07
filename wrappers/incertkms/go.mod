@@ -6,7 +6,7 @@ replace github.com/openbao/go-kms-wrapping/v2 => ../../
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/incert-kms/kms-sdk-go v1.2.0
+	github.com/incert-kms/kms-sdk-go v1.4.0
 	github.com/openbao/go-kms-wrapping/v2 v2.7.0
 	github.com/stretchr/testify v1.10.0
 )

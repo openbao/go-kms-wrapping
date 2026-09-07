@@ -89,16 +89,14 @@ func (w *Wrapper) SetConfig(ctx context.Context, options ...wrapping.Option) (*w
 		kmssdk.WithBaseURL(baseURL),
 	}
 
-	// TLS verification is enabled by default. Only override the SDK's default
-	// client when the operator has supplied a custom CA or has explicitly opted
-	// into skipping verification.
-	if opts.tlsConfigured() {
-		httpClient, err := opts.buildHTTPClient()
-		if err != nil {
-			return nil, err
-		}
-		clientOpts = append(clientOpts, kmssdk.WithHTTPClient(httpClient))
+	// TLS verification is on by default. The SDK-managed client loads any
+	// configured CA, client certificate or server name and reports load
+	// failures from Connect.
+	tlsOpts, err := opts.tlsClientOptions()
+	if err != nil {
+		return nil, err
 	}
+	clientOpts = append(clientOpts, tlsOpts...)
 
 	w.kms = kmssdk.NewClient(clientOpts...)
 
