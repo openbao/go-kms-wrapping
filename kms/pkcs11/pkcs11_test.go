@@ -128,7 +128,7 @@ func TestAliases(t *testing.T) {
 
 	for i, tt := range tests {
 		t.Run(strconv.Itoa(i), func(t *testing.T) {
-			svc := NewWithAliases(aliases)
+			svc := New(WithAliases(aliases))
 			err := svc.Open(ctx, &kms.OpenOptions{
 				AllowEnvironment: tt.env,
 				ConfigMap: kms.ConfigMap{
