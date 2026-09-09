@@ -1,4 +1,6 @@
 // Copyright (c) 2025 Securosys SA.
+// SPDX-License-Identifier: MPL-2.0
+
 package securosyshsm
 
 import (
