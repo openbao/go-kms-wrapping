@@ -3,6 +3,7 @@
 package securosyshsm
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
@@ -125,6 +126,33 @@ func createTestKey(t *testing.T, keyName, keyType string, keySize int) func() {
 	}
 }
 
+func createMLKEMTestKey(t *testing.T, keyName, keyType string) func() {
+	t.Helper()
+	tsbClient := getTestClient(t)
+	if tsbClient == nil {
+		return func() {}
+	}
+
+	attrs := map[string]bool{
+		"decrypt":     true,
+		"encrypt":     true,
+		"extractable": false,
+		"sign":        false,
+		"unwrap":      true,
+		"verify":      false,
+		"wrap":        true,
+		"destroyable": true,
+	}
+	if _, err := tsbClient.CreateOrUpdateKey(t.Context(), keyName, "", attrs, keyType, 0, nil, "", false); err != nil {
+		t.Fatalf("failed to create %s test key: %v", keyType, err)
+	}
+	return func() {
+		if err := tsbClient.RemoveKey(context.Background(), keyName); err != nil {
+			t.Logf("ML-KEM key cleanup warning: %v", err)
+		}
+	}
+}
+
 // setupTestKeys creates the AES, RSA, EC, and ED keys used by acceptance tests.
 func setupTestKeys(t *testing.T) {
 	tsbClient := getTestClient(t)
@@ -236,8 +264,7 @@ func TestKMS(t *testing.T) {
 
 	// Test Decrypt
 	decrypted, err := key.Decrypt(ctx, &kms.CipherOptions{
-		Data:  ciphertext,
-		Nonce: encryptOpts.Nonce,
+		Data: ciphertext,
 	})
 	if err != nil {
 		t.Fatalf("Failed to decrypt: %v", err)

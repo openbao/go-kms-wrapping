@@ -47,9 +47,7 @@ func NewSecurosysHSMTestWrapper() *Wrapper {
 		return nil
 	}
 	key, err := providerKMS.GetKey(ctx, &kms.KeyOptions{
-		ConfigMap: kms.ConfigMap{
-			"name": SECUROSYS_HSM_TEST_KEY_LABEL,
-		},
+		ConfigMap: securosysKMSKeyConfigMap(&options{withKeyLabel: SECUROSYS_HSM_TEST_KEY_LABEL}),
 	})
 	if err != nil {
 		_ = providerKMS.Close(ctx)

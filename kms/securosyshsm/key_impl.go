@@ -58,6 +58,9 @@ func (k *securosysKey) Encrypt(ctx context.Context, opts *kms.CipherOptions) ([]
 	if opts == nil || opts.Data == nil {
 		return nil, errors.New("cipher options and data are required")
 	}
+	if isMLKEMAlgorithm(k.keyAttrs.Algorithm) {
+		return k.encryptMLKEM(ctx, opts)
+	}
 
 	cipherAlgorithm, err := k.resolveCipherAlgorithm()
 	if err != nil {
@@ -114,8 +117,7 @@ func (k *securosysKey) Encrypt(ctx context.Context, opts *kms.CipherOptions) ([]
 		}
 	}
 
-	opts.Nonce = nonce
-	result := combineCipherOutput(encryptedPayload, mac)
+	result := combineCipherOutput(nonce, encryptedPayload, mac)
 
 	return result, nil
 }
@@ -127,6 +129,9 @@ func (k *securosysKey) Decrypt(ctx context.Context, opts *kms.CipherOptions) ([]
 	}
 	if opts == nil || opts.Data == nil {
 		return nil, errors.New("cipher options and data are required")
+	}
+	if isMLKEMAlgorithm(k.keyAttrs.Algorithm) {
+		return k.decryptMLKEM(ctx, opts)
 	}
 
 	cipherAlgorithm, err := k.resolveCipherAlgorithm()
@@ -148,11 +153,17 @@ func (k *securosysKey) Decrypt(ctx context.Context, opts *kms.CipherOptions) ([]
 		aad = base64.StdEncoding.EncodeToString(opts.AAD)
 	}
 
-	if len(opts.Nonce) > 0 {
-		initVector = base64.StdEncoding.EncodeToString(opts.Nonce)
+	nonceSize := cipherNonceSize(cipherAlgorithm)
+	if len(opts.Data) < nonceSize {
+		return nil, fmt.Errorf("ciphertext is shorter than the required %d-byte nonce", nonceSize)
+	}
+	ciphertext := opts.Data
+	if nonceSize > 0 {
+		initVector = base64.StdEncoding.EncodeToString(opts.Data[:nonceSize])
+		ciphertext = opts.Data[nonceSize:]
 	}
 
-	payload, err := k.decryptPayload(ctx, opts.Data, initVector, cipherAlgorithm, tagLength, aad)
+	payload, err := k.decryptPayload(ctx, ciphertext, initVector, cipherAlgorithm, tagLength, aad)
 	if err != nil {
 		return nil, err
 	}
@@ -275,7 +286,6 @@ func (k *securosysKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte,
 		return nil, fmt.Errorf("failed to decode signature: %w", err)
 	}
 
-	opts.KeyVersion = k.keyAttrs.Version
 	return signature, nil
 }
 
@@ -465,12 +475,25 @@ func waitForRequestContextError(ctx context.Context, requestID string) error {
 	return fmt.Errorf("wait for request %s stopped: %w", requestID, ctx.Err())
 }
 
-// combineCipherOutput combines encrypted payload with an optional MAC/tag.
-func combineCipherOutput(encryptedPayload, mac []byte) []byte {
-	combined := make([]byte, 0, len(encryptedPayload)+len(mac))
+// combineCipherOutput prepends the nonce and appends an optional MAC/tag to
+// the encrypted payload, as required by kms.CipherOptions.
+func combineCipherOutput(nonce, encryptedPayload, mac []byte) []byte {
+	combined := make([]byte, 0, len(nonce)+len(encryptedPayload)+len(mac))
+	combined = append(combined, nonce...)
 	combined = append(combined, encryptedPayload...)
 	combined = append(combined, mac...)
 	return combined
+}
+
+func cipherNonceSize(cipherAlgorithm string) int {
+	switch cipherAlgorithm {
+	case "AES_GCM":
+		return 12
+	case "AES", "AES_CTR", "AES_CBC_NO_PADDING":
+		return 16
+	default:
+		return 0
+	}
 }
 
 // resolveCipherAlgorithm returns the HSM cipher algorithm for this key.

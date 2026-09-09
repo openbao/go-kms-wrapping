@@ -6,11 +6,15 @@ package securosyshsm
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
+	"github.com/openbao/go-kms-wrapping/v2/kms"
+	client "github.com/securosys-com/tsb-client-go"
 )
 
 func TestSecurosysHSMWrapper(t *testing.T) {
@@ -36,6 +40,56 @@ func TestSecurosysHSMWrapper_Lifecycle(t *testing.T) {
 		"key_label":        SECUROSYS_HSM_TEST_KEY_LABEL,
 	}
 	testEncryptionRoundTrip(t, s, wrapping.WithConfigMap(config))
+}
+
+func TestSecurosysHSMWrapper_MLKEMLifecycle(t *testing.T) {
+	restAPI := strings.TrimSpace(os.Getenv(SECUROSYS_HSM_RESTAPI_ENV_VAR))
+	bearerToken := strings.TrimSpace(os.Getenv(SECUROSYS_BEARER_TOKEN_ENV_VAR))
+	if restAPI == "" || bearerToken == "" {
+		t.Skipf("set %s and %s to run Securosys HSM ML-KEM lifecycle tests", SECUROSYS_HSM_RESTAPI_ENV_VAR, SECUROSYS_BEARER_TOKEN_ENV_VAR)
+	}
+
+	tsbClient, err := client.NewTSBClient(restAPI, client.AuthStruct{
+		AuthType:    SECUROSYS_HSM_TEST_AUTH_TYPE,
+		BearerToken: bearerToken,
+		AppName:     "OpenBao - Securosys HSM Wrapper ML-KEM Test",
+	})
+	if err != nil {
+		t.Fatalf("create TSB client: %v", err)
+	}
+
+	attributes := map[string]bool{
+		"decrypt":     false,
+		"encrypt":     false,
+		"extractable": false,
+		"sign":        false,
+		"unwrap":      true,
+		"verify":      false,
+		"wrap":        true,
+		"destroyable": true,
+	}
+	for _, algorithm := range []string{"ML-KEM-512", "ML-KEM-768", "ML-KEM-1024"} {
+		t.Run(algorithm, func(t *testing.T) {
+			keyLabel := "openbao_wrapper_test_" + strings.ToLower(strings.ReplaceAll(algorithm, "-", "_"))
+			if _, err := tsbClient.CreateOrUpdateKey(t.Context(), keyLabel, "", attributes, algorithm, 0, nil, "", false); err != nil {
+				t.Fatalf("create %s key: %v", algorithm, err)
+			}
+			t.Cleanup(func() {
+				if err := tsbClient.RemoveKey(context.Background(), keyLabel); err != nil {
+					t.Logf("remove %s test key: %v", algorithm, err)
+				}
+			})
+
+			wrapper := NewWrapper()
+			t.Cleanup(func() { _ = wrapper.Finalize(context.Background()) })
+			testEncryptionRoundTrip(t, wrapper, wrapping.WithConfigMap(map[string]string{
+				"tsb_api_endpoint": restAPI,
+				"auth":             SECUROSYS_HSM_TEST_AUTH_TYPE,
+				"bearer_token":     bearerToken,
+				"key_label":        keyLabel,
+			}))
+		})
+	}
 }
 
 func TestGetOptsAppliesConfigMap(t *testing.T) {
@@ -86,6 +140,20 @@ func TestSecurosysKMSConfigMapRemapsWrapperConfig(t *testing.T) {
 	}
 }
 
+func TestSecurosysKMSKeyConfigMapUsesKeyLabel(t *testing.T) {
+	opts := &options{
+		withKeyLabel:    "ml-kem-key",
+		withKeyPassword: "secret",
+	}
+	config := securosysKMSKeyConfigMap(opts)
+	if config["name"] != "ml-kem-key" || config["password"] != "secret" {
+		t.Fatalf("unexpected key config: %#v", config)
+	}
+	if _, ok := config["cipher_algorithm"]; ok {
+		t.Fatal("cipher_algorithm must be resolved from TSB key attributes")
+	}
+}
+
 // TestSecurosysHSMWrapperEncryptDecryptWithClient uses a mock client to verify
 // wrapper payload parsing and base64 handling without reaching an HSM.
 func TestSecurosysHSMWrapperEncryptDecryptWithClient(t *testing.T) {
@@ -110,6 +178,45 @@ func TestSecurosysHSMWrapperEncryptDecryptWithClient(t *testing.T) {
 
 	if !reflect.DeepEqual(input, plaintext) {
 		t.Fatalf("expected %s, got %s", input, plaintext)
+	}
+}
+
+func TestSecurosysHSMWrapperMLKEMEncryptDecrypt(t *testing.T) {
+	key := &mockMLKEMKey{ciphertext: []byte{0, 1, 2, ':', 0xff, 4}}
+	client := &SecurosysHSMClient{key: key, keyLabel: "ml-kem-key"}
+	wrapper := NewWrapper()
+	wrapper.client = client
+	wrapper.hsmClient = client
+
+	plaintext := []byte("OpenBao wrapper ML-KEM payload")
+	blob, err := wrapper.Encrypt(t.Context(), plaintext)
+	if err != nil {
+		t.Fatalf("Encrypt returned error: %v", err)
+	}
+	parsed, err := parseCiphertext(blob.Ciphertext)
+	if err != nil {
+		t.Fatalf("parseCiphertext returned error: %v", err)
+	}
+	if parsed.keyID != "ml-kem-key" {
+		t.Fatalf("key id = %q, want ml-kem-key", parsed.keyID)
+	}
+	if parsed.nonce != "" {
+		t.Fatalf("ML-KEM envelope must contain its nonce, wrapper nonce = %q", parsed.nonce)
+	}
+	decodedCiphertext, err := base64.StdEncoding.DecodeString(parsed.ciphertext)
+	if err != nil {
+		t.Fatalf("decode wrapper ciphertext: %v", err)
+	}
+	if !reflect.DeepEqual(decodedCiphertext, key.ciphertext) {
+		t.Fatalf("wrapped ciphertext = %x, want %x", decodedCiphertext, key.ciphertext)
+	}
+
+	decrypted, err := wrapper.Decrypt(t.Context(), blob)
+	if err != nil {
+		t.Fatalf("Decrypt returned error: %v", err)
+	}
+	if !reflect.DeepEqual(decrypted, plaintext) {
+		t.Fatalf("decrypted plaintext = %q, want %q", decrypted, plaintext)
 	}
 }
 
@@ -219,4 +326,22 @@ func (m *mockSecurosysHSMClient) Decrypt(_ context.Context, ciphertext string, _
 		return nil, err
 	}
 	return plaintext, nil
+}
+
+type mockMLKEMKey struct {
+	kms.UnimplementedKey
+	ciphertext []byte
+	plaintext  []byte
+}
+
+func (m *mockMLKEMKey) Encrypt(_ context.Context, opts *kms.CipherOptions) ([]byte, error) {
+	m.plaintext = append([]byte(nil), opts.Data...)
+	return append([]byte(nil), m.ciphertext...), nil
+}
+
+func (m *mockMLKEMKey) Decrypt(_ context.Context, opts *kms.CipherOptions) ([]byte, error) {
+	if !reflect.DeepEqual(opts.Data, m.ciphertext) {
+		return nil, fmt.Errorf("ML-KEM ciphertext = %x, want %x", opts.Data, m.ciphertext)
+	}
+	return append([]byte(nil), m.plaintext...), nil
 }

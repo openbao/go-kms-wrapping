@@ -2,11 +2,11 @@ module github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2
 
 replace github.com/openbao/go-kms-wrapping/v2 => ../../
 
-go 1.25.0
+go 1.25.12
 
 require (
 	github.com/openbao/go-kms-wrapping/v2 v2.5.0
-	github.com/securosys-com/tsb-client-go v1.1.0
+	github.com/securosys-com/tsb-client-go v1.2.0
 )
 
 require (

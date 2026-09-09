@@ -4,14 +4,19 @@
 package securosyshsm
 
 import (
+	"bytes"
 	"crypto"
+	"crypto/aes"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
+	cryptorand "crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/sha512"
 	"fmt"
+	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/openbao/go-kms-wrapping/v2/kms"
@@ -130,6 +135,28 @@ func TestSignatureTypeForPublicKey(t *testing.T) {
 	}
 }
 
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
+}
+
+func TestMLKEMCiphertextEnvelopeValidation(t *testing.T) {
+	for _, ciphertext := range [][]byte{
+		nil,
+		[]byte("not an ML-KEM envelope"),
+		append([]byte(mlKEMEnvelopeMagic), 2),
+	} {
+		if _, _, _, err := unmarshalMLKEMEnvelope(ciphertext); err == nil {
+			t.Fatalf("unmarshalMLKEMEnvelope(%x) succeeded, want error", ciphertext)
+		}
+	}
+
+	if _, err := marshalMLKEMEnvelope("ciphertext", make([]byte, mlKEMNonceSize-1), make([]byte, aes.BlockSize)); err == nil {
+		t.Fatal("marshalMLKEMEnvelope with invalid nonce length succeeded")
+	}
+}
+
 func TestKeyCryptoAESAlgorithms(t *testing.T) {
 	ctx := t.Context()
 
@@ -160,6 +187,75 @@ func TestKeyCryptoRSAAlgorithms(t *testing.T) {
 		t.Run("RSA/"+algorithm, func(t *testing.T) {
 			key := getTestKMSKey(t, kmsInstance, RSA_KEY_NAME, algorithm)
 			assertCipherRoundTrip(t, key, cipherPlaintext(algorithm), nil)
+		})
+	}
+}
+
+func TestKeyCryptoMLKEMAlgorithms(t *testing.T) {
+	kmsInstance := openTestKMS(t)
+	defer kmsInstance.Close(t.Context())
+
+	for _, algorithm := range []string{"ML-KEM-512", "ML-KEM-768", "ML-KEM-1024"} {
+		t.Run(algorithm, func(t *testing.T) {
+			keyName := "openbao_test_" + strings.ToLower(strings.ReplaceAll(algorithm, "-", "_")) + "_key"
+			cleanup := createMLKEMTestKey(t, keyName, algorithm)
+			t.Cleanup(cleanup)
+			key := getTestKMSKey(t, kmsInstance, keyName, "")
+			assertMLKEMCipherRoundTrip(t, key)
+		})
+	}
+}
+
+func TestMLKEMEncapsulateDecapsulateAESGCMWithTSB(t *testing.T) {
+	tsbClient := getTestClient(t)
+	if tsbClient == nil {
+		return
+	}
+
+	plaintext := []byte("OpenBao ML-KEM encapsulation and AES-GCM test")
+	aad := []byte("OpenBao ML-KEM integration test context")
+	for _, algorithm := range []string{"ML-KEM-512", "ML-KEM-768", "ML-KEM-1024"} {
+		t.Run(algorithm, func(t *testing.T) {
+			keyName := "openbao_test_direct_" + strings.ToLower(strings.ReplaceAll(algorithm, "-", "_")) + "_key"
+			cleanup := createMLKEMTestKey(t, keyName, algorithm)
+			defer cleanup()
+
+			key, err := tsbClient.GetKey(t.Context(), keyName, "")
+			if err != nil {
+				t.Fatalf("GetKey returned error: %v", err)
+			}
+			encapsulation, _, err := tsbClient.Encapsulate(t.Context(), key.PublicKey)
+			if err != nil {
+				t.Fatalf("Encapsulate returned error: %v", err)
+			}
+			decapsulation, _, err := tsbClient.Decapsulate(t.Context(), keyName, "", encapsulation.Ciphertext)
+			if err != nil {
+				t.Fatalf("Decapsulate returned error: %v", err)
+			}
+			if decapsulation.SharedSecret != encapsulation.SharedSecret {
+				t.Fatal("Decapsulate returned a different shared secret")
+			}
+
+			encryptAEAD, err := mlKEMAEAD(encapsulation.SharedSecret, encapsulation.Ciphertext)
+			if err != nil {
+				t.Fatalf("create encryption AEAD: %v", err)
+			}
+			decryptAEAD, err := mlKEMAEAD(decapsulation.SharedSecret, encapsulation.Ciphertext)
+			if err != nil {
+				t.Fatalf("create decryption AEAD: %v", err)
+			}
+			nonce := make([]byte, encryptAEAD.NonceSize())
+			if _, err := cryptorand.Read(nonce); err != nil {
+				t.Fatalf("generate AES-GCM nonce: %v", err)
+			}
+			ciphertext := encryptAEAD.Seal(nil, nonce, plaintext, aad)
+			decrypted, err := decryptAEAD.Open(nil, nonce, ciphertext, aad)
+			if err != nil {
+				t.Fatalf("AES-GCM decrypt returned error: %v", err)
+			}
+			if string(decrypted) != string(plaintext) {
+				t.Fatalf("decrypted data = %q, want %q", decrypted, plaintext)
+			}
 		})
 	}
 }
@@ -262,15 +358,53 @@ func assertCipherRoundTrip(t *testing.T, key kms.Key, plaintext, aad []byte) {
 	}
 
 	decrypted, err := key.Decrypt(t.Context(), &kms.CipherOptions{
-		Data:  ciphertext,
-		AAD:   aad,
-		Nonce: encryptOpts.Nonce,
+		Data: ciphertext,
+		AAD:  aad,
 	})
 	if err != nil {
 		t.Fatalf("Failed to decrypt: %v", err)
 	}
 	if string(decrypted) != string(plaintext) {
 		t.Fatalf("Decrypted data does not match original. Got %x, want %x", decrypted, plaintext)
+	}
+}
+
+func assertMLKEMCipherRoundTrip(t *testing.T, key kms.Key) {
+	t.Helper()
+
+	plaintext := []byte("OpenBao Securosys ML-KEM cipher test")
+	aad := []byte("ML-KEM AAD")
+	ciphertext, err := key.Encrypt(t.Context(), &kms.CipherOptions{
+		Data: plaintext,
+		AAD:  aad,
+	})
+	if err != nil {
+		t.Fatalf("Failed to encrypt: %v", err)
+	}
+
+	decrypted, err := key.Decrypt(t.Context(), &kms.CipherOptions{
+		Data: ciphertext,
+		AAD:  aad,
+	})
+	if err != nil {
+		t.Fatalf("Failed to decrypt: %v", err)
+	}
+	if string(decrypted) != string(plaintext) {
+		t.Fatalf("Decrypted data does not match original. Got %x, want %x", decrypted, plaintext)
+	}
+
+	_, err = key.Decrypt(t.Context(), &kms.CipherOptions{
+		Data: ciphertext,
+		AAD:  []byte("invalid ML-KEM AAD"),
+	})
+	if err == nil {
+		t.Fatal("Decrypt with invalid AAD succeeded")
+	}
+
+	tampered := bytes.Clone(ciphertext)
+	tampered[len(tampered)-1] ^= 1
+	if _, err := key.Decrypt(t.Context(), &kms.CipherOptions{Data: tampered, AAD: aad}); err == nil {
+		t.Fatal("Decrypt with tampered ciphertext succeeded")
 	}
 }
 

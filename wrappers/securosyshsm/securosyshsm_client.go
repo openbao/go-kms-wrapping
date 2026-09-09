@@ -36,11 +36,6 @@ func (c *SecurosysHSMClient) Close() {
 	if c == nil {
 		return
 	}
-	if c.key != nil {
-		if err := c.key.Close(context.Background()); err != nil {
-			logger.Error(err.Error())
-		}
-	}
 	if c.kms != nil {
 		if err := c.kms.Close(context.Background()); err != nil {
 			logger.Error(err.Error())
@@ -81,10 +76,7 @@ func newSecurosysHSMClient(ctx context.Context, logger hclog.Logger, opts *optio
 	}
 
 	key, err := providerKMS.GetKey(ctx, &kms.KeyOptions{
-		ConfigMap: kms.ConfigMap{
-			"name":     keyLabel,
-			"password": opts.withKeyPassword,
-		},
+		ConfigMap: securosysKMSKeyConfigMap(opts),
 	})
 	if err != nil {
 		_ = providerKMS.Close(ctx)
@@ -106,7 +98,6 @@ func newSecurosysHSMClient(ctx context.Context, logger hclog.Logger, opts *optio
 			"approval_timeout": strconv.Itoa(parsePositiveInt(opts.withApprovalTimeout, 600)),
 		},
 	}
-
 	return client, wrapConfig, nil
 }
 
@@ -158,6 +149,15 @@ func securosysKMSConfigMap(opts *options) kms.ConfigMap {
 	return provider
 }
 
+// securosysKMSKeyConfigMap passes key-level settings to the KMS. The KMS
+// resolves the encryption algorithm from the key attributes returned by TSB.
+func securosysKMSKeyConfigMap(opts *options) kms.ConfigMap {
+	return kms.ConfigMap{
+		"name":     opts.withKeyLabel,
+		"password": opts.withKeyPassword,
+	}
+}
+
 // Encrypt encrypts a base64-encoded wrapper plaintext with the configured KMS
 // key.
 func (c *SecurosysHSMClient) Encrypt(ctx context.Context, plaintext string) ([]byte, error) {
@@ -172,8 +172,7 @@ func (c *SecurosysHSMClient) Encrypt(ctx context.Context, plaintext string) ([]b
 	}
 
 	encryptedBase64 := base64.StdEncoding.EncodeToString(encrypted)
-	nonceBase64 := base64.StdEncoding.EncodeToString(opts.Nonce)
-	return []byte(fmt.Sprintf("securosys:%s:%s:%s", c.keyLabel, nonceBase64, encryptedBase64)), nil
+	return []byte(fmt.Sprintf("securosys:%s::%s", c.keyLabel, encryptedBase64)), nil
 }
 
 // Decrypt decrypts the base64 ciphertext component produced by Encrypt.
@@ -194,9 +193,9 @@ func (c *SecurosysHSMClient) Decrypt(ctx context.Context, encryptedPayload strin
 			return nil, err
 		}
 	}
+	encryptedBytes = append(nonce, encryptedBytes...)
 
 	return c.key.Decrypt(ctx, &kms.CipherOptions{
-		Data:  encryptedBytes,
-		Nonce: nonce,
+		Data: encryptedBytes,
 	})
 }
