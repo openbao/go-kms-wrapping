@@ -57,6 +57,18 @@ jobs:
         working-directory: ${{ matrix.directory }}
         run: go test ./...
 
+      - name: Azure integration tests
+        if: matrix.directory == './wrappers/azurekeyvault'
+        uses: ./.github/actions/azure-integration-tests
+        with:
+          client-secret: ${{ secrets.AZUREKEYVAULT_CLIENT_SECRET_CLIENT_SECRET }}
+          client-id: ${{ secrets.AZUREKEYVAULT_CLIENT_SECRET_CLIENT_ID }}
+          cert: ${{ secrets.AZUREKEYVAULT_CERT_CLIENT_CERT }}
+          cert-password: ${{ secrets.AZUREKEYVAULT_CERT_CLIENT_KEY }}
+          tenant-id: ${{ secrets.AZUREKEYVAULT_TENANT_ID }}
+          vault-name: ${{ secrets.AZUREKEYVAULT_VAULT_NAME }}
+          key-name: ${{ secrets.AZUREKEYVAULT_KEY_NAME }}
+
       - name: Container tests
         if: steps.dockerfile.outputs.exists == 'true'
         run: docker build -f '${{ matrix.directory }}/Dockerfile' .
