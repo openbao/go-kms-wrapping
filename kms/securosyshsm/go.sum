@@ -17,8 +17,8 @@ github.com/mattn/go-isatty v0.0.14/go.mod h1:7GGIvUiUoEMVVmxf/4nioHXj79iQHKdU27k
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 h1:Jamvg5psRIccs7FGNTlIRMkT8wgtp5eCXdBlqhYGL6U=
 github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
-github.com/securosys-com/tsb-client-go v1.2.0 h1:cmleCnVcAT/5IPfiPfOuai/hypgaSZDyuayp2HmNppU=
-github.com/securosys-com/tsb-client-go v1.2.0/go.mod h1:IssB2EwqEUea+H9xT45tus3BYAJBUhL1F1tBiajquNE=
+github.com/securosys-com/tsb-client-go v1.3.0 h1:SG14THJslst9xtiwFzqHbFZK1yJ7RDRV+ahPYLMzqT0=
+github.com/securosys-com/tsb-client-go v1.3.0/go.mod h1:VO3p99ATr8fpytySaA9DD2hrhu0W0pKTKNr9aWkaGX4=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
 github.com/stretchr/testify v1.7.2/go.mod h1:R6va5+xMeoiuVRoj+gSkQ7d3FALtqAAGI1FQKckRals=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=

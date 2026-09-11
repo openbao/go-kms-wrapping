@@ -23,8 +23,8 @@ func TestGetOptsDefaults(t *testing.T) {
 	require.Empty(t, opts.withBearerToken)
 	require.Empty(t, opts.withCheckEvery)
 	require.Empty(t, opts.withTSBApiEndpoint)
-	require.Empty(t, opts.withCertPath)
-	require.Empty(t, opts.withKeyPath)
+	require.Empty(t, opts.withCertPEM)
+	require.Empty(t, opts.withKeyPEM)
 	require.Empty(t, opts.withApplicationKeyPair)
 	require.Empty(t, opts.withApiKeys)
 }
@@ -40,8 +40,8 @@ func TestGetOptsFromConfigMap(t *testing.T) {
 		"bearer_token":         "token",
 		"check_every":          "20",
 		"tsb_api_endpoint":     "https://test.com",
-		"cert_path":            "mtls.crt",
-		"key_path":             "mtls.key",
+		"cert_pem":             "certificate PEM",
+		"key_pem":              "key PEM",
 		"application_key_pair": "{}",
 		"api_keys":             "{}",
 	}
@@ -56,8 +56,8 @@ func TestGetOptsFromConfigMap(t *testing.T) {
 	require.Equal(t, "token", opts.withBearerToken)
 	require.Equal(t, "20", opts.withCheckEvery)
 	require.Equal(t, "https://test.com", opts.withTSBApiEndpoint)
-	require.Equal(t, "mtls.crt", opts.withCertPath)
-	require.Equal(t, "mtls.key", opts.withKeyPath)
+	require.Equal(t, "certificate PEM", opts.withCertPEM)
+	require.Equal(t, "key PEM", opts.withKeyPEM)
 	require.Equal(t, "{}", opts.withApplicationKeyPair)
 	require.Equal(t, "{}", opts.withApiKeys)
 }

@@ -5,9 +5,9 @@ package securosyshsm
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -15,7 +15,6 @@ import (
 	"github.com/hashicorp/go-hclog"
 	kms "github.com/openbao/go-kms-wrapping/v2/kms"
 	"github.com/securosys-com/tsb-client-go"
-	"github.com/securosys-com/tsb-client-go/helpers"
 )
 
 // securosysKMS implements kms.KMS using the Securosys HSM.
@@ -26,7 +25,6 @@ type securosysKMS struct {
 	logger hclog.Logger
 
 	approvalTimeout time.Duration
-	pollInterval    time.Duration
 	closeCtx        context.Context
 	closeCancel     context.CancelFunc
 }
@@ -46,11 +44,11 @@ func (k *securosysKMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 	if err := decodeConfig(opts.ConfigMap, &config); err != nil {
 		return err
 	}
-	if err := validateOpenConfig(&config.SecurosysConfig); err != nil {
+	if err := validateOpenConfig(&config); err != nil {
 		return err
 	}
 
-	c, err := client.NewClient(&config.SecurosysConfig)
+	c, err := newClient(&config)
 	if err != nil {
 		return err
 	}
@@ -72,7 +70,8 @@ func (k *securosysKMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 	k.client = c
 	k.logger = logger
 	k.approvalTimeout = secondsDuration(config.ApprovalTimeout, defaultApprovalTimeout)
-	k.pollInterval = secondsDuration(config.CheckEvery, defaultRequestPollInterval)
+	k.client.Logger = logger
+	k.client.ApprovalPollInterval = secondsDuration(config.CheckEvery, defaultRequestPollInterval)
 	k.closeCtx = closeCtx
 	k.closeCancel = closeCancel
 	k.logger.Debug("opened securosys hsm kms", "status", status)
@@ -81,13 +80,6 @@ func (k *securosysKMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 
 // GetKey returns an opaque Key using the passed options.
 func (k *securosysKMS) GetKey(ctx context.Context, opts *kms.KeyOptions) (kms.Key, error) {
-	if k.client == nil {
-		return nil, errors.New("KMS not opened")
-	}
-	if opts == nil || opts.ConfigMap == nil {
-		return nil, errors.New("key options config map is required")
-	}
-
 	var config keyConfig
 	if err := decodeConfig(opts.ConfigMap, &config); err != nil {
 		return nil, err
@@ -110,9 +102,7 @@ func (k *securosysKMS) GetKey(ctx context.Context, opts *kms.KeyOptions) (kms.Ke
 		keyAttrs:        keyAttrs,
 		password:        config.Password,
 		cipherAlgorithm: config.CipherAlgorithm,
-		logger:          k.logger,
 		approvalTimeout: k.approvalTimeout,
-		pollInterval:    k.pollInterval,
 		closeCtx:        k.closeCtx,
 	}, nil
 }
@@ -129,7 +119,6 @@ func (k *securosysKMS) Close(ctx context.Context) error {
 	k.client = nil
 	k.logger = hclog.NewNullLogger()
 	k.approvalTimeout = 0
-	k.pollInterval = 0
 	k.closeCtx = nil
 	k.closeCancel = nil
 	return nil
@@ -144,9 +133,41 @@ type keyConfig struct {
 }
 
 type openConfig struct {
-	helpers.SecurosysConfig `mapstructure:",squash"`
-	CheckEvery              int `mapstructure:"check_every"`
-	ApprovalTimeout         int `mapstructure:"approval_timeout"`
+	Auth               string `mapstructure:"auth"`
+	BearerToken        string `mapstructure:"bearer_token"`
+	CertPEM            string `mapstructure:"cert_pem"`
+	KeyPEM             string `mapstructure:"key_pem"`
+	RestAPI            string `mapstructure:"rest_api"`
+	ApplicationKeyPair string `mapstructure:"application_key_pair"`
+	APIKeys            string `mapstructure:"api_keys"`
+	CheckEvery         int    `mapstructure:"check_every"`
+	ApprovalTimeout    int    `mapstructure:"approval_timeout"`
+}
+
+func newClient(config *openConfig) (*client.SecurosysClient, error) {
+	var keyPair client.KeyPair
+	if err := json.Unmarshal([]byte(config.ApplicationKeyPair), &keyPair); config.ApplicationKeyPair != "" && err != nil {
+		return nil, fmt.Errorf("invalid application_key_pair: %w", err)
+	}
+
+	var apiKeys client.ApiKeyTypes
+	if err := json.Unmarshal([]byte(config.APIKeys), &apiKeys); config.APIKeys != "" && err != nil {
+		return nil, fmt.Errorf("invalid api_keys: %w", err)
+	}
+
+	tsbClient, err := client.NewTSBClient(config.RestAPI, client.AuthStruct{
+		AuthType:           config.Auth,
+		BearerToken:        config.BearerToken,
+		CertPEM:            config.CertPEM,
+		KeyPEM:             config.KeyPEM,
+		ApplicationKeyPair: keyPair,
+		ApiKeys:            apiKeys,
+		AppName:            "OpenBao - Securosys HSM KMS",
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &client.SecurosysClient{TSBClient: tsbClient}, nil
 }
 
 func connectionCheckError(status int, connection string) error {
@@ -166,18 +187,18 @@ func secondsDuration(seconds int, fallback time.Duration) time.Duration {
 	return time.Duration(seconds) * time.Second
 }
 
-func validateOpenConfig(config *helpers.SecurosysConfig) error {
+func validateOpenConfig(config *openConfig) error {
 	if config == nil {
 		return errors.New("config is required")
 	}
 
-	config.RestApi = strings.TrimSpace(config.RestApi)
+	config.RestAPI = strings.TrimSpace(config.RestAPI)
 	config.Auth = strings.TrimSpace(strings.ToUpper(config.Auth))
 	config.BearerToken = strings.TrimSpace(config.BearerToken)
-	config.CertPath = strings.TrimSpace(config.CertPath)
-	config.KeyPath = strings.TrimSpace(config.KeyPath)
+	config.CertPEM = strings.TrimSpace(config.CertPEM)
+	config.KeyPEM = strings.TrimSpace(config.KeyPEM)
 
-	if config.RestApi == "" {
+	if config.RestAPI == "" {
 		return errors.New("rest_api is required")
 	}
 	if config.Auth == "" {
@@ -193,17 +214,11 @@ func validateOpenConfig(config *helpers.SecurosysConfig) error {
 		}
 		return nil
 	case "CERT":
-		if config.CertPath == "" {
-			return errors.New("cert_path is required when auth is CERT")
+		if config.CertPEM == "" {
+			return errors.New("cert_pem is required when auth is CERT")
 		}
-		if config.KeyPath == "" {
-			return errors.New("key_path is required when auth is CERT")
-		}
-		if _, err := os.Stat(config.CertPath); err != nil {
-			return fmt.Errorf("cert_path is invalid: %w", err)
-		}
-		if _, err := os.Stat(config.KeyPath); err != nil {
-			return fmt.Errorf("key_path is invalid: %w", err)
+		if config.KeyPEM == "" {
+			return errors.New("key_pem is required when auth is CERT")
 		}
 		return nil
 	default:

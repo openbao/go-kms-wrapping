@@ -59,7 +59,6 @@ func NewSecurosysHSMTestWrapper() *Wrapper {
 		key:      key,
 		keyLabel: SECUROSYS_HSM_TEST_KEY_LABEL,
 	}
-	s.hsmClient = client
 	s.client = client
 	return s
 }
