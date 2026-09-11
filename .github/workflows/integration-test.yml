@@ -1,0 +1,85 @@
+name: Integration tests
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  detect-changes:
+    name: Detect wrappers source code changes
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - name: Get changed files action
+        id: changed-files
+        uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
+        with:
+          use_rest_api: true
+          json: true
+
+      - name: Compute integration test matrix
+        id: matrix
+        env:
+          CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
+        run: |
+          mapfile -t files < <(jq -r '.[]' <<<"$CHANGED_FILES")
+          pkgs=()
+          run_all=false
+          for f in "${files[@]}"; do
+            case "$f" in
+              wrappers/*/*) pkg="${f#wrappers/}"; pkgs+=("${pkg%%/*}") ;;
+              wrappers/*) : ;;
+              */*) : ;;
+              *) run_all=true ;;
+            esac
+          done
+          if [ "$run_all" = "true" ]; then
+            for d in wrappers/*/; do
+              [ -d "$d" ] && pkgs+=("$(basename "$d")")
+            done
+          fi
+          echo "matrix=$(printf '%s\n' "${pkgs[@]}" | sort -u | \
+            jq -Rc '[inputs | {wrapper_dir: ("./wrappers/" + .), pkg: .}]')" \
+            >>"$GITHUB_OUTPUT"
+
+  integration-tests:
+    name: Integration tests (${{ matrix.pkg }})
+    needs: detect-changes
+    if: needs.detect-changes.outputs.matrix != '[]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.detect-changes.outputs.matrix) }}
+    environment:
+      name: integration-tests-${{ matrix.pkg }} # needs to match repo settings
+      deployment: false
+    concurrency:
+      group: integration-tests-${{ github.event.pull_request.number }}-${{ matrix.pkg }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout pull request head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          allow-unsafe-pr-checkout: true # required for public fork based PRs
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ${{ matrix.wrapper_dir }}/go.mod
+          cache-dependency-path: ${{ matrix.wrapper_dir }}/go.mod
+
+      - name: Run integration tests
+        working-directory: ${{ matrix.wrapper_dir }}
+        env:
+          KMS_ACC_TESTS: "true"
+        run: go test ./...
