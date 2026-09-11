@@ -1,0 +1,38 @@
+name: Azure wrapper integration tests
+
+on:
+  pull_request_target:
+    paths:
+      - 'wrappers/azurekeyvault/**'
+      - '*'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    environment:
+      name: integration
+      deployment: false
+    permissions:
+      contents: read
+
+    steps:
+      - name: Setup wrapper integration test
+        uses: ./.github/actions/setup-unsafe-integration-test
+        with:
+          module: ./wrappers/azurekeyvault
+
+      - name: Run integration tests
+        working-directory: ./wrappers/azurekeyvault
+        env:
+          KMS_ACC_TESTS: "true"
+          AZURE_CLIENT_SECRET: ${{ secrets.AZUREKEYVAULT_CLIENT_SECRET_CLIENT_SECRET }}
+          AZURE_CLIENT_ID: ${{ secrets.AZUREKEYVAULT_CLIENT_SECRET_CLIENT_ID }}
+          AZUREKEYVAULT_CERT_CLIENT_CERT: ${{ secrets.AZUREKEYVAULT_CERT_CLIENT_CERT }}
+          VAULT_AZUREKEYVAULT_CERTIFICATE_PASSWORD: ${{ secrets.AZUREKEYVAULT_CERT_CLIENT_KEY }}
+          AZURE_TENANT_ID: ${{ secrets.AZUREKEYVAULT_TENANT_ID }}
+          AZUREKEYVAULT_WRAPPER_VAULT_NAME: ${{ secrets.AZUREKEYVAULT_VAULT_NAME }}
+          AZUREKEYVAULT_WRAPPER_KEY_NAME: ${{ secrets.AZUREKEYVAULT_KEY_NAME }}
+        run: go test ./...
