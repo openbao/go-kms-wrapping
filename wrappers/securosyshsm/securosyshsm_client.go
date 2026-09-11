@@ -5,7 +5,6 @@ package securosyshsm
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"strconv"
 
@@ -17,8 +16,8 @@ import (
 
 type securosysHSMClientEncryptor interface {
 	Close()
-	Encrypt(ctx context.Context, plaintext string) (data []byte, err error)
-	Decrypt(ctx context.Context, ciphertext string, keyVersion string) (plaintext []byte, err error)
+	Encrypt(ctx context.Context, plaintext []byte) (ciphertext []byte, keyID string, err error)
+	Decrypt(ctx context.Context, ciphertext []byte) (plaintext []byte, err error)
 }
 
 // SecurosysHSMClient adapts the Securosys KMS implementation to the
@@ -30,6 +29,7 @@ type SecurosysHSMClient struct {
 	kms      kms.KMS
 	key      kms.Key
 	keyLabel string
+	logger   hclog.Logger
 }
 
 func (c *SecurosysHSMClient) Close() {
@@ -38,7 +38,9 @@ func (c *SecurosysHSMClient) Close() {
 	}
 	if c.kms != nil {
 		if err := c.kms.Close(context.Background()); err != nil {
-			logger.Error(err.Error())
+			if c.logger != nil {
+				c.logger.Error(err.Error())
+			}
 		}
 	}
 }
@@ -87,6 +89,7 @@ func newSecurosysHSMClient(ctx context.Context, logger hclog.Logger, opts *optio
 		kms:      providerKMS,
 		key:      key,
 		keyLabel: keyLabel,
+		logger:   logger,
 	}
 
 	wrapConfig := &wrapping.WrapperConfig{
@@ -127,11 +130,11 @@ func securosysKMSConfigMap(opts *options) kms.ConfigMap {
 	if opts.withBearerToken != "" {
 		provider["bearer_token"] = opts.withBearerToken
 	}
-	if opts.withCertPath != "" {
-		provider["cert_path"] = opts.withCertPath
+	if opts.withCertPEM != "" {
+		provider["cert_pem"] = opts.withCertPEM
 	}
-	if opts.withKeyPath != "" {
-		provider["key_path"] = opts.withKeyPath
+	if opts.withKeyPEM != "" {
+		provider["key_pem"] = opts.withKeyPEM
 	}
 	if opts.withCheckEvery != "" {
 		provider["check_every"] = opts.withCheckEvery
@@ -158,44 +161,24 @@ func securosysKMSKeyConfigMap(opts *options) kms.ConfigMap {
 	}
 }
 
-// Encrypt encrypts a base64-encoded wrapper plaintext with the configured KMS
-// key.
-func (c *SecurosysHSMClient) Encrypt(ctx context.Context, plaintext string) ([]byte, error) {
+// Encrypt performs the KMS encryption operation. Ciphertext envelope encoding
+// belongs to Wrapper.
+func (c *SecurosysHSMClient) Encrypt(ctx context.Context, plaintext []byte) ([]byte, string, error) {
 	if c == nil || c.key == nil {
-		return nil, fmt.Errorf("securosys hsm key is not configured")
+		return nil, "", fmt.Errorf("securosys hsm key is not configured")
 	}
 
-	opts := &kms.CipherOptions{Data: []byte(plaintext)}
-	encrypted, err := c.key.Encrypt(ctx, opts)
+	encrypted, err := c.key.Encrypt(ctx, &kms.CipherOptions{Data: plaintext})
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-
-	encryptedBase64 := base64.StdEncoding.EncodeToString(encrypted)
-	return []byte(fmt.Sprintf("securosys:%s::%s", c.keyLabel, encryptedBase64)), nil
+	return encrypted, c.keyLabel, nil
 }
 
-// Decrypt decrypts the base64 ciphertext component produced by Encrypt.
-func (c *SecurosysHSMClient) Decrypt(ctx context.Context, encryptedPayload string, keyVersion string) ([]byte, error) {
+// Decrypt performs the KMS decryption operation with the currently configured key.
+func (c *SecurosysHSMClient) Decrypt(ctx context.Context, ciphertext []byte) ([]byte, error) {
 	if c == nil || c.key == nil {
 		return nil, fmt.Errorf("securosys hsm key is not configured")
 	}
-
-	encryptedBytes, err := base64.StdEncoding.DecodeString(encryptedPayload)
-	if err != nil {
-		return nil, err
-	}
-
-	var nonce []byte
-	if keyVersion != "" {
-		nonce, err = base64.StdEncoding.DecodeString(keyVersion)
-		if err != nil {
-			return nil, err
-		}
-	}
-	encryptedBytes = append(nonce, encryptedBytes...)
-
-	return c.key.Decrypt(ctx, &kms.CipherOptions{
-		Data: encryptedBytes,
-	})
+	return c.key.Decrypt(ctx, &kms.CipherOptions{Data: ciphertext})
 }

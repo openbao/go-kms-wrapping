@@ -87,6 +87,19 @@ func getTestKMSKey(t *testing.T, kmsInstance kms.KMS, keyName, cipherAlgorithm s
 	return key
 }
 
+func TestValidateOpenConfigAcceptsCertificatePEM(t *testing.T) {
+	config := openConfig{
+		Auth:    "CERT",
+		RestAPI: "https://example.com",
+		CertPEM: "certificate PEM",
+		KeyPEM:  "key PEM",
+	}
+
+	if err := validateOpenConfig(&config); err != nil {
+		t.Fatalf("validateOpenConfig() error = %v", err)
+	}
+}
+
 func createTestKey(t *testing.T, keyName, keyType string, keySize int) func() {
 	tsbClient := getTestClient(t)
 	if tsbClient == nil {

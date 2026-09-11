@@ -6,16 +6,15 @@ package securosyshsm
 import (
 	"bytes"
 	"crypto"
-	"crypto/aes"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
-	cryptorand "crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/sha512"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -141,22 +140,6 @@ func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) 
 	return f(request)
 }
 
-func TestMLKEMCiphertextEnvelopeValidation(t *testing.T) {
-	for _, ciphertext := range [][]byte{
-		nil,
-		[]byte("not an ML-KEM envelope"),
-		append([]byte(mlKEMEnvelopeMagic), 2),
-	} {
-		if _, _, _, err := unmarshalMLKEMEnvelope(ciphertext); err == nil {
-			t.Fatalf("unmarshalMLKEMEnvelope(%x) succeeded, want error", ciphertext)
-		}
-	}
-
-	if _, err := marshalMLKEMEnvelope("ciphertext", make([]byte, mlKEMNonceSize-1), make([]byte, aes.BlockSize)); err == nil {
-		t.Fatal("marshalMLKEMEnvelope with invalid nonce length succeeded")
-	}
-}
-
 func TestKeyCryptoAESAlgorithms(t *testing.T) {
 	ctx := t.Context()
 
@@ -206,60 +189,6 @@ func TestKeyCryptoMLKEMAlgorithms(t *testing.T) {
 	}
 }
 
-func TestMLKEMEncapsulateDecapsulateAESGCMWithTSB(t *testing.T) {
-	tsbClient := getTestClient(t)
-	if tsbClient == nil {
-		return
-	}
-
-	plaintext := []byte("OpenBao ML-KEM encapsulation and AES-GCM test")
-	aad := []byte("OpenBao ML-KEM integration test context")
-	for _, algorithm := range []string{"ML-KEM-512", "ML-KEM-768", "ML-KEM-1024"} {
-		t.Run(algorithm, func(t *testing.T) {
-			keyName := "openbao_test_direct_" + strings.ToLower(strings.ReplaceAll(algorithm, "-", "_")) + "_key"
-			cleanup := createMLKEMTestKey(t, keyName, algorithm)
-			defer cleanup()
-
-			key, err := tsbClient.GetKey(t.Context(), keyName, "")
-			if err != nil {
-				t.Fatalf("GetKey returned error: %v", err)
-			}
-			encapsulation, _, err := tsbClient.Encapsulate(t.Context(), key.PublicKey)
-			if err != nil {
-				t.Fatalf("Encapsulate returned error: %v", err)
-			}
-			decapsulation, _, err := tsbClient.Decapsulate(t.Context(), keyName, "", encapsulation.Ciphertext)
-			if err != nil {
-				t.Fatalf("Decapsulate returned error: %v", err)
-			}
-			if decapsulation.SharedSecret != encapsulation.SharedSecret {
-				t.Fatal("Decapsulate returned a different shared secret")
-			}
-
-			encryptAEAD, err := mlKEMAEAD(encapsulation.SharedSecret, encapsulation.Ciphertext)
-			if err != nil {
-				t.Fatalf("create encryption AEAD: %v", err)
-			}
-			decryptAEAD, err := mlKEMAEAD(decapsulation.SharedSecret, encapsulation.Ciphertext)
-			if err != nil {
-				t.Fatalf("create decryption AEAD: %v", err)
-			}
-			nonce := make([]byte, encryptAEAD.NonceSize())
-			if _, err := cryptorand.Read(nonce); err != nil {
-				t.Fatalf("generate AES-GCM nonce: %v", err)
-			}
-			ciphertext := encryptAEAD.Seal(nil, nonce, plaintext, aad)
-			decrypted, err := decryptAEAD.Open(nil, nonce, ciphertext, aad)
-			if err != nil {
-				t.Fatalf("AES-GCM decrypt returned error: %v", err)
-			}
-			if string(decrypted) != string(plaintext) {
-				t.Fatalf("decrypted data = %q, want %q", decrypted, plaintext)
-			}
-		})
-	}
-}
-
 func TestKeySignECAlgorithms(t *testing.T) {
 	ctx := t.Context()
 
@@ -281,7 +210,7 @@ func TestKeySignECAlgorithms(t *testing.T) {
 		{algorithm: "SHA512_WITH_ECDSA", signerOpts: crypto.SHA512},
 	} {
 		t.Run("EC/"+tc.algorithm, func(t *testing.T) {
-			if !containsString(helpers.EC_SIGNATURE_LIST, tc.algorithm) {
+			if !slices.Contains(helpers.EC_SIGNATURE_LIST, tc.algorithm) {
 				t.Fatalf("%s is not present in EC_SIGNATURE_LIST", tc.algorithm)
 			}
 			assertSignVerify(t, ecKey, tc.algorithm, tc.signerOpts, tc.prehashed)
@@ -337,7 +266,7 @@ func TestKeySignRSAAlgorithms(t *testing.T) {
 		{algorithm: "NONESHA512_WITH_RSA_PSS", signerOpts: &rsa.PSSOptions{Hash: crypto.SHA512}, prehashed: true},
 	} {
 		t.Run("RSA/"+tc.algorithm, func(t *testing.T) {
-			if !containsString(helpers.RSA_SIGNATURE_LIST, tc.algorithm) {
+			if !slices.Contains(helpers.RSA_SIGNATURE_LIST, tc.algorithm) {
 				t.Fatalf("%s is not present in RSA_SIGNATURE_LIST", tc.algorithm)
 			}
 			assertSignVerify(t, rsaKey, tc.algorithm, tc.signerOpts, tc.prehashed)

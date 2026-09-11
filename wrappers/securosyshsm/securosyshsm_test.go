@@ -158,8 +158,7 @@ func TestSecurosysKMSKeyConfigMapUsesKeyLabel(t *testing.T) {
 // wrapper payload parsing and base64 handling without reaching an HSM.
 func TestSecurosysHSMWrapperEncryptDecryptWithClient(t *testing.T) {
 	w := NewWrapper()
-	w.hsmClient = &mockSecurosysHSMClient{}
-	w.client = w.hsmClient
+	w.client = &mockSecurosysHSMClient{}
 
 	input := []byte("foo")
 	blob, err := w.Encrypt(context.Background(), input)
@@ -186,7 +185,6 @@ func TestSecurosysHSMWrapperMLKEMEncryptDecrypt(t *testing.T) {
 	client := &SecurosysHSMClient{key: key, keyLabel: "ml-kem-key"}
 	wrapper := NewWrapper()
 	wrapper.client = client
-	wrapper.hsmClient = client
 
 	plaintext := []byte("OpenBao wrapper ML-KEM payload")
 	blob, err := wrapper.Encrypt(t.Context(), plaintext)
@@ -224,7 +222,7 @@ func TestSecurosysHSMWrapperMLKEMEncryptDecrypt(t *testing.T) {
 // malformed ciphertext before calling the client.
 func TestSecurosysHSMWrapperRejectsInvalidCiphertext(t *testing.T) {
 	w := NewWrapper()
-	w.hsmClient = &mockSecurosysHSMClient{}
+	w.client = &mockSecurosysHSMClient{}
 
 	_, err := w.Decrypt(context.Background(), &wrapping.BlobInfo{
 		Ciphertext: []byte("securosys:v1:ciphertext:extra"),
@@ -310,22 +308,16 @@ func testEncryptionRoundTrip(t *testing.T, w *Wrapper, opt ...wrapping.Option) {
 	}
 }
 
-// mockSecurosysHSMClient returns the same payload shape as SecurosysHSMClient:
-// securosys:<key-label>:<base64 nonce>:<base64 ciphertext>.
 type mockSecurosysHSMClient struct{}
 
 func (m *mockSecurosysHSMClient) Close() {}
 
-func (m *mockSecurosysHSMClient) Encrypt(_ context.Context, plaintext string) ([]byte, error) {
-	return []byte("securosys:v1::" + base64.StdEncoding.EncodeToString([]byte(plaintext))), nil
+func (m *mockSecurosysHSMClient) Encrypt(_ context.Context, plaintext []byte) ([]byte, string, error) {
+	return plaintext, "v1", nil
 }
 
-func (m *mockSecurosysHSMClient) Decrypt(_ context.Context, ciphertext string, _ string) ([]byte, error) {
-	plaintext, err := base64.StdEncoding.DecodeString(ciphertext)
-	if err != nil {
-		return nil, err
-	}
-	return plaintext, nil
+func (m *mockSecurosysHSMClient) Decrypt(_ context.Context, ciphertext []byte) ([]byte, error) {
+	return ciphertext, nil
 }
 
 type mockMLKEMKey struct {

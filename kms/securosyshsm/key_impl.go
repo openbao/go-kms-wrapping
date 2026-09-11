@@ -8,6 +8,7 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/mldsa"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
@@ -16,20 +17,13 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"slices"
+	"strings"
 	"time"
 
-	"github.com/hashicorp/go-hclog"
 	kms "github.com/openbao/go-kms-wrapping/v2/kms"
 	client "github.com/securosys-com/tsb-client-go"
 	"github.com/securosys-com/tsb-client-go/helpers"
-)
-
-// Ensure securosysKey implements kms.Key
-var _ kms.Key = (*securosysKey)(nil)
-
-var (
-	ErrApprovalTimeout = errors.New("approval timeout exceeded")
-	ErrKMSClosed       = errors.New("securosys hsm kms closed")
 )
 
 const (
@@ -44,22 +38,14 @@ type securosysKey struct {
 	keyAttrs        helpers.KeyAttributes
 	password        string
 	cipherAlgorithm string
-	logger          hclog.Logger
 	approvalTimeout time.Duration
-	pollInterval    time.Duration
 	closeCtx        context.Context
 }
 
 // Encrypt encrypts opts.Data with the configured Securosys key.
 func (k *securosysKey) Encrypt(ctx context.Context, opts *kms.CipherOptions) ([]byte, error) {
-	if k.client == nil {
-		return nil, errors.New("key not initialized")
-	}
-	if opts == nil || opts.Data == nil {
-		return nil, errors.New("cipher options and data are required")
-	}
 	if isMLKEMAlgorithm(k.keyAttrs.Algorithm) {
-		return k.encryptMLKEM(ctx, opts)
+		return k.client.EncryptMLKEMHybrid(ctx, k.keyAttrs.Label, k.password, opts.Data, opts.AAD)
 	}
 
 	cipherAlgorithm, err := k.resolveCipherAlgorithm()
@@ -69,13 +55,15 @@ func (k *securosysKey) Encrypt(ctx context.Context, opts *kms.CipherOptions) ([]
 
 	aad := ""
 	tagLength := -1 // Default: no tag length specified
+	if cipherAlgorithm == "AES_GCM" {
+		tagLength = 128
+	}
 
 	if len(opts.AAD) > 0 {
 		if cipherAlgorithm != "AES_GCM" {
 			return nil, errors.New("AAD is only supported with AES_GCM")
 		}
 		aad = base64.StdEncoding.EncodeToString(opts.AAD)
-		tagLength = 128 // Use tag length when AAD is provided
 	}
 
 	encryptResp, _, err := k.client.Encrypt(
@@ -124,14 +112,10 @@ func (k *securosysKey) Encrypt(ctx context.Context, opts *kms.CipherOptions) ([]
 
 // Decrypt decrypts opts.Data with the configured Securosys key.
 func (k *securosysKey) Decrypt(ctx context.Context, opts *kms.CipherOptions) ([]byte, error) {
-	if k.client == nil {
-		return nil, errors.New("key not initialized")
-	}
-	if opts == nil || opts.Data == nil {
-		return nil, errors.New("cipher options and data are required")
-	}
 	if isMLKEMAlgorithm(k.keyAttrs.Algorithm) {
-		return k.decryptMLKEM(ctx, opts)
+		ctx, cancel := k.approvalContext(ctx)
+		defer cancel()
+		return k.client.DecryptMLKEMHybrid(ctx, k.keyAttrs.Label, k.password, opts.Data, opts.AAD)
 	}
 
 	cipherAlgorithm, err := k.resolveCipherAlgorithm()
@@ -173,15 +157,8 @@ func (k *securosysKey) Decrypt(ctx context.Context, opts *kms.CipherOptions) ([]
 
 func (k *securosysKey) decryptPayload(ctx context.Context, ciphertext []byte, initVector, cipherAlgorithm string, tagLength int, aad string) ([]byte, error) {
 	encryptedPayload := base64.StdEncoding.EncodeToString(ciphertext)
-
-	if containsString(helpers.AES_CIPHER_LIST, cipherAlgorithm) {
-		return k.decryptPayloadSync(ctx, encryptedPayload, initVector, cipherAlgorithm, tagLength, aad)
-	}
-
-	return k.decryptPayloadAsync(ctx, encryptedPayload, initVector, cipherAlgorithm, tagLength, aad)
-}
-
-func (k *securosysKey) decryptPayloadSync(ctx context.Context, encryptedPayload, initVector, cipherAlgorithm string, tagLength int, aad string) ([]byte, error) {
+	ctx, cancel := k.approvalContext(ctx)
+	defer cancel()
 	decryptResp, _, err := k.client.Decrypt(
 		ctx,
 		k.keyAttrs.Label,
@@ -204,47 +181,8 @@ func (k *securosysKey) decryptPayloadSync(ctx context.Context, encryptedPayload,
 	return payload, nil
 }
 
-func (k *securosysKey) decryptPayloadAsync(ctx context.Context, encryptedPayload, initVector, cipherAlgorithm string, tagLength int, aad string) ([]byte, error) {
-	requestID, _, err := k.client.AsyncDecrypt(
-		ctx,
-		k.keyAttrs.Label,
-		k.password,
-		encryptedPayload,
-		initVector,
-		client.CipherAlgorithm(cipherAlgorithm),
-		tagLength,
-		aad,
-		map[string]string{},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("decrypt failed: %w", err)
-	}
-
-	request, err := k.waitForRequest(ctx, requestID)
-	if err != nil {
-		return nil, fmt.Errorf("async decrypt failed: %w", err)
-	}
-	if request.Status != "EXECUTED" {
-		return nil, fmt.Errorf("decrypt failed with status: %s", request.Status)
-	}
-
-	payload, err := base64.StdEncoding.DecodeString(request.Result)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode decrypted payload: %w", err)
-	}
-
-	return payload, nil
-}
-
 // Sign creates a digital signature with an asymmetric Securosys key.
 func (k *securosysKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte, error) {
-	if k.client == nil {
-		return nil, errors.New("key not initialized")
-	}
-	if opts == nil || opts.Data == nil {
-		return nil, errors.New("sign options and data are required")
-	}
-
 	if k.keyAttrs.PublicKey == "" {
 		return nil, errors.New("key is not a signing key")
 	}
@@ -258,8 +196,9 @@ func (k *securosysKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte,
 	}
 
 	inputData := base64.StdEncoding.EncodeToString(opts.Data)
-
-	result, _, err := k.client.AsyncSign(
+	ctx, cancel := k.approvalContext(ctx)
+	defer cancel()
+	result, _, err := k.client.Sign(
 		ctx,
 		k.keyAttrs.Label,
 		k.password,
@@ -267,21 +206,12 @@ func (k *securosysKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte,
 		"UNSPECIFIED",
 		client.SignatureAlgorithm(sigAlgorithm),
 		signatureTypeForPublicKey(pub),
-		map[string]string{},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("sign failed: %w", err)
 	}
 
-	request, err := k.waitForRequest(ctx, result)
-	if err != nil {
-		return nil, err
-	}
-	if request.Status != "EXECUTED" {
-		return nil, fmt.Errorf("sign failed with status: %s", request.Status)
-	}
-
-	signature, err := base64.StdEncoding.DecodeString(request.Result)
+	signature, err := base64.StdEncoding.DecodeString(result.Signature)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode signature: %w", err)
 	}
@@ -291,12 +221,6 @@ func (k *securosysKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte,
 
 // Verify verifies a digital signature created by Sign.
 func (k *securosysKey) Verify(ctx context.Context, opts *kms.VerifyOptions) error {
-	if k.client == nil {
-		return errors.New("key not initialized")
-	}
-	if opts == nil || opts.Signature == nil || opts.Data == nil {
-		return errors.New("verify options, signature and data are required")
-	}
 	pub, err := k.ExportPublic(ctx)
 	if err != nil {
 		return err
@@ -364,115 +288,34 @@ func (k *securosysKey) Close(ctx context.Context) error {
 	return nil
 }
 
-func (k *securosysKey) waitForRequest(ctx context.Context, requestID string) (*helpers.RequestResponse, error) {
+func (k *securosysKey) approvalContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
-	logger := k.logger
-	if logger == nil {
-		logger = hclog.NewNullLogger()
-	}
-	waitStarted := time.Now()
-	approvalTimeout := k.approvalTimeout
-	if approvalTimeout <= 0 {
-		approvalTimeout = defaultApprovalTimeout
-	}
+	timeoutCancel := func() {}
 	if _, ok := ctx.Deadline(); !ok {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, approvalTimeout)
-		defer cancel()
+		approvalTimeout := k.approvalTimeout
+		if approvalTimeout <= 0 {
+			approvalTimeout = defaultApprovalTimeout
+		}
+		ctx, timeoutCancel = context.WithTimeout(ctx, approvalTimeout)
 	}
+
 	ctx, stopSignalNotify := signal.NotifyContext(ctx, os.Interrupt)
-	defer stopSignalNotify()
-	ctx, cancelOnClose := k.contextWithKMSClose(ctx)
-	defer cancelOnClose()
+	ctx, cancel := context.WithCancel(ctx)
 
-	pollInterval := k.pollInterval
-	if pollInterval <= 0 {
-		pollInterval = defaultRequestPollInterval
-	}
-	if deadline, ok := ctx.Deadline(); ok {
-		logger.Info("Waiting for approvals", "request_id", requestID, "poll_interval", pollInterval.String(), "timeout_in", time.Until(deadline).Round(time.Second).String())
-	} else {
-		logger.Info("Waiting for approvals", "request_id", requestID, "poll_interval", pollInterval.String())
-	}
-
-	ticker := time.NewTicker(pollInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			logger.Warn("securosys async request wait stopped", "request_id", requestID, "elapsed", time.Since(waitStarted).Round(time.Second).String(), "error", ctx.Err())
-			return nil, k.waitForRequestStopError(ctx, requestID)
-		default:
-		}
-
-		request, _, err := k.client.GetRequest(ctx, requestID)
-		if err != nil {
-			if ctx.Err() != nil {
-				logger.Warn("securosys async request wait stopped", "request_id", requestID, "elapsed", time.Since(waitStarted).Round(time.Second).String(), "error", ctx.Err())
-				return nil, k.waitForRequestStopError(ctx, requestID)
-			}
-			logger.Error("failed to poll securosys async request", "request_id", requestID, "elapsed", time.Since(waitStarted).Round(time.Second).String(), "error", err)
-			return nil, err
-		}
-		if request.Status != "PENDING" && request.Status != "APPROVED" {
-			logger.Info("Securosys approval request completed", "request_id", requestID, "status", request.Status, "elapsed", time.Since(waitStarted).Round(time.Second).String())
-			return request, nil
-		}
-		logger.Debug(
-			"Securosys approval request still pending",
-			"request_id", requestID,
-			"status", request.Status,
-			"elapsed", time.Since(waitStarted).Round(time.Second).String(),
-			"approved_by", request.ApprovedBy,
-			"not_yet_approved_by", request.NotYetApprovedBy,
-			"rejected_by", request.RejectedBy,
-		)
-
-		select {
-		case <-ctx.Done():
-			logger.Warn("securosys async request wait stopped", "request_id", requestID, "status", request.Status, "elapsed", time.Since(waitStarted).Round(time.Second).String(), "error", ctx.Err())
-			return nil, k.waitForRequestStopError(ctx, requestID)
-		case <-ticker.C:
-		}
-	}
-}
-
-func (k *securosysKey) contextWithKMSClose(ctx context.Context) (context.Context, context.CancelFunc) {
-	if k.closeCtx == nil {
-		return ctx, func() {}
-	}
-
-	waitCtx, cancel := context.WithCancel(ctx)
-	go func() {
-		select {
-		case <-k.closeCtx.Done():
-			cancel()
-		case <-waitCtx.Done():
-		}
-	}()
-	return waitCtx, cancel
-}
-
-func (k *securosysKey) waitForRequestStopError(ctx context.Context, requestID string) error {
+	stopClose := func() bool { return false }
 	if k.closeCtx != nil {
-		select {
-		case <-k.closeCtx.Done():
-			return fmt.Errorf("%w while waiting for request %s: %w", ErrKMSClosed, requestID, context.Canceled)
-		default:
-		}
+		stopClose = context.AfterFunc(k.closeCtx, cancel)
 	}
-	return waitForRequestContextError(ctx, requestID)
-}
 
-func waitForRequestContextError(ctx context.Context, requestID string) error {
-	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return fmt.Errorf("%w for request %s: %w", ErrApprovalTimeout, requestID, ctx.Err())
+	return ctx, func() {
+		stopClose()
+		cancel()
+		stopSignalNotify()
+		timeoutCancel()
 	}
-	return fmt.Errorf("wait for request %s stopped: %w", requestID, ctx.Err())
 }
 
 // combineCipherOutput prepends the nonce and appends an optional MAC/tag to
@@ -496,6 +339,15 @@ func cipherNonceSize(cipherAlgorithm string) int {
 	}
 }
 
+func isMLKEMAlgorithm(algorithm string) bool {
+	switch strings.ToUpper(strings.TrimSpace(algorithm)) {
+	case "ML-KEM-512", "ML-KEM-768", "ML-KEM-1024":
+		return true
+	default:
+		return false
+	}
+}
+
 // resolveCipherAlgorithm returns the HSM cipher algorithm for this key.
 func (k *securosysKey) resolveCipherAlgorithm() (string, error) {
 	if k.cipherAlgorithm != "" {
@@ -509,19 +361,10 @@ func (k *securosysKey) resolveCipherAlgorithm() (string, error) {
 
 // normalizeCipherAlgorithm accepts either native Securosys HSM names from the
 func normalizeCipherAlgorithm(algorithm string) (string, error) {
-	if containsString(helpers.AES_CIPHER_LIST, algorithm) || containsString(helpers.RSA_CIPHER_LIST, algorithm) {
+	if slices.Contains(helpers.AES_CIPHER_LIST, algorithm) || slices.Contains(helpers.RSA_CIPHER_LIST, algorithm) {
 		return algorithm, nil
 	}
 	return helpers.MapCipherAlgorithm(algorithm)
-}
-
-func containsString(items []string, target string) bool {
-	for _, item := range items {
-		if item == target {
-			return true
-		}
-	}
-	return false
 }
 
 // mapRSAAlgorithm maps Go RSA signing options to Securosys HSM algorithm names.
@@ -720,7 +563,7 @@ func mapSignAlgorithmFromVerifyOpts(opts *kms.VerifyOptions, pub crypto.PublicKe
 }
 
 func mapPostQuantumSignAlgorithm(prehashed bool, hash crypto.Hash, pub crypto.PublicKey) (string, bool, error) {
-	if !isMLDSAPublicKey(pub) {
+	if _, ok := pub.(*mldsa.PublicKey); !ok {
 		return "", false, nil
 	}
 	if prehashed || hash != 0 {

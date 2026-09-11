@@ -42,8 +42,8 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 		opts.withApprovalTimeout = config.ApprovalTimeout
 		opts.withAuth = config.Auth
 		opts.withBearerToken = config.BearerToken
-		opts.withCertPath = config.CertPath
-		opts.withKeyPath = config.KeyPath
+		opts.withCertPEM = config.CertPEM
+		opts.withKeyPEM = config.KeyPEM
 		opts.withCheckEvery = config.CheckEvery
 		opts.withTSBApiEndpoint = config.TSBApiEndpoint
 		opts.withApplicationKeyPair = config.ApplicationKeyPair
@@ -62,8 +62,8 @@ type configMapOptions struct {
 	ApprovalTimeout    string `mapstructure:"approval_timeout"`
 	Auth               string `mapstructure:"auth"`
 	BearerToken        string `mapstructure:"bearer_token"`
-	CertPath           string `mapstructure:"cert_path"`
-	KeyPath            string `mapstructure:"key_path"`
+	CertPEM            string `mapstructure:"cert_pem"`
+	KeyPEM             string `mapstructure:"key_pem"`
 	CheckEvery         string `mapstructure:"check_every"`
 	TSBApiEndpoint     string `mapstructure:"tsb_api_endpoint"`
 	ApplicationKeyPair string `mapstructure:"application_key_pair"`
@@ -81,8 +81,8 @@ type options struct {
 	withBearerToken     string
 	withCheckEvery      string
 	withTSBApiEndpoint  string
-	withCertPath        string
-	withKeyPath         string
+	withCertPEM         string
+	withKeyPEM          string
 
 	withApplicationKeyPair string
 	withApiKeys            string

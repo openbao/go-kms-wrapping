@@ -17,7 +17,6 @@ import (
 type Wrapper struct {
 	client       securosysHSMClientEncryptor
 	currentKeyId *atomic.Value
-	hsmClient    securosysHSMClientEncryptor
 }
 
 const Type wrapping.WrapperType = "securosys-hsm"
@@ -49,7 +48,6 @@ func (s *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 		return nil, err
 	}
 	s.client = client
-	s.hsmClient = client
 
 	return wrapConfig, nil
 }
@@ -80,24 +78,20 @@ func (s *Wrapper) KeyId(_ context.Context) (string, error) {
 // Encrypt base64-encodes plaintext and encrypts it with the configured
 // Securosys KMS key.
 func (s *Wrapper) Encrypt(ctx context.Context, plaintext []byte, _ ...wrapping.Option) (*wrapping.BlobInfo, error) {
-	if s.hsmClient == nil {
+	if s.client == nil {
 		return nil, errors.New("securosys hsm client is not configured")
 	}
-	data, err := s.hsmClient.Encrypt(ctx, base64.StdEncoding.EncodeToString(plaintext))
+	ciphertext, keyID, err := s.client.Encrypt(ctx, []byte(base64.StdEncoding.EncodeToString(plaintext)))
 	if err != nil {
 		return nil, err
 	}
-
-	parsed, err := parseCiphertext(data)
-	if err != nil {
-		return nil, err
-	}
-	s.currentKeyId.Store(parsed.keyID)
+	data := []byte(fmt.Sprintf("%s:%s::%s", ciphertextPrefix, keyID, base64.StdEncoding.EncodeToString(ciphertext)))
+	s.currentKeyId.Store(keyID)
 
 	ret := &wrapping.BlobInfo{
 		Ciphertext: data,
 		KeyInfo: &wrapping.KeyInfo{
-			KeyId: parsed.keyID,
+			KeyId: keyID,
 		},
 	}
 	return ret, nil
@@ -106,7 +100,7 @@ func (s *Wrapper) Encrypt(ctx context.Context, plaintext []byte, _ ...wrapping.O
 // Decrypt parses the wrapper ciphertext format, restores the nonce, and
 // decrypts using the configured Securosys KMS key.
 func (s *Wrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, _ ...wrapping.Option) ([]byte, error) {
-	if s.hsmClient == nil {
+	if s.client == nil {
 		return nil, errors.New("securosys hsm client is not configured")
 	}
 	if in == nil {
@@ -117,7 +111,19 @@ func (s *Wrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, _ ...wrapp
 		return nil, err
 	}
 
-	plaintext, err := s.hsmClient.Decrypt(ctx, parsed.ciphertext, parsed.nonce)
+	ciphertext, err := base64.StdEncoding.DecodeString(parsed.ciphertext)
+	if err != nil {
+		return nil, fmt.Errorf("decode ciphertext payload: %w", err)
+	}
+	if parsed.nonce != "" {
+		nonce, err := base64.StdEncoding.DecodeString(parsed.nonce)
+		if err != nil {
+			return nil, fmt.Errorf("decode ciphertext nonce: %w", err)
+		}
+		ciphertext = append(nonce, ciphertext...)
+	}
+
+	plaintext, err := s.client.Decrypt(ctx, ciphertext)
 	if err != nil {
 		return nil, err
 	}
