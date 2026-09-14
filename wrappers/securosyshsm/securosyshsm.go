@@ -8,15 +8,14 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync/atomic"
 
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 )
 
 // Wrapper encrypts and decrypts go-kms-wrapping blobs with a Securosys HSM key.
 type Wrapper struct {
-	client       securosysHSMClientEncryptor
-	currentKeyId *atomic.Value
+	client            securosysHSMClientEncryptor
+	configuredKeyName string
 }
 
 const Type wrapping.WrapperType = "securosys-hsm"
@@ -29,11 +28,7 @@ var _ wrapping.Wrapper = (*Wrapper)(nil)
 
 // NewWrapper creates a new Securosys HSM wrapper.
 func NewWrapper() *Wrapper {
-	s := &Wrapper{
-		currentKeyId: new(atomic.Value),
-	}
-	s.currentKeyId.Store("")
-	return s
+	return &Wrapper{}
 }
 
 // SetConfig processes wrapper configuration and opens the Securosys KMS client.
@@ -48,6 +43,7 @@ func (s *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 		return nil, err
 	}
 	s.client = client
+	s.configuredKeyName = opts.withKeyLabel
 
 	return wrapConfig, nil
 }
@@ -70,9 +66,9 @@ func (s *Wrapper) Type(_ context.Context) (wrapping.WrapperType, error) {
 	return Type, nil
 }
 
-// KeyId returns the last key label used for encryption.
+// KeyId returns the configured Securosys key label.
 func (s *Wrapper) KeyId(_ context.Context) (string, error) {
-	return s.currentKeyId.Load().(string), nil
+	return s.configuredKeyName, nil
 }
 
 // Encrypt base64-encodes plaintext and encrypts it with the configured
@@ -81,17 +77,16 @@ func (s *Wrapper) Encrypt(ctx context.Context, plaintext []byte, _ ...wrapping.O
 	if s.client == nil {
 		return nil, errors.New("securosys hsm client is not configured")
 	}
-	ciphertext, keyID, err := s.client.Encrypt(ctx, []byte(base64.StdEncoding.EncodeToString(plaintext)))
+	ciphertext, keyName, err := s.client.Encrypt(ctx, []byte(base64.StdEncoding.EncodeToString(plaintext)))
 	if err != nil {
 		return nil, err
 	}
-	data := []byte(fmt.Sprintf("%s:%s::%s", ciphertextPrefix, keyID, base64.StdEncoding.EncodeToString(ciphertext)))
-	s.currentKeyId.Store(keyID)
+	data := []byte(fmt.Sprintf("%s:%s::%s", ciphertextPrefix, keyName, base64.StdEncoding.EncodeToString(ciphertext)))
 
 	ret := &wrapping.BlobInfo{
 		Ciphertext: data,
 		KeyInfo: &wrapping.KeyInfo{
-			KeyId: keyID,
+			KeyId: keyName,
 		},
 	}
 	return ret, nil
@@ -123,7 +118,15 @@ func (s *Wrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, _ ...wrapp
 		ciphertext = append(nonce, ciphertext...)
 	}
 
-	plaintext, err := s.client.Decrypt(ctx, ciphertext)
+	keyName := parsed.keyName
+	if keyName == "" {
+		keyName = s.configuredKeyName
+	}
+	if keyName == "" {
+		return nil, errors.New("missing key name in ciphertext and wrapper configuration")
+	}
+
+	plaintext, err := s.client.Decrypt(ctx, ciphertext, keyName)
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +138,7 @@ func (s *Wrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, _ ...wrapp
 }
 
 type parsedCiphertext struct {
-	keyID      string
+	keyName    string
 	nonce      string
 	ciphertext string
 }
@@ -148,14 +151,11 @@ func parseCiphertext(ciphertext []byte) (*parsedCiphertext, error) {
 	if parts[0] != ciphertextPrefix {
 		return nil, fmt.Errorf("invalid ciphertext prefix %q", parts[0])
 	}
-	if parts[1] == "" {
-		return nil, errors.New("missing key id in ciphertext")
-	}
 	if parts[3] == "" {
 		return nil, errors.New("missing payload in ciphertext")
 	}
 	return &parsedCiphertext{
-		keyID:      parts[1],
+		keyName:    parts[1],
 		nonce:      parts[2],
 		ciphertext: parts[3],
 	}, nil

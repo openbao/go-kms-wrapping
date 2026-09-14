@@ -11,10 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-viper/mapstructure/v2"
 	"github.com/hashicorp/go-hclog"
 	kms "github.com/openbao/go-kms-wrapping/v2/kms"
-	"github.com/securosys-com/tsb-client-go"
+	client "github.com/securosys-com/tsb-client-go"
 )
 
 // securosysKMS implements kms.KMS using the Securosys HSM.
@@ -36,12 +35,8 @@ func New() kms.KMS {
 
 // Open configures this KMS and acquires any necessary resources.
 func (k *securosysKMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
-	if opts == nil || opts.ConfigMap == nil {
-		return errors.New("config map is required")
-	}
-
 	var config openConfig
-	if err := decodeConfig(opts.ConfigMap, &config); err != nil {
+	if err := kms.DecodeConfigMap(&config, opts.ConfigMap); err != nil {
 		return err
 	}
 	if err := validateOpenConfig(&config); err != nil {
@@ -81,7 +76,7 @@ func (k *securosysKMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 // GetKey returns an opaque Key using the passed options.
 func (k *securosysKMS) GetKey(ctx context.Context, opts *kms.KeyOptions) (kms.Key, error) {
 	var config keyConfig
-	if err := decodeConfig(opts.ConfigMap, &config); err != nil {
+	if err := kms.DecodeConfigMap(&config, opts.ConfigMap); err != nil {
 		return nil, err
 	}
 	if config.Name == "" {
@@ -188,9 +183,6 @@ func secondsDuration(seconds int, fallback time.Duration) time.Duration {
 }
 
 func validateOpenConfig(config *openConfig) error {
-	if config == nil {
-		return errors.New("config is required")
-	}
 
 	config.RestAPI = strings.TrimSpace(config.RestAPI)
 	config.Auth = strings.TrimSpace(strings.ToUpper(config.Auth))
@@ -224,9 +216,4 @@ func validateOpenConfig(config *openConfig) error {
 	default:
 		return errors.New("auth must be one of [TOKEN,CERT,NONE]")
 	}
-}
-
-// decodeConfig decodes a ConfigMap into the given struct using mapstructure.
-func decodeConfig(cfg kms.ConfigMap, target interface{}) error {
-	return mapstructure.WeakDecode(cfg, target)
 }

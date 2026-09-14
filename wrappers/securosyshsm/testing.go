@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright (c) 2025 Securosys SA.
 // SPDX-License-Identifier: MPL-2.0
 
 package securosyshsm
@@ -14,13 +14,13 @@ import (
 )
 
 var (
-	SECUROSYS_HSM_RESTAPI_ENV_VAR  = "SECUROSYS_HSM_RESTAPI"
-	SECUROSYS_BEARER_TOKEN_ENV_VAR = "SECUROSYS_BEARER_TOKEN"
+	securosysHSMRestAPIEnvVar  = "SECUROSYS_HSM_RESTAPI"
+	securosysBearerTokenEnvVar = "SECUROSYS_BEARER_TOKEN"
 )
 
 const (
-	SECUROSYS_HSM_TEST_KEY_LABEL = "rsa_openbao_wrapper_test_key"
-	SECUROSYS_HSM_TEST_AUTH_TYPE = "TOKEN"
+	securosysHSMTestKeyLabel = "rsa_openbao_wrapper_test_key"
+	securosysHSMTestAuthType = "TOKEN"
 )
 
 // NewSecurosysHSMTestWrapper opens a wrapper backed by the configured test HSM
@@ -31,9 +31,9 @@ func NewSecurosysHSMTestWrapper() *Wrapper {
 	s := NewWrapper()
 
 	config := map[string]string{
-		"tsb_api_endpoint": wrapperTestEnv(SECUROSYS_HSM_RESTAPI_ENV_VAR),
-		"auth":             SECUROSYS_HSM_TEST_AUTH_TYPE,
-		"bearer_token":     wrapperTestEnv(SECUROSYS_BEARER_TOKEN_ENV_VAR),
+		"tsb_api_endpoint": wrapperTestEnv(securosysHSMRestAPIEnvVar),
+		"auth":             securosysHSMTestAuthType,
+		"bearer_token":     wrapperTestEnv(securosysBearerTokenEnvVar),
 		"check_every":      "5",
 		"approval_timeout": "60",
 	}
@@ -47,7 +47,7 @@ func NewSecurosysHSMTestWrapper() *Wrapper {
 		return nil
 	}
 	key, err := providerKMS.GetKey(ctx, &kms.KeyOptions{
-		ConfigMap: securosysKMSKeyConfigMap(&options{withKeyLabel: SECUROSYS_HSM_TEST_KEY_LABEL}),
+		ConfigMap: securosysKMSKeyConfigMap(&options{withKeyLabel: securosysHSMTestKeyLabel}),
 	})
 	if err != nil {
 		_ = providerKMS.Close(ctx)
@@ -57,7 +57,7 @@ func NewSecurosysHSMTestWrapper() *Wrapper {
 	client := &SecurosysHSMClient{
 		kms:      providerKMS,
 		key:      key,
-		keyLabel: SECUROSYS_HSM_TEST_KEY_LABEL,
+		keyLabel: securosysHSMTestKeyLabel,
 	}
 	s.client = client
 	return s

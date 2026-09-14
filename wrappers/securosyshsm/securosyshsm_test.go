@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright (c) 2025 Securosys SA.
 // SPDX-License-Identifier: MPL-2.0
 
 package securosyshsm
@@ -15,48 +15,54 @@ import (
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 	"github.com/openbao/go-kms-wrapping/v2/kms"
 	client "github.com/securosys-com/tsb-client-go"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSecurosysHSMWrapper(t *testing.T) {
 	s := NewWrapper()
-	if s == nil {
-		t.Fatal("expected wrapper")
-	}
+	require.NotNil(t, s)
+}
+
+func TestSecurosysHSMWrapperKeyIdReturnsConfiguredKeyLabel(t *testing.T) {
+	w := NewWrapper()
+	w.configuredKeyName = "configured-key"
+
+	keyID, err := w.KeyId(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "configured-key", keyID)
 }
 
 // TestSecurosysHSMWrapper_Lifecycle is an HSM-backed test for the
 // wrapper path: SetConfig, Encrypt, Decrypt, and Finalize through the public
 // wrapping.Wrapper interface.
 func TestSecurosysHSMWrapper_Lifecycle(t *testing.T) {
-	if os.Getenv(SECUROSYS_HSM_RESTAPI_ENV_VAR) == "" || os.Getenv(SECUROSYS_BEARER_TOKEN_ENV_VAR) == "" {
-		t.Skipf("set %s and %s to run Securosys HSM lifecycle test", SECUROSYS_HSM_RESTAPI_ENV_VAR, SECUROSYS_BEARER_TOKEN_ENV_VAR)
+	if os.Getenv(securosysHSMRestAPIEnvVar) == "" || os.Getenv(securosysBearerTokenEnvVar) == "" {
+		t.Skipf("set %s and %s to run Securosys HSM lifecycle test", securosysHSMRestAPIEnvVar, securosysBearerTokenEnvVar)
 	}
 
 	s := NewWrapper()
 	config := map[string]string{
-		"tsb_api_endpoint": os.Getenv(SECUROSYS_HSM_RESTAPI_ENV_VAR),
-		"auth":             SECUROSYS_HSM_TEST_AUTH_TYPE,
-		"bearer_token":     os.Getenv(SECUROSYS_BEARER_TOKEN_ENV_VAR),
-		"key_label":        SECUROSYS_HSM_TEST_KEY_LABEL,
+		"tsb_api_endpoint": os.Getenv(securosysHSMRestAPIEnvVar),
+		"auth":             securosysHSMTestAuthType,
+		"bearer_token":     os.Getenv(securosysBearerTokenEnvVar),
+		"key_label":        securosysHSMTestKeyLabel,
 	}
 	testEncryptionRoundTrip(t, s, wrapping.WithConfigMap(config))
 }
 
 func TestSecurosysHSMWrapper_MLKEMLifecycle(t *testing.T) {
-	restAPI := strings.TrimSpace(os.Getenv(SECUROSYS_HSM_RESTAPI_ENV_VAR))
-	bearerToken := strings.TrimSpace(os.Getenv(SECUROSYS_BEARER_TOKEN_ENV_VAR))
+	restAPI := strings.TrimSpace(os.Getenv(securosysHSMRestAPIEnvVar))
+	bearerToken := strings.TrimSpace(os.Getenv(securosysBearerTokenEnvVar))
 	if restAPI == "" || bearerToken == "" {
-		t.Skipf("set %s and %s to run Securosys HSM ML-KEM lifecycle tests", SECUROSYS_HSM_RESTAPI_ENV_VAR, SECUROSYS_BEARER_TOKEN_ENV_VAR)
+		t.Skipf("set %s and %s to run Securosys HSM ML-KEM lifecycle tests", securosysHSMRestAPIEnvVar, securosysBearerTokenEnvVar)
 	}
 
 	tsbClient, err := client.NewTSBClient(restAPI, client.AuthStruct{
-		AuthType:    SECUROSYS_HSM_TEST_AUTH_TYPE,
+		AuthType:    securosysHSMTestAuthType,
 		BearerToken: bearerToken,
 		AppName:     "OpenBao - Securosys HSM Wrapper ML-KEM Test",
 	})
-	if err != nil {
-		t.Fatalf("create TSB client: %v", err)
-	}
+	require.NoError(t, err, "create TSB client")
 
 	attributes := map[string]bool{
 		"decrypt":     false,
@@ -71,9 +77,8 @@ func TestSecurosysHSMWrapper_MLKEMLifecycle(t *testing.T) {
 	for _, algorithm := range []string{"ML-KEM-512", "ML-KEM-768", "ML-KEM-1024"} {
 		t.Run(algorithm, func(t *testing.T) {
 			keyLabel := "openbao_wrapper_test_" + strings.ToLower(strings.ReplaceAll(algorithm, "-", "_"))
-			if _, err := tsbClient.CreateOrUpdateKey(t.Context(), keyLabel, "", attributes, algorithm, 0, nil, "", false); err != nil {
-				t.Fatalf("create %s key: %v", algorithm, err)
-			}
+			_, err := tsbClient.CreateOrUpdateKey(t.Context(), keyLabel, "", attributes, algorithm, 0, nil, "", false)
+			require.NoError(t, err, "create %s key", algorithm)
 			t.Cleanup(func() {
 				if err := tsbClient.RemoveKey(context.Background(), keyLabel); err != nil {
 					t.Logf("remove %s test key: %v", algorithm, err)
@@ -84,7 +89,7 @@ func TestSecurosysHSMWrapper_MLKEMLifecycle(t *testing.T) {
 			t.Cleanup(func() { _ = wrapper.Finalize(context.Background()) })
 			testEncryptionRoundTrip(t, wrapper, wrapping.WithConfigMap(map[string]string{
 				"tsb_api_endpoint": restAPI,
-				"auth":             SECUROSYS_HSM_TEST_AUTH_TYPE,
+				"auth":             securosysHSMTestAuthType,
 				"bearer_token":     bearerToken,
 				"key_label":        keyLabel,
 			}))
@@ -96,13 +101,8 @@ func TestGetOptsAppliesConfigMap(t *testing.T) {
 	opts, err := getOpts(wrapping.WithConfigMap(map[string]string{
 		"check_every": "10",
 	}))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if opts.WithConfigMap["check_every"] != "10" {
-		t.Fatalf("expected check_every 10, got %q", opts.WithConfigMap["check_every"])
-	}
+	require.NoError(t, err)
+	require.Equal(t, "10", opts.WithConfigMap["check_every"])
 }
 
 func TestSecurosysKMSConfigMapRemapsWrapperConfig(t *testing.T) {
@@ -117,27 +117,16 @@ func TestSecurosysKMSConfigMapRemapsWrapperConfig(t *testing.T) {
 		"application_key_pair": "{}",
 		"api_keys":             "{}",
 	}))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	provider := securosysKMSConfigMap(opts)
 
-	if provider["rest_api"] != "https://test.com" {
-		t.Fatalf("expected rest_api remap, got %#v", provider["rest_api"])
-	}
-	if _, ok := provider["tsb_api_endpoint"]; ok {
-		t.Fatal("expected tsb_api_endpoint to be remapped, not copied")
-	}
-	if _, ok := provider["key_label"]; ok {
-		t.Fatal("expected key_label to stay out of provider config")
-	}
-	if _, ok := provider["key_password"]; ok {
-		t.Fatal("expected key_password to stay out of provider config")
-	}
-	if provider["auth"] != "TOKEN" || provider["bearer_token"] != "token" {
-		t.Fatalf("unexpected provider auth config: %#v", provider)
-	}
+	require.Equal(t, "https://test.com", provider["rest_api"])
+	require.NotContains(t, provider, "tsb_api_endpoint")
+	require.NotContains(t, provider, "key_label")
+	require.NotContains(t, provider, "key_password")
+	require.Equal(t, "TOKEN", provider["auth"])
+	require.Equal(t, "token", provider["bearer_token"])
 }
 
 func TestSecurosysKMSKeyConfigMapUsesKeyLabel(t *testing.T) {
@@ -146,38 +135,41 @@ func TestSecurosysKMSKeyConfigMapUsesKeyLabel(t *testing.T) {
 		withKeyPassword: "secret",
 	}
 	config := securosysKMSKeyConfigMap(opts)
-	if config["name"] != "ml-kem-key" || config["password"] != "secret" {
-		t.Fatalf("unexpected key config: %#v", config)
-	}
-	if _, ok := config["cipher_algorithm"]; ok {
-		t.Fatal("cipher_algorithm must be resolved from TSB key attributes")
-	}
+	require.Equal(t, "ml-kem-key", config["name"])
+	require.Equal(t, "secret", config["password"])
+	require.NotContains(t, config, "cipher_algorithm")
 }
 
 // TestSecurosysHSMWrapperEncryptDecryptWithClient uses a mock client to verify
 // wrapper payload parsing and base64 handling without reaching an HSM.
 func TestSecurosysHSMWrapperEncryptDecryptWithClient(t *testing.T) {
 	w := NewWrapper()
-	w.client = &mockSecurosysHSMClient{}
+	client := &mockSecurosysHSMClient{}
+	w.client = client
 
 	input := []byte("foo")
 	blob, err := w.Encrypt(context.Background(), input)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if blob.KeyInfo.KeyId != "v1" {
-		t.Fatalf("expected key id v1, got %q", blob.KeyInfo.KeyId)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "v1", blob.KeyInfo.KeyId)
 
 	plaintext, err := w.Decrypt(context.Background(), blob)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.Equal(t, input, plaintext)
+	require.Equal(t, "v1", client.decryptKeyName)
+}
 
-	if !reflect.DeepEqual(input, plaintext) {
-		t.Fatalf("expected %s, got %s", input, plaintext)
-	}
+func TestSecurosysHSMWrapperDecryptUsesConfiguredKeyNameFallback(t *testing.T) {
+	client := &mockSecurosysHSMClient{}
+	w := NewWrapper()
+	w.client = client
+	w.configuredKeyName = "configured-key"
+
+	plaintext, err := w.Decrypt(t.Context(), &wrapping.BlobInfo{
+		Ciphertext: []byte("securosys:::Wm05dg=="),
+	})
+	require.NoError(t, err)
+	require.Equal(t, "foo", string(plaintext))
+	require.Equal(t, "configured-key", client.decryptKeyName)
 }
 
 func TestSecurosysHSMWrapperMLKEMEncryptDecrypt(t *testing.T) {
@@ -188,34 +180,18 @@ func TestSecurosysHSMWrapperMLKEMEncryptDecrypt(t *testing.T) {
 
 	plaintext := []byte("OpenBao wrapper ML-KEM payload")
 	blob, err := wrapper.Encrypt(t.Context(), plaintext)
-	if err != nil {
-		t.Fatalf("Encrypt returned error: %v", err)
-	}
+	require.NoError(t, err)
 	parsed, err := parseCiphertext(blob.Ciphertext)
-	if err != nil {
-		t.Fatalf("parseCiphertext returned error: %v", err)
-	}
-	if parsed.keyID != "ml-kem-key" {
-		t.Fatalf("key id = %q, want ml-kem-key", parsed.keyID)
-	}
-	if parsed.nonce != "" {
-		t.Fatalf("ML-KEM envelope must contain its nonce, wrapper nonce = %q", parsed.nonce)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "ml-kem-key", parsed.keyName)
+	require.Empty(t, parsed.nonce, "ML-KEM envelope must contain its nonce")
 	decodedCiphertext, err := base64.StdEncoding.DecodeString(parsed.ciphertext)
-	if err != nil {
-		t.Fatalf("decode wrapper ciphertext: %v", err)
-	}
-	if !reflect.DeepEqual(decodedCiphertext, key.ciphertext) {
-		t.Fatalf("wrapped ciphertext = %x, want %x", decodedCiphertext, key.ciphertext)
-	}
+	require.NoError(t, err)
+	require.Equal(t, key.ciphertext, decodedCiphertext)
 
 	decrypted, err := wrapper.Decrypt(t.Context(), blob)
-	if err != nil {
-		t.Fatalf("Decrypt returned error: %v", err)
-	}
-	if !reflect.DeepEqual(decrypted, plaintext) {
-		t.Fatalf("decrypted plaintext = %q, want %q", decrypted, plaintext)
-	}
+	require.NoError(t, err)
+	require.Equal(t, plaintext, decrypted)
 }
 
 // TestSecurosysHSMWrapperRejectsInvalidCiphertext verifies the wrapper rejects
@@ -227,9 +203,7 @@ func TestSecurosysHSMWrapperRejectsInvalidCiphertext(t *testing.T) {
 	_, err := w.Decrypt(context.Background(), &wrapping.BlobInfo{
 		Ciphertext: []byte("securosys:v1:ciphertext:extra"),
 	})
-	if err == nil {
-		t.Fatal("expected invalid ciphertext error")
-	}
+	require.Error(t, err)
 }
 
 func TestParseCiphertext(t *testing.T) {
@@ -248,9 +222,8 @@ func TestParseCiphertext(t *testing.T) {
 			wantErr:    true,
 		},
 		{
-			name:       "missing key id",
+			name:       "missing key name uses configured fallback",
 			ciphertext: []byte("securosys::nonce:ciphertext"),
-			wantErr:    true,
 		},
 		{
 			name:       "missing payload",
@@ -268,17 +241,17 @@ func TestParseCiphertext(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			parsed, err := parseCiphertext(tt.ciphertext)
 			if tt.wantErr {
-				if err == nil {
-					t.Fatal("expected error")
-				}
+				require.Error(t, err)
 				return
 			}
-			if err != nil {
-				t.Fatal(err)
+			require.NoError(t, err)
+			wantKeyName := "v1"
+			if tt.name == "missing key name uses configured fallback" {
+				wantKeyName = ""
 			}
-			if parsed.keyID != "v1" || parsed.nonce != "nonce" || parsed.ciphertext != "ciphertext" {
-				t.Fatalf("unexpected parsed ciphertext: %#v", parsed)
-			}
+			require.Equal(t, wantKeyName, parsed.keyName)
+			require.Equal(t, "nonce", parsed.nonce)
+			require.Equal(t, "ciphertext", parsed.ciphertext)
 		})
 	}
 }
@@ -286,29 +259,21 @@ func TestParseCiphertext(t *testing.T) {
 // testEncryptionRoundTrip is shared by acceptance tests and validates that a
 // configured wrapper can round-trip arbitrary plaintext.
 func testEncryptionRoundTrip(t *testing.T, w *Wrapper, opt ...wrapping.Option) {
-	if w == nil {
-		t.Fatal("expected wrapper")
-	}
-	if _, err := w.SetConfig(context.Background(), opt...); err != nil {
-		t.Fatal(err)
-	}
+	require.NotNil(t, w)
+	_, err := w.SetConfig(context.Background(), opt...)
+	require.NoError(t, err)
 	input := []byte("foo")
 	swi, err := w.Encrypt(context.Background(), input, nil)
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
+	require.NoError(t, err)
 
 	pt, err := w.Decrypt(context.Background(), swi, nil)
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
-
-	if !reflect.DeepEqual(input, pt) {
-		t.Fatalf("expected %s, got %s", input, pt)
-	}
+	require.NoError(t, err)
+	require.Equal(t, input, pt)
 }
 
-type mockSecurosysHSMClient struct{}
+type mockSecurosysHSMClient struct {
+	decryptKeyName string
+}
 
 func (m *mockSecurosysHSMClient) Close() {}
 
@@ -316,7 +281,8 @@ func (m *mockSecurosysHSMClient) Encrypt(_ context.Context, plaintext []byte) ([
 	return plaintext, "v1", nil
 }
 
-func (m *mockSecurosysHSMClient) Decrypt(_ context.Context, ciphertext []byte) ([]byte, error) {
+func (m *mockSecurosysHSMClient) Decrypt(_ context.Context, ciphertext []byte, keyName string) ([]byte, error) {
+	m.decryptKeyName = keyName
 	return ciphertext, nil
 }
 

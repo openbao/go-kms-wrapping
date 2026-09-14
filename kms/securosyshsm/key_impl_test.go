@@ -5,18 +5,25 @@ package securosyshsm
 
 import (
 	"bytes"
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
+	"crypto/mldsa"
+	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/sha512"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"fmt"
+	"math/big"
 	"net/http"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/openbao/go-kms-wrapping/v2/kms"
 	client "github.com/securosys-com/tsb-client-go"
@@ -393,6 +400,108 @@ func cipherPlaintext(algorithm string) []byte {
 		return plaintext
 	}
 	return []byte("OpenBao Securosys cipher test!!!")
+}
+
+const mlDSA44KeyName = "openbao_test_ml_dsa_44_key"
+
+func TestKMSPostQuantumSignatureAlgorithms(t *testing.T) {
+	key := getTestMLDSAKey(t)
+	assertSignVerify(t, key, "ML_DSA", crypto.Hash(0), false)
+}
+
+func TestNativeGoX509CertificateUsesKMSMLDSASign(t *testing.T) {
+	key := getTestMLDSAKey(t)
+	assertMLDSAX509Certificate(t, key)
+}
+
+func getTestMLDSAKey(t *testing.T) kms.Key {
+	t.Helper()
+
+	ctx := t.Context()
+	tsbClient := getTestClient(t)
+	if tsbClient == nil {
+		return nil
+	}
+
+	attrs := map[string]bool{
+		"extractable": false,
+		"token":       true,
+		"sign":        true,
+		"verify":      true,
+		"encrypt":     false,
+		"decrypt":     false,
+		"wrap":        false,
+		"unwrap":      false,
+		"derive":      false,
+		"destroyable": true,
+	}
+
+	_, err := tsbClient.CreateOrUpdateKey(ctx, mlDSA44KeyName, "", attrs, "ML-DSA-44", 0, nil, "", false)
+	if err != nil {
+		skipIfTSBAuthError(t, err)
+		t.Logf("Key creation warning for %s: %v", mlDSA44KeyName, err)
+	}
+	t.Cleanup(func() {
+		if err := tsbClient.RemoveKey(context.Background(), mlDSA44KeyName); err != nil {
+			t.Logf("Key cleanup warning for %s: %v", mlDSA44KeyName, err)
+		}
+	})
+
+	kmsInstance := openTestKMS(t)
+	t.Cleanup(func() {
+		if err := kmsInstance.Close(context.Background()); err != nil {
+			t.Logf("KMS cleanup warning: %v", err)
+		}
+	})
+
+	return getTestKMSKey(t, kmsInstance, mlDSA44KeyName, "")
+}
+
+func assertMLDSAX509Certificate(t *testing.T, key kms.Key) {
+	t.Helper()
+
+	signer, err := kms.NewSigner(t.Context(), key)
+	if err != nil {
+		t.Fatalf("failed to create KMS signer: %v", err)
+	}
+
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(time.Now().UnixNano()),
+		Subject: pkix.Name{
+			CommonName: mlDSA44KeyName,
+		},
+		NotBefore:             time.Now().Add(-time.Minute),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		BasicConstraintsValid: true,
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, signer.Public(), signer)
+	if err != nil {
+		t.Fatalf("failed to create ML-DSA certificate: %v", err)
+	}
+
+	cert, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		t.Fatalf("failed to parse ML-DSA certificate: %v", err)
+	}
+	if _, ok := cert.PublicKey.(*mldsa.PublicKey); !ok {
+		t.Fatalf("certificate public key = %T, want *mldsa.PublicKey", cert.PublicKey)
+	}
+	if err := cert.CheckSignature(cert.SignatureAlgorithm, cert.RawTBSCertificate, cert.Signature); err != nil {
+		t.Fatalf("failed to verify ML-DSA certificate signature: %v", err)
+	}
+}
+
+func skipIfTSBAuthError(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		return
+	}
+	if strings.Contains(err.Error(), "JWT signature is invalid") ||
+		strings.Contains(err.Error(), "status: 401") {
+		t.Skipf("TSB credentials are not accepted: %v", err)
+	}
 }
 
 func testSecurosysKey(t *testing.T, hostURL string) *securosysKey {

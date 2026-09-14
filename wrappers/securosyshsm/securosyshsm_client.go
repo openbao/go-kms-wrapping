@@ -16,8 +16,8 @@ import (
 
 type securosysHSMClientEncryptor interface {
 	Close()
-	Encrypt(ctx context.Context, plaintext []byte) (ciphertext []byte, keyID string, err error)
-	Decrypt(ctx context.Context, ciphertext []byte) (plaintext []byte, err error)
+	Encrypt(ctx context.Context, plaintext []byte) (ciphertext []byte, keyName string, err error)
+	Decrypt(ctx context.Context, ciphertext []byte, keyName string) (plaintext []byte, err error)
 }
 
 // SecurosysHSMClient adapts the Securosys KMS implementation to the
@@ -26,10 +26,11 @@ type securosysHSMClientEncryptor interface {
 // The wrapper uses the new kms.KMS/kms.Key API directly. The configured key is
 // loaded once during SetConfig and then reused for seal Encrypt/Decrypt calls.
 type SecurosysHSMClient struct {
-	kms      kms.KMS
-	key      kms.Key
-	keyLabel string
-	logger   hclog.Logger
+	kms         kms.KMS
+	key         kms.Key
+	keyLabel    string
+	keyPassword string
+	logger      hclog.Logger
 }
 
 func (c *SecurosysHSMClient) Close() {
@@ -86,10 +87,11 @@ func newSecurosysHSMClient(ctx context.Context, logger hclog.Logger, opts *optio
 	}
 
 	client := &SecurosysHSMClient{
-		kms:      providerKMS,
-		key:      key,
-		keyLabel: keyLabel,
-		logger:   logger,
+		kms:         providerKMS,
+		key:         key,
+		keyLabel:    keyLabel,
+		keyPassword: opts.withKeyPassword,
+		logger:      logger,
 	}
 
 	wrapConfig := &wrapping.WrapperConfig{
@@ -176,9 +178,20 @@ func (c *SecurosysHSMClient) Encrypt(ctx context.Context, plaintext []byte) ([]b
 }
 
 // Decrypt performs the KMS decryption operation with the currently configured key.
-func (c *SecurosysHSMClient) Decrypt(ctx context.Context, ciphertext []byte) ([]byte, error) {
+func (c *SecurosysHSMClient) Decrypt(ctx context.Context, ciphertext []byte, keyName string) ([]byte, error) {
 	if c == nil || c.key == nil {
 		return nil, fmt.Errorf("securosys hsm key is not configured")
 	}
-	return c.key.Decrypt(ctx, &kms.CipherOptions{Data: ciphertext})
+	key := c.key
+	if keyName != c.keyLabel {
+		var err error
+		key, err = c.kms.GetKey(ctx, &kms.KeyOptions{ConfigMap: kms.ConfigMap{
+			"name":     keyName,
+			"password": c.keyPassword,
+		}})
+		if err != nil {
+			return nil, fmt.Errorf("get key %q: %w", keyName, err)
+		}
+	}
+	return key.Decrypt(ctx, &kms.CipherOptions{Data: ciphertext})
 }
