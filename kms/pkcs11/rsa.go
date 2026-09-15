@@ -206,8 +206,10 @@ func (r *rsaKey) Verify(ctx context.Context, opts *kms.VerifyOptions) error {
 	}
 
 	hash := opts.HashFunc()
-	if hash == crypto.Hash(0) {
-		return errors.New("need hash function")
+	// We don't actually need this lookup to use software verification below,
+	// but it guards us from using bad hash functions that can't be constructed.
+	if _, ok := rsaLookup[hash]; !ok {
+		return fmt.Errorf("unsupported hash function: %s", hash)
 	}
 
 	data := opts.Data
