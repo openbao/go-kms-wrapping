@@ -1,0 +1,11 @@
+version: 1
+profile: default # Name of the active profile
+profiles:
+  default:
+    kmip:
+      endpoint: 127.0.0.1:5696
+      ca: /go-kms-wrapping/wrappers/kmip/ca.crt
+      auth:
+        type: "mtls"
+        cert: /go-kms-wrapping/wrappers/kmip/leaf.crt
+        key: /go-kms-wrapping/wrappers/kmip/leaf.key
