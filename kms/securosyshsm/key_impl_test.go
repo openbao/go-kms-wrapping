@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"math/big"
 	"net/http"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -28,6 +27,7 @@ import (
 	"github.com/openbao/go-kms-wrapping/v2/kms"
 	client "github.com/securosys-com/tsb-client-go"
 	"github.com/securosys-com/tsb-client-go/helpers"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMapRSAAlgorithm(t *testing.T) {
@@ -55,12 +55,8 @@ func TestMapRSAAlgorithm(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := mapRSAAlgorithm(tc.hash, tc.prehashed, tc.pss)
-			if err != nil {
-				t.Fatalf("mapRSAAlgorithm returned error: %v", err)
-			}
-			if got != tc.want {
-				t.Fatalf("mapRSAAlgorithm = %q, want %q", got, tc.want)
-			}
+			require.NoError(t, err, "mapRSAAlgorithm returned error")
+			require.Equal(t, tc.want, got)
 		})
 	}
 }
@@ -77,9 +73,8 @@ func TestMapRSAAlgorithmErrors(t *testing.T) {
 		{name: "unsupported pss hash", hash: crypto.SHA1, pss: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got, err := mapRSAAlgorithm(tc.hash, false, tc.pss); err == nil {
-				t.Fatalf("mapRSAAlgorithm = %q, want error", got)
-			}
+			_, err := mapRSAAlgorithm(tc.hash, false, tc.pss)
+			require.Error(t, err)
 		})
 	}
 }
@@ -113,12 +108,8 @@ func TestMapSignAlgorithmFromOpts(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := mapSignAlgorithmFromOpts(tc.opts, tc.pub)
-			if err != nil {
-				t.Fatalf("mapSignAlgorithmFromOpts returned error: %v", err)
-			}
-			if got != tc.want {
-				t.Fatalf("mapSignAlgorithmFromOpts = %q, want %q", got, tc.want)
-			}
+			require.NoError(t, err, "mapSignAlgorithmFromOpts returned error")
+			require.Equal(t, tc.want, got)
 		})
 	}
 }
@@ -134,9 +125,7 @@ func TestSignatureTypeForPublicKey(t *testing.T) {
 		{name: "ed25519 uses raw", pub: ed25519.PublicKey(make([]byte, ed25519.PublicKeySize)), want: client.SignatureTypeRAW},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := signatureTypeForPublicKey(tc.pub); got != tc.want {
-				t.Fatalf("signatureTypeForPublicKey = %q, want %q", got, tc.want)
-			}
+			require.Equal(t, tc.want, signatureTypeForPublicKey(tc.pub))
 		})
 	}
 }
@@ -217,9 +206,7 @@ func TestKeySignECAlgorithms(t *testing.T) {
 		{algorithm: "SHA512_WITH_ECDSA", signerOpts: crypto.SHA512},
 	} {
 		t.Run("EC/"+tc.algorithm, func(t *testing.T) {
-			if !slices.Contains(helpers.EC_SIGNATURE_LIST, tc.algorithm) {
-				t.Fatalf("%s is not present in EC_SIGNATURE_LIST", tc.algorithm)
-			}
+			require.Contains(t, helpers.EC_SIGNATURE_LIST, tc.algorithm)
 			assertSignVerify(t, ecKey, tc.algorithm, tc.signerOpts, tc.prehashed)
 		})
 	}
@@ -273,9 +260,7 @@ func TestKeySignRSAAlgorithms(t *testing.T) {
 		{algorithm: "NONESHA512_WITH_RSA_PSS", signerOpts: &rsa.PSSOptions{Hash: crypto.SHA512}, prehashed: true},
 	} {
 		t.Run("RSA/"+tc.algorithm, func(t *testing.T) {
-			if !slices.Contains(helpers.RSA_SIGNATURE_LIST, tc.algorithm) {
-				t.Fatalf("%s is not present in RSA_SIGNATURE_LIST", tc.algorithm)
-			}
+			require.Contains(t, helpers.RSA_SIGNATURE_LIST, tc.algorithm)
 			assertSignVerify(t, rsaKey, tc.algorithm, tc.signerOpts, tc.prehashed)
 		})
 	}
@@ -289,20 +274,14 @@ func assertCipherRoundTrip(t *testing.T, key kms.Key, plaintext, aad []byte) {
 		AAD:  aad,
 	}
 	ciphertext, err := key.Encrypt(t.Context(), encryptOpts)
-	if err != nil {
-		t.Fatalf("Failed to encrypt: %v", err)
-	}
+	require.NoError(t, err, "Failed to encrypt")
 
 	decrypted, err := key.Decrypt(t.Context(), &kms.CipherOptions{
 		Data: ciphertext,
 		AAD:  aad,
 	})
-	if err != nil {
-		t.Fatalf("Failed to decrypt: %v", err)
-	}
-	if string(decrypted) != string(plaintext) {
-		t.Fatalf("Decrypted data does not match original. Got %x, want %x", decrypted, plaintext)
-	}
+	require.NoError(t, err, "Failed to decrypt")
+	require.Equal(t, plaintext, decrypted)
 }
 
 func assertMLKEMCipherRoundTrip(t *testing.T, key kms.Key) {
@@ -314,34 +293,25 @@ func assertMLKEMCipherRoundTrip(t *testing.T, key kms.Key) {
 		Data: plaintext,
 		AAD:  aad,
 	})
-	if err != nil {
-		t.Fatalf("Failed to encrypt: %v", err)
-	}
+	require.NoError(t, err, "Failed to encrypt")
 
 	decrypted, err := key.Decrypt(t.Context(), &kms.CipherOptions{
 		Data: ciphertext,
 		AAD:  aad,
 	})
-	if err != nil {
-		t.Fatalf("Failed to decrypt: %v", err)
-	}
-	if string(decrypted) != string(plaintext) {
-		t.Fatalf("Decrypted data does not match original. Got %x, want %x", decrypted, plaintext)
-	}
+	require.NoError(t, err, "Failed to decrypt")
+	require.Equal(t, plaintext, decrypted)
 
 	_, err = key.Decrypt(t.Context(), &kms.CipherOptions{
 		Data: ciphertext,
 		AAD:  []byte("invalid ML-KEM AAD"),
 	})
-	if err == nil {
-		t.Fatal("Decrypt with invalid AAD succeeded")
-	}
+	require.Error(t, err, "Decrypt with invalid AAD succeeded")
 
 	tampered := bytes.Clone(ciphertext)
 	tampered[len(tampered)-1] ^= 1
-	if _, err := key.Decrypt(t.Context(), &kms.CipherOptions{Data: tampered, AAD: aad}); err == nil {
-		t.Fatal("Decrypt with tampered ciphertext succeeded")
-	}
+	_, err = key.Decrypt(t.Context(), &kms.CipherOptions{Data: tampered, AAD: aad})
+	require.Error(t, err, "Decrypt with tampered ciphertext succeeded")
 }
 
 func assertSignVerify(t *testing.T, key kms.Key, algorithm string, signerOpts crypto.SignerOpts, prehashed bool) {
@@ -349,18 +319,14 @@ func assertSignVerify(t *testing.T, key kms.Key, algorithm string, signerOpts cr
 
 	data := []byte("OpenBao Securosys signature test")
 	signData, err := signerInput(data, signerOpts, prehashed)
-	if err != nil {
-		t.Fatalf("Failed to prepare signing input for %s: %v", algorithm, err)
-	}
+	require.NoError(t, err, "Failed to prepare signing input for %s", algorithm)
 
 	signature, err := key.Sign(t.Context(), &kms.SignOptions{
 		Data:       signData,
 		Prehashed:  prehashed,
 		SignerOpts: signerOpts,
 	})
-	if err != nil {
-		t.Fatalf("Failed to sign with %s: %v", algorithm, err)
-	}
+	require.NoError(t, err, "Failed to sign with %s", algorithm)
 
 	err = key.Verify(t.Context(), &kms.VerifyOptions{
 		Signature:  signature,
@@ -368,9 +334,7 @@ func assertSignVerify(t *testing.T, key kms.Key, algorithm string, signerOpts cr
 		Prehashed:  prehashed,
 		SignerOpts: signerOpts,
 	})
-	if err != nil {
-		t.Fatalf("Failed to verify with %s: %v", algorithm, err)
-	}
+	require.NoError(t, err, "Failed to verify with %s", algorithm)
 }
 
 func signerInput(data []byte, signerOpts crypto.SignerOpts, prehashed bool) ([]byte, error) {
@@ -461,9 +425,7 @@ func assertMLDSAX509Certificate(t *testing.T, key kms.Key) {
 	t.Helper()
 
 	signer, err := kms.NewSigner(t.Context(), key)
-	if err != nil {
-		t.Fatalf("failed to create KMS signer: %v", err)
-	}
+	require.NoError(t, err, "failed to create KMS signer")
 
 	template := &x509.Certificate{
 		SerialNumber: big.NewInt(time.Now().UnixNano()),
@@ -477,20 +439,12 @@ func assertMLDSAX509Certificate(t *testing.T, key kms.Key) {
 	}
 
 	certDER, err := x509.CreateCertificate(rand.Reader, template, template, signer.Public(), signer)
-	if err != nil {
-		t.Fatalf("failed to create ML-DSA certificate: %v", err)
-	}
+	require.NoError(t, err, "failed to create ML-DSA certificate")
 
 	cert, err := x509.ParseCertificate(certDER)
-	if err != nil {
-		t.Fatalf("failed to parse ML-DSA certificate: %v", err)
-	}
-	if _, ok := cert.PublicKey.(*mldsa.PublicKey); !ok {
-		t.Fatalf("certificate public key = %T, want *mldsa.PublicKey", cert.PublicKey)
-	}
-	if err := cert.CheckSignature(cert.SignatureAlgorithm, cert.RawTBSCertificate, cert.Signature); err != nil {
-		t.Fatalf("failed to verify ML-DSA certificate signature: %v", err)
-	}
+	require.NoError(t, err, "failed to parse ML-DSA certificate")
+	require.IsType(t, (*mldsa.PublicKey)(nil), cert.PublicKey)
+	require.NoError(t, cert.CheckSignature(cert.SignatureAlgorithm, cert.RawTBSCertificate, cert.Signature), "failed to verify ML-DSA certificate signature")
 }
 
 func skipIfTSBAuthError(t *testing.T, err error) {
@@ -508,9 +462,7 @@ func testSecurosysKey(t *testing.T, hostURL string) *securosysKey {
 	t.Helper()
 
 	tsbClient, err := client.NewTSBClient(hostURL, client.AuthStruct{})
-	if err != nil {
-		t.Fatalf("failed to create test client: %v", err)
-	}
+	require.NoError(t, err, "failed to create test client")
 
 	return &securosysKey{
 		client: &client.SecurosysClient{TSBClient: tsbClient},

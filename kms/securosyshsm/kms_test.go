@@ -1,5 +1,6 @@
 // Copyright (c) 2025 Securosys SA.
 // SPDX-License-Identifier: MPL-2.0
+
 package securosyshsm
 
 import (
@@ -10,6 +11,7 @@ import (
 
 	"github.com/openbao/go-kms-wrapping/v2/kms"
 	client "github.com/securosys-com/tsb-client-go"
+	"github.com/stretchr/testify/require"
 )
 
 // KMS configuration environment variables
@@ -40,9 +42,7 @@ func getTestClient(t *testing.T) *client.TSBClient {
 		BearerToken: bearerToken,
 		AppName:     "OpenBao - Securosys HSM KMS Test",
 	})
-	if err != nil {
-		t.Fatalf("Failed to create TSB client: %v", err)
-	}
+	require.NoError(t, err, "Failed to create TSB client")
 
 	return tsbClient
 }
@@ -64,9 +64,7 @@ func openTestKMS(t *testing.T) kms.KMS {
 			"bearer_token": bearerToken,
 		},
 	})
-	if err != nil {
-		t.Fatalf("Failed to open KMS: %v", err)
-	}
+	require.NoError(t, err, "Failed to open KMS")
 
 	return kmsInstance
 }
@@ -80,9 +78,7 @@ func getTestKMSKey(t *testing.T, kmsInstance kms.KMS, keyName, cipherAlgorithm s
 			"cipher_algorithm": cipherAlgorithm,
 		},
 	})
-	if err != nil {
-		t.Fatalf("Failed to get key %q for %s: %v", keyName, cipherAlgorithm, err)
-	}
+	require.NoError(t, err, "Failed to get key %q for %s", keyName, cipherAlgorithm)
 
 	return key
 }
@@ -95,9 +91,7 @@ func TestValidateOpenConfigAcceptsCertificatePEM(t *testing.T) {
 		KeyPEM:  "key PEM",
 	}
 
-	if err := validateOpenConfig(&config); err != nil {
-		t.Fatalf("validateOpenConfig() error = %v", err)
-	}
+	require.NoError(t, validateOpenConfig(&config), "validateOpenConfig() error")
 }
 
 func createTestKey(t *testing.T, keyName, keyType string, keySize int) func() {
@@ -156,9 +150,8 @@ func createMLKEMTestKey(t *testing.T, keyName, keyType string) func() {
 		"wrap":        true,
 		"destroyable": true,
 	}
-	if _, err := tsbClient.CreateOrUpdateKey(t.Context(), keyName, "", attrs, keyType, 0, nil, "", false); err != nil {
-		t.Fatalf("failed to create %s test key: %v", keyType, err)
-	}
+	_, err := tsbClient.CreateOrUpdateKey(t.Context(), keyName, "", attrs, keyType, 0, nil, "", false)
+	require.NoError(t, err, "failed to create %s test key", keyType)
 	return func() {
 		if err := tsbClient.RemoveKey(context.Background(), keyName); err != nil {
 			t.Logf("ML-KEM key cleanup warning: %v", err)
@@ -251,9 +244,7 @@ func TestKMS(t *testing.T) {
 			"bearer_token": bearerToken,
 		},
 	})
-	if err != nil {
-		t.Fatalf("Failed to open KMS: %v", err)
-	}
+	require.NoError(t, err, "Failed to open KMS")
 	defer kmsInstance.Close(ctx)
 
 	key, err := kmsInstance.GetKey(ctx, &kms.KeyOptions{
@@ -261,9 +252,7 @@ func TestKMS(t *testing.T) {
 			"name": AES_KEY_NAME,
 		},
 	})
-	if err != nil {
-		t.Fatalf("Failed to get key: %v", err)
-	}
+	require.NoError(t, err, "Failed to get key")
 
 	// Test Encrypt
 	plaintext := []byte("Hello, Securosys HSM!")
@@ -271,22 +260,16 @@ func TestKMS(t *testing.T) {
 		Data: plaintext,
 	}
 	ciphertext, err := key.Encrypt(ctx, encryptOpts)
-	if err != nil {
-		t.Fatalf("Failed to encrypt: %v", err)
-	}
+	require.NoError(t, err, "Failed to encrypt")
 
 	// Test Decrypt
 	decrypted, err := key.Decrypt(ctx, &kms.CipherOptions{
 		Data: ciphertext,
 	})
-	if err != nil {
-		t.Fatalf("Failed to decrypt: %v", err)
-	}
+	require.NoError(t, err, "Failed to decrypt")
 
 	// Verify decryption
-	if string(decrypted) != string(plaintext) {
-		t.Fatalf("Decrypted data does not match original. Got %s, want %s", string(decrypted), string(plaintext))
-	}
+	require.Equal(t, plaintext, decrypted)
 
 	t.Log("Encrypt/Decrypt test passed")
 }
