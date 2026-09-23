@@ -220,6 +220,7 @@ var hash2transit = map[crypto.Hash]string{
 	crypto.SHA3_256: "sha3-256",
 	crypto.SHA3_384: "sha3-384",
 	crypto.SHA3_512: "sha3-512",
+	crypto.MLDSAMu:  "mldsa-mu",
 }
 
 // See: https://openbao.org/api-docs/secret/transit/#sign-data
@@ -237,7 +238,7 @@ func (k *transitKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte, e
 		return nil, fmt.Errorf("unsupported hash function: %s", hash)
 	}
 
-	if !opts.Prehashed && hash != crypto.Hash(0) && !k.disablePrehashing {
+	if !opts.Prehashed && hash != crypto.Hash(0) && !k.disablePrehashing && hash.Available() {
 		// Pre-hash data for efficiency.
 		h := hash.New()
 		if _, err := h.Write(opts.Data); err != nil {
@@ -327,7 +328,7 @@ func (k *transitKey) Verify(ctx context.Context, opts *kms.VerifyOptions) error 
 		return fmt.Errorf("unsupported hash function: %s", hash)
 	}
 
-	if !opts.Prehashed && hash != crypto.Hash(0) && !k.disablePrehashing {
+	if !opts.Prehashed && hash != crypto.Hash(0) && !k.disablePrehashing && hash.Available() {
 		// Pre-hash data for efficiency.
 		h := hash.New()
 		if _, err := h.Write(opts.Data); err != nil {

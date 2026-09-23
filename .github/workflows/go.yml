@@ -26,7 +26,7 @@ jobs:
           - './kms/pkcs11'
           - './kms/transit'
         go:
-          - '1.26'
+          - '1.27'
         platform:
           - ubuntu-latest
     runs-on: ${{ matrix.platform }}

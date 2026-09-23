@@ -1,6 +1,6 @@
 module github.com/openbao/go-kms-wrapping/kms/transit/v2
 
-go 1.25.0
+go 1.27.0
 
 replace (
 	github.com/openbao/go-kms-wrapping/plugin/v2 => ../../plugin

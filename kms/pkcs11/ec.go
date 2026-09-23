@@ -98,7 +98,10 @@ func (e *ecKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte, error)
 
 	data := opts.Data
 	if !opts.Prehashed {
-		h := opts.HashFunc().New()
+		if !hash.Available() {
+			return nil, fmt.Errorf("unavailable hash function: %s", hash)
+		}
+		h := hash.New()
 		_, _ = h.Write(data)
 		data = h.Sum(nil)
 	}
@@ -132,7 +135,10 @@ func (e *ecKey) Verify(ctx context.Context, opts *kms.VerifyOptions) error {
 
 	data := opts.Data
 	if !opts.Prehashed {
-		h := opts.HashFunc().New()
+		if !hash.Available() {
+			return fmt.Errorf("unavailable hash function: %s", hash)
+		}
+		h := hash.New()
 		_, _ = h.Write(data)
 		data = h.Sum(nil)
 	}
