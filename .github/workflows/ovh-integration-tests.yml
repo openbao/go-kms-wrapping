@@ -1,0 +1,60 @@
+name: OVH integration tests
+description: Runs OVH Cloud KMS integration tests
+
+inputs:
+  working-directory:
+    description: Directory that contains the Go module to test
+    required: true
+    default: './wrappers/ovhcloudkms'
+  key-id:
+    description: OVH Cloud KMS key ID
+    required: true
+  endpoint:
+    description: OVH Cloud KMS endpoint
+    required: true
+  id:
+    description: OVH Cloud KMS id
+    required: true
+  client-cert:
+    description: OVH Cloud KMS client certificate
+    required: true
+  client-key:
+    description: OVH Cloud KMS client key
+    required: true
+  service-account-name:
+    description: OVH Cloud KMS service account name
+    required: true
+  service-account-password:
+    description: OVH Cloud KMS service account password
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: OVH integration tests
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        KMS_ACC_TESTS: 'true'
+        OVHCLOUDKMS_KEY_ID: ${{ inputs.key-id }}
+        OVHCLOUDKMS_ENDPOINT: ${{ inputs.endpoint }}
+        OVHCLOUDKMS_ID: ${{ inputs.id }}
+        OVHCLOUDKMS_CERT_CLIENT_CERT: ${{ inputs.client-cert }}
+        OVHCLOUDKMS_CERT_CLIENT_KEY: ${{ inputs.client-key }}
+      run: |
+          TOKEN=$(curl -f -s -X POST \
+            --url 'https://www.ovh.com/auth/oauth2/token' \
+            --header 'content-type: application/x-www-form-urlencoded' \
+            --data grant_type=client_credentials \
+            --data client_id="${{ inputs.service-account-name }}" \
+            --data client_secret="${{ inputs.service-account-password }}" \
+            --data scope=all | jq -r '.access_token')
+
+          if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+            echo "Failed to retrieve OVH access token"
+            exit 1
+          fi
+
+          echo "::add-mask::$TOKEN"
+
+          OVHCLOUDKMS_TOKEN="$TOKEN" go test ./...
+      shell: bash
