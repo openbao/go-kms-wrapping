@@ -1,6 +1,10 @@
 name: Go
 
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - main
+  pull_request:
 
 jobs:
   test:
@@ -56,6 +60,35 @@ jobs:
         if: steps.dockerfile.outputs.exists == 'false'
         working-directory: ${{ matrix.directory }}
         run: go test ./...
+      
+      - name: OVH integration tests [PLACEHOLDER]
+        if: matrix.directory == './wrappers/ovhcloudkms'
+        working-directory: ${{ matrix.directory }}
+        env:
+          KMS_ACC_TESTS: 'true'
+          OVHCLOUDKMS_KEY_ID: ${{ secrets.OVHCLOUDKMS_KEY_ID }}
+          OVHCLOUDKMS_ENDPOINT: ${{ secrets.OVHCLOUDKMS_ENDPOINT }}
+          OVHCLOUDKMS_ID: ${{ secrets.OVHCLOUDKMS_ID }}
+          OVHCLOUDKMS_CERT_CLIENT_CERT: ${{ secrets.OVHCLOUDKMS_CERT_CLIENT_CERT }}
+          OVHCLOUDKMS_CERT_CLIENT_KEY: ${{ secrets.OVHCLOUDKMS_CERT_CLIENT_KEY }}
+        run: |
+            TOKEN=$(curl -f -s -X POST \
+              --url 'https://www.ovh.com/auth/oauth2/token' \
+              --header 'content-type: application/x-www-form-urlencoded' \
+              --data grant_type=client_credentials \
+              --data client_id="${{ secrets.OVHCLOUDKMS_SERVICE_ACCOUNT_NAME }}" \
+              --data client_secret="${{ secrets.OVHCLOUDKMS_SERVICE_ACCOUNT_PASSWORD }}" \
+              --data scope=all | jq -r '.access_token')
+
+            if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+              echo "Failed to retrieve OVH access token"
+              exit 1
+            fi
+
+            echo "::add-mask::$TOKEN"
+
+            OVHCLOUDKMS_TOKEN="$TOKEN" go test ./...
+
 
       - name: Container tests
         if: steps.dockerfile.outputs.exists == 'true'
