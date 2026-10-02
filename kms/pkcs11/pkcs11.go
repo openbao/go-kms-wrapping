@@ -19,6 +19,7 @@ import (
 
 	"github.com/miekg/pkcs11"
 	"github.com/openbao/go-kms-wrapping/kms/pkcs11/v2/internal/module"
+	"github.com/openbao/go-kms-wrapping/kms/pkcs11/v2/internal/pkcs11v3"
 	"github.com/openbao/go-kms-wrapping/kms/pkcs11/v2/internal/session"
 	"github.com/openbao/go-kms-wrapping/v2/kms"
 	"github.com/openbao/openbao/api/v2"
@@ -369,6 +370,10 @@ func newAsymmetric(
 	switch public.keytype {
 	case pkcs11.CKK_EC:
 		return newEC(pool, public, private, mech)
+	case pkcs11v3.CKK_EC_EDWARDS:
+		return newEdwards(pool, public, private, mech)
+	case pkcs11v3.CKK_ML_DSA:
+		return newMLDSA(pool, public, private, mech)
 	case pkcs11.CKK_RSA:
 		return newRSA(pool, public, private, mech, oaepHash, disableSoftwareEncryption)
 	}
@@ -412,6 +417,10 @@ func parseMechanism(s string) (*uint, error) {
 		ret = pkcs11.CKM_RSA_PKCS_PSS
 	case "rsa-pkcs-oaep":
 		ret = pkcs11.CKM_RSA_PKCS_OAEP
+	case "ml-dsa":
+		ret = pkcs11v3.CKM_ML_DSA
+	case "eddsa":
+		ret = pkcs11v3.CKM_EDDSA
 	default:
 		mech, err := strconv.ParseUint(s, 0, 32)
 		if err != nil {
@@ -483,6 +492,10 @@ func keyTypeToString(keytype uint) string {
 		return "CKK_AES"
 	case pkcs11.CKK_EC:
 		return "CKK_EC"
+	case pkcs11v3.CKK_ML_DSA:
+		return "CKK_ML_DSA"
+	case pkcs11v3.CKK_EC_EDWARDS:
+		return "CKK_EC_EDWARDS"
 	default:
 		return fmt.Sprintf("unknown (%x)", keytype)
 	}

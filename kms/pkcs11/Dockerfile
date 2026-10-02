@@ -1,7 +1,7 @@
 # Fedora is one of the few distributions that packages Kryoptic,
 # so use that as a base image to avoid building from source.
 # Also see: https://repology.org/project/kryoptic/versions
-FROM registry.fedoraproject.org/fedora-minimal
+FROM registry.fedoraproject.org/fedora:rawhide
 
 RUN dnf -y update && \
 	dnf -y install --nodocs --setopt=install_weak_deps=False golang opensc softhsm kryoptic
