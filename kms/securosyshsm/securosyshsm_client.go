@@ -9,7 +9,6 @@ import (
 	"strconv"
 
 	"github.com/hashicorp/go-hclog"
-	securosyskms "github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2"
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 	"github.com/openbao/go-kms-wrapping/v2/kms"
 )
@@ -69,7 +68,7 @@ func newSecurosysHSMClient(ctx context.Context, logger hclog.Logger, opts *optio
 	}
 
 	provider := securosysKMSConfigMap(opts)
-	providerKMS := securosyskms.New()
+	providerKMS := New()
 	if err := providerKMS.Open(ctx, &kms.OpenOptions{
 		Logger:           logger,
 		AllowEnvironment: !opts.WithDisallowEnvVars,
