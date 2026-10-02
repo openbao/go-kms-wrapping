@@ -168,7 +168,7 @@ func TestGetKey(t *testing.T) {
 		// A key pair equal IDs.
 		id, label := rand.Text(), rand.Text()
 		require.NoError(t, svc.pool.Scope(ctx, func(s *session.Handle) error {
-			_, _, err := s.GenerateKeyPair(keybuilder.EC(keybuilder.CurveP256).ID(id).Label(label).Build())
+			_, _, err := s.GenerateKeyPair(keybuilder.EC(keybuilder.OIDCurveP256).ID(id).Label(label).Build())
 			return err
 		}))
 
@@ -197,7 +197,7 @@ func TestGetKey(t *testing.T) {
 		id, label1, label2 := rand.Text(), rand.Text(), rand.Text()
 		require.NoError(t, svc.pool.Scope(ctx, func(s *session.Handle) error {
 			_, _, err := s.GenerateKeyPair(
-				keybuilder.EC(keybuilder.CurveP256).
+				keybuilder.EC(keybuilder.OIDCurveP256).
 					ID(id).
 					PublicAttribute(pkcs11.CKA_LABEL, label1).
 					PrivateAttribute(pkcs11.CKA_LABEL, label2).
@@ -231,7 +231,7 @@ func TestGetKey(t *testing.T) {
 		require.NoError(t, svc.pool.Scope(ctx, func(s *session.Handle) error {
 			_, err1 := s.GenerateKey(keybuilder.AES(32).Label(label2).Build())
 			_, _, err2 := s.GenerateKeyPair(
-				keybuilder.EC(keybuilder.CurveP256).
+				keybuilder.EC(keybuilder.OIDCurveP256).
 					PublicAttribute(pkcs11.CKA_LABEL, label1).
 					PrivateAttribute(pkcs11.CKA_LABEL, label2).
 					Build(),

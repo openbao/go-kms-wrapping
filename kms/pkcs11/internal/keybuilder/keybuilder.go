@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"github.com/miekg/pkcs11"
+	"github.com/openbao/go-kms-wrapping/kms/pkcs11/v2/internal/pkcs11v3"
 )
 
 // SecretBuilder is a builder for secret keys.
@@ -114,15 +115,15 @@ func RSA(bits int) *PairBuilder {
 
 // These are pre-defined OIDs that can be passed to [EC].
 var (
-	CurveP224 = asn1.ObjectIdentifier{1, 3, 132, 0, 33}
-	CurveP256 = asn1.ObjectIdentifier{1, 2, 840, 10045, 3, 1, 7}
-	CurveP384 = asn1.ObjectIdentifier{1, 3, 132, 0, 34}
-	CurveP521 = asn1.ObjectIdentifier{1, 3, 132, 0, 35}
+	OIDCurveP224 = asn1.ObjectIdentifier{1, 3, 132, 0, 33}
+	OIDCurveP256 = asn1.ObjectIdentifier{1, 2, 840, 10045, 3, 1, 7}
+	OIDCurveP384 = asn1.ObjectIdentifier{1, 3, 132, 0, 34}
+	OIDCurveP521 = asn1.ObjectIdentifier{1, 3, 132, 0, 35}
 )
 
 // EC initializes a PairBuilder for an EC key pair with the given curve.
-func EC(curve asn1.ObjectIdentifier) *PairBuilder {
-	b, err := asn1.Marshal(curve)
+func EC(oid asn1.ObjectIdentifier) *PairBuilder {
+	b, err := asn1.Marshal(oid)
 	if err != nil {
 		panic(fmt.Errorf("OID should marshal: %w", err))
 	}
@@ -132,6 +133,49 @@ func EC(curve asn1.ObjectIdentifier) *PairBuilder {
 		PublicAttribute(pkcs11.CKA_ENCRYPT, true).
 		PrivateAttribute(pkcs11.CKA_SIGN, true).
 		PrivateAttribute(pkcs11.CKA_DECRYPT, true).
+		PrivateAttribute(pkcs11.CKA_SENSITIVE, true)
+}
+
+// These are pre-defined OIDs that can be passed to [Edwards].
+var (
+	OIDEd25519 = asn1.ObjectIdentifier{1, 3, 101, 112}
+	OIDEd448   = asn1.ObjectIdentifier{1, 3, 101, 113}
+)
+
+// Edwards initializes a PairBuilder for an edwards key pair.
+func Edwards(oid asn1.ObjectIdentifier) *PairBuilder {
+	b, err := asn1.Marshal(oid)
+	if err != nil {
+		panic(fmt.Errorf("OID should marshal: %w", err))
+	}
+	return Pair(pkcs11v3.CKM_EC_EDWARDS_KEY_PAIR_GEN).
+		PublicAttribute(pkcs11.CKA_EC_PARAMS, b).
+		PublicAttribute(pkcs11.CKA_VERIFY, true).
+		PublicAttribute(pkcs11.CKA_ENCRYPT, false).
+		PrivateAttribute(pkcs11.CKA_SIGN, true).
+		PrivateAttribute(pkcs11.CKA_DECRYPT, false).
+		PrivateAttribute(pkcs11.CKA_SENSITIVE, true)
+}
+
+// Ed25519 initializes a PairBuilder for an Ed25519 key pair.
+func Ed25519() *PairBuilder {
+	return Edwards(OIDEd25519)
+}
+
+// Ed448 initializes a PairBuilder for an Ed448 key pair.
+func Ed448() *PairBuilder {
+	return Edwards(OIDEd448)
+}
+
+// MLDSA initializes a PairBuilder for an ML-DSA key pair.
+// This takes a CKP_* value to specify the ML-DSA parameter set.
+func MLDSA(params uint) *PairBuilder {
+	return Pair(pkcs11v3.CKM_ML_DSA_KEY_PAIR_GEN).
+		PublicAttribute(pkcs11v3.CKA_PARAMETER_SET, params).
+		PublicAttribute(pkcs11.CKA_VERIFY, true).
+		PublicAttribute(pkcs11.CKA_ENCRYPT, false).
+		PrivateAttribute(pkcs11.CKA_SIGN, true).
+		PrivateAttribute(pkcs11.CKA_DECRYPT, false).
 		PrivateAttribute(pkcs11.CKA_SENSITIVE, true)
 }
 
