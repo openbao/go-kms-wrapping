@@ -8,7 +8,6 @@ import (
 	"os"
 	"strings"
 
-	securosyskms "github.com/openbao/go-kms-wrapping/kms/securosyshsm/v2"
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
 	"github.com/openbao/go-kms-wrapping/v2/kms"
 )
@@ -42,7 +41,7 @@ func NewSecurosysHSMTestWrapper() *Wrapper {
 		return nil
 	}
 
-	providerKMS := securosyskms.New()
+	providerKMS := New()
 	if err := providerKMS.Open(ctx, &kms.OpenOptions{ConfigMap: securosysKMSConfigMap(opts)}); err != nil {
 		return nil
 	}
