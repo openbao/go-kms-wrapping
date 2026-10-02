@@ -71,10 +71,9 @@ func newEC(pool *session.PoolRef, public, private object, mech *uint) (kms.Key, 
 	})
 
 	return &ecKey{
-		pool:      pool,
-		pubHandle: public.handle,
-		prvHandle: private.handle,
-		public:    exportPublic,
+		pool:   pool,
+		handle: private.handle,
+		public: exportPublic,
 	}, nil
 }
 
@@ -82,9 +81,8 @@ func newEC(pool *session.PoolRef, public, private object, mech *uint) (kms.Key, 
 type ecKey struct {
 	kms.UnimplementedKey
 
-	pool      *session.PoolRef
-	pubHandle pkcs11.ObjectHandle
-	prvHandle pkcs11.ObjectHandle
+	pool   *session.PoolRef
+	handle pkcs11.ObjectHandle
 
 	// Exported public key.
 	public func(ctx context.Context) (*ecdsa.PublicKey, error)
@@ -108,7 +106,7 @@ func (e *ecKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte, error)
 
 	mech := pkcs11.NewMechanism(pkcs11.CKM_ECDSA, nil)
 	raw, err := session.Scope(ctx, e.pool, func(s *session.Handle) ([]byte, error) {
-		if err := s.SignInit(mech, e.prvHandle); err != nil {
+		if err := s.SignInit(mech, e.handle); err != nil {
 			return nil, err
 		}
 		return s.Sign(data)
@@ -176,13 +174,13 @@ func curveFromOID(v []byte) (elliptic.Curve, error) {
 		return nil, errors.New("unexpected data remaining unmarshaling CKA_EC_PARAMS")
 	}
 	switch {
-	case oid.Equal(keybuilder.CurveP224):
+	case oid.Equal(keybuilder.OIDCurveP224):
 		return elliptic.P224(), nil
-	case oid.Equal(keybuilder.CurveP256):
+	case oid.Equal(keybuilder.OIDCurveP256):
 		return elliptic.P256(), nil
-	case oid.Equal(keybuilder.CurveP384):
+	case oid.Equal(keybuilder.OIDCurveP384):
 		return elliptic.P384(), nil
-	case oid.Equal(keybuilder.CurveP521):
+	case oid.Equal(keybuilder.OIDCurveP521):
 		return elliptic.P521(), nil
 	}
 	return nil, errors.New("unknown elliptic curve")
