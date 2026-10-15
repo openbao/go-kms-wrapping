@@ -383,7 +383,7 @@ func (k *transitKey) Verify(ctx context.Context, opts *kms.VerifyOptions) error 
 // See: https://openbao.org/api-docs/secret/transit/#export-key
 func (k *transitKey) ExportPublic(ctx context.Context) (crypto.PublicKey, error) {
 	resp, err := k.client.Logical().ReadWithDataWithContext(
-		ctx, path.Join(k.mount, "export/public-key", k.name, "latest"), map[string][]string{"format": {"der"}},
+		ctx, path.Join(k.mount, "export/public-key", k.name, strconv.FormatUint(k.version, 10)), map[string][]string{"format": {"der"}},
 	)
 	if err != nil {
 		return nil, err
