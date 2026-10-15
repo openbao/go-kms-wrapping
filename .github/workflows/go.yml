@@ -16,6 +16,7 @@ jobs:
           - './wrappers/gcpckms'
           - './wrappers/huaweicloudkms'
           - './wrappers/kmip'
+          - './wrappers/ncloudkms'
           - './wrappers/ocikms'
           - './wrappers/ovhcloudkms'
           - './wrappers/pkcs11'
