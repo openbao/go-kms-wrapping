@@ -24,9 +24,9 @@ func TestECDSA(t *testing.T) {
 		oid  asn1.ObjectIdentifier
 		hash crypto.Hash
 	}{
-		"p-256": {keybuilder.CurveP256, crypto.SHA256},
-		"p-384": {keybuilder.CurveP384, crypto.SHA384},
-		"p-521": {keybuilder.CurveP521, crypto.SHA512},
+		"p-256": {keybuilder.OIDCurveP256, crypto.SHA256},
+		"p-384": {keybuilder.OIDCurveP384, crypto.SHA384},
+		"p-521": {keybuilder.OIDCurveP521, crypto.SHA512},
 	}
 
 	for name, curve := range curves {
