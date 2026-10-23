@@ -122,7 +122,9 @@ func Login(ctx context.Context, mod *module.Ref, token *module.Token, pin string
 	}
 
 	var maxSessions uint
-	switch token.Info.MaxSessionCount {
+	// Respect MaxRwSessionCount instead of MaxSessionCount as we call
+	// OpenSession(...) with CKF_RW_SESSION set below.
+	switch token.Info.MaxRwSessionCount {
 	case pkcs11.CK_UNAVAILABLE_INFORMATION, pkcs11.CK_EFFECTIVELY_INFINITE:
 		maxSessions = math.MaxUint
 	default:
