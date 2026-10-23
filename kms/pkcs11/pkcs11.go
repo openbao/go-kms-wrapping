@@ -99,6 +99,9 @@ type pkcs11KMS struct {
 	// Disable preferring local public key encryption over performing public key
 	// encryption via PKCS#11.
 	disableSoftwareEncryption bool
+
+	// Vendor-specific hacks that we do not condone.
+	quirks string
 }
 
 func (p *pkcs11KMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
@@ -124,6 +127,9 @@ func (p *pkcs11KMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 
 		// Other tweaks.
 		DisableSoftwareEncryption bool `mapstructure:"disable_software_encryption"`
+
+		// Vendor-specific hacks that we do not condone.
+		Quirks string `mapstructure:"quirks"`
 	}
 
 	if err := kms.DecodeConfigMap(&cfg, opts.ConfigMap); err != nil {
@@ -147,6 +153,9 @@ func (p *pkcs11KMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 	}
 	if len(selectors) == 0 {
 		return errors.New("at least one of 'slot', 'serial', 'token_label' is required")
+	}
+	if err := validateQuirks(cfg.Quirks); err != nil {
+		return err
 	}
 
 	// Resolve library aliases and fall back to plain path if allowed.
@@ -178,6 +187,7 @@ func (p *pkcs11KMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 	// Good to go.
 	p.mod, p.token, p.pool = mod, token, pool
 	p.disableSoftwareEncryption = cfg.DisableSoftwareEncryption
+	p.quirks = cfg.Quirks
 
 	return nil
 }
@@ -197,6 +207,7 @@ func (p *pkcs11KMS) GetKey(ctx context.Context, opts *kms.KeyOptions) (kms.Key, 
 		Label       string `mapstructure:"label"`
 		Mechanism   string `mapstructure:"mechanism"`
 		RSAOAEPHash string `mapstructure:"rsa_oaep_hash"`
+		Quirks      string `mapstructure:"quirks"`
 	}
 
 	if err := kms.DecodeConfigMap(&cfg, opts.ConfigMap); err != nil {
@@ -224,7 +235,16 @@ func (p *pkcs11KMS) GetKey(ctx context.Context, opts *kms.KeyOptions) (kms.Key, 
 		return nil, fmt.Errorf("parse 'rsa_oaep_hash': %w", err)
 	}
 
-	return resolveKey(ctx, p.pool, keyID, cfg.Label, mech, oaepHash, p.disableSoftwareEncryption)
+	quirks := cfg.Quirks
+	if cfg.Quirks == "" {
+		quirks = p.quirks
+	}
+
+	if err := validateQuirks(quirks); err != nil {
+		return nil, err
+	}
+
+	return resolveKey(ctx, p.pool, keyID, cfg.Label, mech, oaepHash, p.disableSoftwareEncryption, quirks)
 }
 
 // resolveKey performs key resolution magic and maps objects to the correct key
@@ -238,6 +258,7 @@ func resolveKey(
 	mech *uint,
 	oaepHash crypto.Hash,
 	disableSoftwareEncryption bool,
+	quirks string,
 ) (kms.Key, error) {
 	// Build a template to perform the initial key lookup:
 	var temp []*pkcs11.Attribute
@@ -258,7 +279,7 @@ func resolveKey(
 			switch objs[0].class {
 			// A single secret key:
 			case pkcs11.CKO_SECRET_KEY:
-				return newSymmetric(pool, objs[0], mech)
+				return newSymmetric(pool, objs[0], mech, quirks)
 
 			// A single private key: the matching public key may have a different
 			// label so search for the public key.
@@ -351,10 +372,10 @@ func find(s *session.Handle, temp []*pkcs11.Attribute, limit int) ([]object, err
 }
 
 // newSymmetric constructs a symmetric key implementation from an object.
-func newSymmetric(pool *session.PoolRef, o object, mech *uint) (kms.Key, error) {
+func newSymmetric(pool *session.PoolRef, o object, mech *uint, quirks string) (kms.Key, error) {
 	switch o.keytype {
 	case pkcs11.CKK_AES:
-		return newAES(pool, o, mech)
+		return newAES(pool, o, mech, quirks)
 	}
 	return nil, fmt.Errorf("unsupported symmetric key type: %s", keyTypeToString(o.keytype))
 }
@@ -530,4 +551,23 @@ func onceOrCancel[T any](f func(context.Context) (T, error)) func(context.Contex
 		o.done.Store(!errors.Is(o.err, context.Canceled))
 		return o.ret, o.err
 	}
+}
+
+// See documentation for Thales FIPS-mode quirks:
+//
+// - https://thalesdocs.com/gphsm/luna/7/docs/network/Content/sdk/mechanisms/CKM_AES_GCM.htm
+const thalesLunaFips = "thales-luna-fips"
+
+// Quirks will ultimately be detected based both on the presence of the flag
+// (to opt-in) and later by CK_TOKEN_INFO to differentiate behavior within
+// modules. For today, we have one quirky behavior that users can turn on/off.
+func validateQuirks(quirks string) error {
+	switch quirks {
+	case "":
+	case thalesLunaFips:
+	default:
+		return fmt.Errorf("unknown quirks mode %q; refer to OpenBao's PKCS#11 provider documentation for supported values", quirks)
+	}
+
+	return nil
 }
