@@ -119,6 +119,12 @@ func (k *securosysKMS) Close(ctx context.Context) error {
 	return nil
 }
 
+// Fields to pass to plugin.Metadata
+var (
+	SensitiveKMSFields = []string{"bearer_token", "key_pem", "application_key_pair", "api_keys"}
+	SensitiveKeyFields = []string{"password"}
+)
+
 // keyConfig holds provider-specific key configuration decoded from
 // kms.KeyOptions.ConfigMap.
 type keyConfig struct {
