@@ -39,6 +39,8 @@ type pkcs11Wrapper struct {
 	mechanism *uint
 	oaepHash  crypto.Hash
 
+	quirks string
+
 	disableSoftwareEncryption bool
 }
 
@@ -81,6 +83,9 @@ func (w *pkcs11Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (
 		Mechanism                 string `mapstructure:"mechanism"`
 		RSAOAEPHash               string `mapstructure:"rsa_oaep_hash"`
 		DisableSoftwareEncryption bool   `mapstructure:"disable_software_encryption"`
+
+		// Vendor-specific hacks that we do not condone.
+		Quirks string `mapstructure:"quirks"`
 	}
 
 	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
@@ -159,6 +164,9 @@ func (w *pkcs11Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (
 	if len(selectors) == 0 {
 		return nil, errors.New("at least one of 'slot', 'serial', 'token_label' is required")
 	}
+	if err := validateQuirks(cfg.Quirks); err != nil {
+		return nil, err
+	}
 
 	// Parse and optionally pin the mechanism:
 	mech, err := parseMechanism(cfg.Mechanism)
@@ -210,6 +218,7 @@ func (w *pkcs11Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (
 	w.keyID, w.keyLabel = keyID, cfg.KeyLabel
 	w.mechanism, w.oaepHash = mech, oaepHash
 	w.disableSoftwareEncryption = cfg.DisableSoftwareEncryption
+	w.quirks = cfg.Quirks
 
 	w.logger = opts.WithLogger
 	if w.logger == nil {
@@ -237,7 +246,9 @@ func (w *pkcs11Wrapper) KeyId(context.Context) (string, error) {
 
 func (w *pkcs11Wrapper) Encrypt(ctx context.Context, plaintext []byte, opt ...wrapping.Option) (in *wrapping.BlobInfo, err error) {
 	err = w.with(ctx, nil, func(key kms.Key) error {
-		opts := &kms.CipherOptions{Data: plaintext}
+		opts := &kms.CipherOptions{
+			Data: plaintext,
+		}
 		ciphertext, err := key.Encrypt(ctx, opts)
 		if err != nil {
 			return err
@@ -302,6 +313,7 @@ func (w *pkcs11Wrapper) with(ctx context.Context, info *wrapping.KeyInfo, f func
 		parsedID, keyLabel,
 		w.mechanism, w.oaepHash,
 		w.disableSoftwareEncryption,
+		w.quirks,
 	)
 	if err != nil {
 		return err
