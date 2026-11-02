@@ -13,7 +13,7 @@ import (
 )
 
 // newAES constructs a new aesKey.
-func newAES(pool *session.PoolRef, o object, mech *uint) (kms.Key, error) {
+func newAES(pool *session.PoolRef, o object, mech *uint, quirks string) (kms.Key, error) {
 	var m uint
 	if mech == nil {
 		m = pkcs11.CKM_AES_GCM
@@ -32,6 +32,7 @@ func newAES(pool *session.PoolRef, o object, mech *uint) (kms.Key, error) {
 	return aesKey{
 		pool:   pool,
 		handle: o.handle,
+		quirks: quirks,
 	}, nil
 }
 
@@ -41,6 +42,8 @@ type aesKey struct {
 
 	pool   *session.PoolRef
 	handle pkcs11.ObjectHandle
+
+	quirks string
 }
 
 const (
@@ -50,30 +53,57 @@ const (
 
 func (a aesKey) Encrypt(ctx context.Context, opts *kms.CipherOptions) ([]byte, error) {
 	return session.Scope(ctx, a.pool, func(s *session.Handle) ([]byte, error) {
-		nonce, err := s.GenerateRandom(aesGcmNonceSize)
-		if err != nil {
-			return nil, fmt.Errorf("generate nonce: %w", err)
+		var nonce []byte
+		var err error
+
+		// See note in quirks document.
+		if a.quirks != thalesLunaFips {
+			nonce, err = s.GenerateRandom(aesGcmNonceSize)
+			if err != nil {
+				return nil, fmt.Errorf("generate nonce: %w", err)
+			}
 		}
+
 		params := pkcs11.NewGCMParams(nonce, opts.AAD, aesGcmTagSize*8)
 		defer params.Free()
 		if err := s.EncryptInit(pkcs11.NewMechanism(pkcs11.CKM_AES_GCM, params), a.handle); err != nil {
 			return nil, err
 		}
+
 		ciphertext, err := s.Encrypt(opts.Data)
 		if err != nil {
 			return nil, err
 		}
-		return append(params.IV(), ciphertext...), nil
+
+		if a.quirks != thalesLunaFips {
+			return append(params.IV(), ciphertext...), nil
+		}
+
+		if len(ciphertext) < 16 {
+			return nil, fmt.Errorf("got unexpectedly short ciphertext in %v quirks mode: %v bytes", thalesLunaFips, len(ciphertext))
+		}
+
+		// See note about AES-GCM quirks: IV is 128-bit and appended to the
+		// ciphertext. Take it out and prepend it instead to comply with
+		// expectations.
+		iv := ciphertext[len(ciphertext)-16:]
+		text := ciphertext[:len(ciphertext)-16]
+		return append(iv, text...), nil
 	})
 }
 
 func (a aesKey) Decrypt(ctx context.Context, opts *kms.CipherOptions) ([]byte, error) {
 	return session.Scope(ctx, a.pool, func(s *session.Handle) ([]byte, error) {
-		params := pkcs11.NewGCMParams(opts.Data[:aesGcmNonceSize], opts.AAD, aesGcmTagSize*8)
+		nonceSize := aesGcmNonceSize
+		if a.quirks == thalesLunaFips {
+			nonceSize = 16
+		}
+
+		params := pkcs11.NewGCMParams(opts.Data[:nonceSize], opts.AAD, aesGcmTagSize*8)
 		defer params.Free()
 		if err := s.DecryptInit(pkcs11.NewMechanism(pkcs11.CKM_AES_GCM, params), a.handle); err != nil {
 			return nil, err
 		}
-		return s.Decrypt(opts.Data[aesGcmNonceSize:])
+		return s.Decrypt(opts.Data[nonceSize:])
 	})
 }
