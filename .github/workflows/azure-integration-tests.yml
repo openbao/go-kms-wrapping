@@ -1,0 +1,42 @@
+name: Azure Key Vault integration tests
+description: Runs Azure Key Vault integration tests
+
+inputs:
+  tenant-id:
+    description: Azure tenant ID
+    required: true
+  client-id:
+    description: Azure client ID
+    required: true
+  client-secret:
+    description: Azure client secret
+    required: true
+  vault-name:
+    description: Azure Key Vault name
+    required: true
+  key-name:
+    description: Azure Key Vault key name
+    required: true
+  cert:
+    description: Azure client certificate (base64 encoded)
+    required: true
+  cert-password:
+    description: Azure client certificate password
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Azure Key Vault integration tests
+      working-directory: './wrappers/azurekeyvault'
+      env:
+        KMS_ACC_TESTS: 'true'
+        AZURE_CLIENT_SECRET: ${{ inputs.client-secret }}
+        AZURE_CLIENT_ID: ${{ inputs.client-id }}
+        AZUREKEYVAULT_CERT_CLIENT_CERT: ${{ inputs.cert }}
+        VAULT_AZUREKEYVAULT_CERTIFICATE_PASSWORD: ${{ inputs.cert-password }}
+        AZURE_TENANT_ID: ${{ inputs.tenant-id }}
+        AZUREKEYVAULT_WRAPPER_VAULT_NAME: ${{ inputs.vault-name }}
+        AZUREKEYVAULT_WRAPPER_KEY_NAME: ${{ inputs.key-name }}
+      run: go test ./...
+      shell: bash
