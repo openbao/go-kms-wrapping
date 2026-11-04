@@ -66,7 +66,7 @@ func getOpts(opt ...wrapping.Option) (*options, error) {
 			var err error
 			opts.withAuthTypeApiKey, err = strconv.ParseBool(v)
 			if err != nil {
-				return nil, fmt.Errorf("failed parsing "+KmsConfigAuthTypeApiKey+" parameter: %w", err)
+				return nil, fmt.Errorf("failed parsing %s parameter: %w", KmsConfigAuthTypeApiKey, err)
 			}
 		}
 	}

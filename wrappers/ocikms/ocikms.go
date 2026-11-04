@@ -103,12 +103,11 @@ func (k *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 	}
 
 	var cp common.ConfigurationProvider
+	var principalType string
+	// authTypeApiKey - true for user principal, false for instance principal
+	// defaults to false.
 	if opts.withAuthTypeApiKey {
-		cp, err = auth.InstancePrincipalConfigurationProvider()
-		if err != nil {
-			return nil, fmt.Errorf("failed creating InstancePrincipalConfigurationProvider: %w", err)
-		}
-	} else {
+		principalType = "user"
 		if !opts.Options.WithDisallowEnvVars {
 			cp = common.DefaultConfigProvider()
 		} else {
@@ -120,6 +119,12 @@ func (k *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 				opts.withPrivateKey,
 				&opts.withPrivateKeyPassphrase,
 			)
+		}
+	} else {
+		principalType = "instance"
+		cp, err = auth.InstancePrincipalConfigurationProvider()
+		if err != nil {
+			return nil, fmt.Errorf("failed creating InstancePrincipalConfigurationProvider: %w", err)
 		}
 	}
 
@@ -144,7 +149,7 @@ func (k *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 	// Calling Encrypt method with empty string just to validate keyId access and store current keyVersion
 	encryptedBlobInfo, err := k.Encrypt(ctx, []byte(""), nil)
 	if err != nil || encryptedBlobInfo == nil {
-		return nil, fmt.Errorf("failed "+KmsConfigKeyId+" validation: %w", err)
+		return nil, fmt.Errorf("failed %s validation: %w", KmsConfigKeyId, err)
 	}
 
 	// Map that holds non-sensitive configuration info
@@ -153,11 +158,7 @@ func (k *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 	wrapConfig.Metadata[KmsConfigKeyId] = k.keyId
 	wrapConfig.Metadata[KmsConfigCryptoEndpoint] = k.cryptoEndpoint
 	wrapConfig.Metadata[KmsConfigManagementEndpoint] = k.managementEndpoint
-	if opts.withAuthTypeApiKey {
-		wrapConfig.Metadata["principal_type"] = "user"
-	} else {
-		wrapConfig.Metadata["principal_type"] = "instance"
-	}
+	wrapConfig.Metadata["principal_type"] = principalType
 
 	return wrapConfig, nil
 }
