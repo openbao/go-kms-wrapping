@@ -5,78 +5,132 @@ package ovhcloudkms
 
 import (
 	"bytes"
-	"context"
 	"os"
-	"reflect"
 	"testing"
 
 	wrapping "github.com/openbao/go-kms-wrapping/v2"
+	"github.com/stretchr/testify/require"
 )
 
 // This test executes real calls. The calls themselves should be free,
 // but the OKMS key used is generally not free.
 //
-// To run this test, the following env variables need to be set:
-//   - OVHCLOUDKMS_KEY_ID
-//   - OVHCLOUDKMS_ENDPOINT
-//   - OVHCLOUDKMS_ID
+// To run this test, the following env variables need to be set or provided
+// with `withConfigMap` wrapper option:
+//   - OVHCLOUDKMS_KEY_ID / withConfigMap["key_id"]
+//   - OVHCLOUDKMS_ENDPOINT / withConfigMap["endpoint"]
+//   - OVHCLOUDKMS_ID / withConfigMap["kms_id"]
 //
-// You can choose the auth type by setting corresponding env variables:
+// You can choose the auth type by setting corresponding env variables
+// or providing them with `withConfigMap` wrapper option.
 // token:
-//   - OVHCLOUDKMS_TOKEN
+//   - OVHCLOUDKMS_TOKEN / withConfigMap["token"]
 //
-// mTLS:
-//   - OVHCLOUDKMS_CLIENT_CERT
-//   - OVHCLOUDKMS_CLIENT_KEY
-func TestAccOvhcloudKmsWrapper_Lifecycle(t *testing.T) {
+// or mTLS:
+//   - OVHCLOUDKMS_CLIENT_CERT / withConfigMap["client_cert_bytes"]
+//   - OVHCLOUDKMS_CLIENT_KEY / withConfigMap["client_key_bytes"]
+//
+// optionally:
+//   - OVHCLOUDKMS_CA_CERT / withConfigMap["ca_cert_bytes"]
+func TestAccWrapper(t *testing.T) {
+	roundtrip := func(t *testing.T, ow *Wrapper) {
+		t.Helper()
+
+		input := []byte("foobar")
+		ciphertext0, err := ow.Encrypt(t.Context(), input)
+		require.NoError(t, err)
+		require.NotEqual(t, ciphertext0, input)
+
+		ciphertext1, err := ow.Encrypt(t.Context(), input)
+		require.NoError(t, err)
+		require.NotEqual(t, ciphertext1, input)
+		require.NotEqual(t, ciphertext1, ciphertext0)
+
+		plaintext0, err := ow.Decrypt(t.Context(), ciphertext0)
+		require.NoError(t, err)
+		require.Equal(t, input, plaintext0)
+
+		plaintext1, err := ow.Decrypt(t.Context(), ciphertext1)
+		require.NoError(t, err)
+		require.Equal(t, input, plaintext1)
+
+		corruptedCipher := &wrapping.BlobInfo{
+			Ciphertext: bytes.Clone(ciphertext0.Ciphertext),
+			Iv:         ciphertext0.Iv,
+			KeyInfo:    ciphertext0.KeyInfo,
+		}
+		corruptedCipher.Ciphertext[0] ^= 0xff
+		_, err = ow.Decrypt(t.Context(), corruptedCipher)
+		require.Error(t, err)
+	}
+
 	if os.Getenv("VAULT_ACC") == "" && os.Getenv("KMS_ACC_TESTS") == "" {
 		t.SkipNow()
 	}
 
-	keyId := os.Getenv("OVHCLOUDKMS_KEY_ID")
+	keyId := os.Getenv(EnvOkmsKeyId)
 	if keyId == "" {
 		t.SkipNow()
 	}
 
-	ow := NewWrapper()
-	_, err := ow.SetConfig(context.Background())
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
+	t.Run("Certificate authorization with env vars", func(t *testing.T) {
+		// Need to unset the token otherwise we fail due to ambiguous authentication setup.
+		token := os.Getenv(EnvOkmsToken)
+		os.Unsetenv(EnvOkmsToken)
+		defer os.Setenv(EnvOkmsToken, token)
 
-	input := []byte("foo")
-	swi, err := ow.Encrypt(context.Background(), input)
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
-	if bytes.Equal(input, swi.Ciphertext) {
-		t.Fatalf("ciphertext should differ from input")
-	}
+		tempDir := t.TempDir()
+		clientCertFile, err := os.CreateTemp(tempDir, "client-cert.pem")
+		require.NoError(t, err)
 
-	pt, err := ow.Decrypt(context.Background(), swi)
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
+		clientCert := os.Getenv("OVHCLOUDKMS_CERT_CLIENT_CERT")
+		_, err = clientCertFile.Write([]byte(clientCert))
+		clientCertFile.Close()
+		t.Setenv(EnvOkmsClientCert, clientCertFile.Name())
 
-	if !reflect.DeepEqual(input, pt) {
-		t.Fatalf("expected %s, got %s", input, pt)
-	}
+		clientKeyFile, err := os.CreateTemp(tempDir, "client-key.pem")
+		require.NoError(t, err)
+		clientKey := os.Getenv("OVHCLOUDKMS_CERT_CLIENT_KEY")
+		_, err = clientKeyFile.Write([]byte(clientKey))
+		t.Setenv(EnvOkmsClientKey, clientKeyFile.Name())
 
-	swi2, err := ow.Encrypt(context.Background(), input)
-	if err != nil {
-		t.Fatalf("err: %s", err.Error())
-	}
-	if bytes.Equal(swi.Ciphertext, swi2.Ciphertext) {
-		t.Fatalf("re-encrypting the same input should produce a different ciphertext")
-	}
+		ow := NewWrapper()
+		_, err = ow.SetConfig(t.Context())
+		require.NoError(t, err)
+		roundtrip(t, ow)
+	})
 
-	corruptedSwi := &wrapping.BlobInfo{
-		Ciphertext: bytes.Clone(swi.Ciphertext),
-		Iv:         swi.Iv,
-		KeyInfo:    swi.KeyInfo,
-	}
-	corruptedSwi.Ciphertext[0] ^= 0xff
-	if _, err := ow.Decrypt(context.Background(), corruptedSwi); err == nil {
-		t.Fatalf("decrypt corrupted ciphertext should return an error")
-	}
+	t.Run("Certificate authorization with disallow env vars", func(t *testing.T) {
+		configMap := map[string]string{
+			"key_id":            keyId,
+			"endpoint":          os.Getenv(EnvOkmsEndpoint),
+			"kms_id":            os.Getenv(EnvOkmsId),
+			"client_cert_bytes": os.Getenv("OVHCLOUDKMS_CERT_CLIENT_CERT"),
+			"client_key_bytes":  os.Getenv("OVHCLOUDKMS_CERT_CLIENT_KEY"),
+		}
+		ow := NewWrapper()
+		_, err := ow.SetConfig(t.Context(), wrapping.WithConfigMap(configMap), wrapping.WithDisallowEnvVars(true))
+		require.NoError(t, err)
+		roundtrip(t, ow)
+	})
+
+	t.Run("Credentials authorization with env vars", func(t *testing.T) {
+		ow := NewWrapper()
+		_, err := ow.SetConfig(t.Context())
+		require.NoError(t, err)
+		roundtrip(t, ow)
+	})
+
+	t.Run("Credentials authorization with disallow env vars", func(t *testing.T) {
+		configMap := map[string]string{
+			"key_id":   keyId,
+			"endpoint": os.Getenv(EnvOkmsEndpoint),
+			"kms_id":   os.Getenv(EnvOkmsId),
+			"token":    os.Getenv(EnvOkmsToken),
+		}
+		ow := NewWrapper()
+		_, err := ow.SetConfig(t.Context(), wrapping.WithConfigMap(configMap), wrapping.WithDisallowEnvVars(true))
+		require.NoError(t, err)
+		roundtrip(t, ow)
+	})
 }
