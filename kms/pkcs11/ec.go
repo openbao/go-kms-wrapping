@@ -37,7 +37,7 @@ func newEC(pool *session.PoolRef, public, private object, mech *uint) (kms.Key, 
 		return nil, fmt.Errorf("unsupported EC key mechanism: %x", m)
 	}
 
-	exportPublic := onceOrCancel(func(ctx context.Context) (*ecdsa.PublicKey, error) {
+	exportPublic := onceOrError(func(ctx context.Context) (*ecdsa.PublicKey, error) {
 		temp := []*pkcs11.Attribute{
 			pkcs11.NewAttribute(pkcs11.CKA_EC_PARAMS, 0),
 			pkcs11.NewAttribute(pkcs11.CKA_EC_POINT, 0),

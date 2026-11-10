@@ -33,7 +33,7 @@ func newEdwards(pool *session.PoolRef, public, private object, mech *uint) (kms.
 		return nil, fmt.Errorf("unsupported edwards key mechanism: %x", m)
 	}
 
-	exportPublic := onceOrCancel(func(ctx context.Context) (ed25519.PublicKey, error) {
+	exportPublic := onceOrError(func(ctx context.Context) (ed25519.PublicKey, error) {
 		temp := []*pkcs11.Attribute{
 			pkcs11.NewAttribute(pkcs11.CKA_EC_PARAMS, 0),
 			pkcs11.NewAttribute(pkcs11.CKA_EC_POINT, 0),
