@@ -165,7 +165,7 @@ func TestGetKey(t *testing.T) {
 	})
 
 	t.Run("KeyPair", func(t *testing.T) {
-		// A key pair equal IDs.
+		// A key pair with equal IDs.
 		id, label := rand.Text(), rand.Text()
 		require.NoError(t, svc.pool.Scope(ctx, func(s *session.Handle) error {
 			_, _, err := s.GenerateKeyPair(keybuilder.EC(keybuilder.OIDCurveP256).ID(id).Label(label).Build())
@@ -174,12 +174,12 @@ func TestGetKey(t *testing.T) {
 
 		id = hex.EncodeToString([]byte(id))
 
-		// By ID:
+		// By ID only:
 		key, err := svc.GetKey(ctx, &kms.KeyOptions{ConfigMap: kms.ConfigMap{"id": id}})
 		require.NoError(t, err)
 		require.IsType(t, &ecKey{}, key)
 
-		// By label:
+		// By label only:
 		key, err = svc.GetKey(ctx, &kms.KeyOptions{ConfigMap: kms.ConfigMap{"label": label}})
 		require.NoError(t, err)
 		require.IsType(t, &ecKey{}, key)
@@ -190,6 +190,31 @@ func TestGetKey(t *testing.T) {
 		}})
 		require.NoError(t, err)
 		require.IsType(t, &ecKey{}, key)
+	})
+
+	t.Run("Cache", func(t *testing.T) {
+		label := rand.Text()
+
+		opts := &kms.KeyOptions{ConfigMap: kms.ConfigMap{"label": label}}
+
+		_, err := svc.GetKey(ctx, opts)
+		require.Error(t, err)
+
+		require.NoError(t, svc.pool.Scope(ctx, func(s *session.Handle) error {
+			_, _, err := s.GenerateKeyPair(keybuilder.EC(keybuilder.OIDCurveP256).Label(label).Build())
+			return err
+		}))
+
+		key1, err := svc.GetKey(ctx, opts)
+		require.NoError(t, err)
+		require.IsType(t, &ecKey{}, key1)
+
+		key2, err := svc.GetKey(ctx, opts)
+		require.NoError(t, err)
+		require.IsType(t, &ecKey{}, key2)
+
+		// These should reference the same address.
+		require.True(t, key1.(*ecKey) == key2.(*ecKey))
 	})
 
 	t.Run("KeyPairMismatchedLabels", func(t *testing.T) {
