@@ -38,8 +38,8 @@ github.com/rogpeppe/go-internal v1.13.1 h1:KvO1DLK/DRN07sQ1LQKScxyZJuNnedQ5/wKSR
 github.com/rogpeppe/go-internal v1.13.1/go.mod h1:uMEvuHeurkdAXX61udpOXGD/AzZDWNMNyH2VO9fmH0o=
 github.com/ryanuber/go-glob v1.0.0 h1:iQh3xXAumdQ+4Ufa5b25cRpC5TYKlno6hsv6Cb3pkBk=
 github.com/ryanuber/go-glob v1.0.0/go.mod h1:807d1WSdnB0XRJzKNil9Om6lcp/3a0v4qIHxIXzX/Yc=
-github.com/securosys-com/tsb-client-go v1.3.0 h1:SG14THJslst9xtiwFzqHbFZK1yJ7RDRV+ahPYLMzqT0=
-github.com/securosys-com/tsb-client-go v1.3.0/go.mod h1:VO3p99ATr8fpytySaA9DD2hrhu0W0pKTKNr9aWkaGX4=
+github.com/securosys-com/tsb-client-go v1.4.1 h1:V4pLOWDvK51eyZB/gURhmbr1zr0n7yrLeW26rD3nUeg=
+github.com/securosys-com/tsb-client-go v1.4.1/go.mod h1:VO3p99ATr8fpytySaA9DD2hrhu0W0pKTKNr9aWkaGX4=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
 github.com/stretchr/testify v1.7.2/go.mod h1:R6va5+xMeoiuVRoj+gSkQ7d3FALtqAAGI1FQKckRals=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
