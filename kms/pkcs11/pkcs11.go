@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/miekg/pkcs11"
 	"github.com/openbao/go-kms-wrapping/kms/pkcs11/v2/internal/module"
@@ -23,6 +24,7 @@ import (
 	"github.com/openbao/go-kms-wrapping/kms/pkcs11/v2/internal/session"
 	"github.com/openbao/go-kms-wrapping/v2/kms"
 	"github.com/openbao/openbao/api/v2"
+	"zgo.at/zcache/v2"
 )
 
 // SensitiveKMSFields are all fields accepted by Open() that should be censored
@@ -102,6 +104,8 @@ type pkcs11KMS struct {
 
 	// Vendor-specific hacks that we do not condone.
 	quirks string
+
+	cache *zcache.Cache[cacheKey, func(context.Context) (kms.Key, error)]
 }
 
 func (p *pkcs11KMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
@@ -189,6 +193,8 @@ func (p *pkcs11KMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 	p.disableSoftwareEncryption = cfg.DisableSoftwareEncryption
 	p.quirks = cfg.Quirks
 
+	p.cache = zcache.New[cacheKey, func(context.Context) (kms.Key, error)](10*time.Minute, 10*time.Minute)
+
 	return nil
 }
 
@@ -198,7 +204,16 @@ func (p *pkcs11KMS) Close(ctx context.Context) error {
 		// any dangling references to library code from pool.
 		return err
 	}
+	p.cache.Reset()
 	return p.mod.Drop()
+}
+
+// Make sure to keep this comparable (i.e., do not introduce pointers).
+type cacheKey struct {
+	id          string
+	label       string
+	mechanism   string
+	rsaOAEPHash string
 }
 
 func (p *pkcs11KMS) GetKey(ctx context.Context, opts *kms.KeyOptions) (kms.Key, error) {
@@ -234,7 +249,24 @@ func (p *pkcs11KMS) GetKey(ctx context.Context, opts *kms.KeyOptions) (kms.Key, 
 		return nil, fmt.Errorf("parse 'rsa_oaep_hash': %w", err)
 	}
 
-	return resolveKey(ctx, p.pool, keyID, cfg.Label, mech, oaepHash, p.disableSoftwareEncryption, p.quirks)
+	cacheKey := cacheKey{
+		id:          cfg.ID,
+		label:       cfg.Label,
+		mechanism:   cfg.Mechanism,
+		rsaOAEPHash: cfg.RSAOAEPHash,
+	}
+
+	// Fast-path cache lookup. In most scenarios, the key will be cached, so we
+	// can avoid allocating the onceOrError below.
+	if f, ok := p.cache.Get(cacheKey); ok {
+		return f(ctx)
+	}
+
+	// On cache misses, ensure only a single flight is executed to populate the
+	// entry.
+	return p.cache.GetOrAdd(cacheKey, onceOrError(func(ctx context.Context) (kms.Key, error) {
+		return resolveKey(ctx, p.pool, keyID, cfg.Label, mech, oaepHash, p.disableSoftwareEncryption, p.quirks)
+	}))(ctx)
 }
 
 // resolveKey performs key resolution magic and maps objects to the correct key
@@ -512,33 +544,38 @@ func keyTypeToString(keytype uint) string {
 	}
 }
 
-// onceOrCancel is similar to sync.Once or sync.OnceValue, but the callback
-// takes a context and won't store a value if the context was canceled, allowing
-// reattempts.
+// onceOrError is similar to sync.Once or sync.OnceValue, but the callback takes
+// a context and caches only successful results. If the callback returns an
+// error, a later call will retry it.
 //
 // This doesn't handle panics like the standard library versions do, which is
 // likely fine given the local use case.
-func onceOrCancel[T any](f func(context.Context) (T, error)) func(context.Context) (T, error) {
+func onceOrError[T any](f func(context.Context) (T, error)) func(context.Context) (T, error) {
 	o := struct {
 		done atomic.Bool
-		mu   sync.Mutex
+		mu   chan struct{}
 		ret  T
 		err  error
-	}{}
+	}{mu: make(chan struct{}, 1)}
 	return func(ctx context.Context) (T, error) {
 		// Fast path:
 		if o.done.Load() {
 			return o.ret, o.err
 		}
-		o.mu.Lock()
-		defer o.mu.Unlock()
+		select {
+		case o.mu <- struct{}{}:
+			defer func() { <-o.mu }()
+		case <-ctx.Done():
+			var zero T
+			return zero, ctx.Err()
+		}
 		// Check again:
 		if o.done.Load() {
 			return o.ret, o.err
 		}
 		o.ret, o.err = f(ctx)
-		// Don't set done if the context was canceled.
-		o.done.Store(!errors.Is(o.err, context.Canceled))
+		// Only cache successful results.
+		o.done.Store(o.err == nil)
 		return o.ret, o.err
 	}
 }
