@@ -35,7 +35,7 @@ func newRSA(
 		}
 	}
 
-	exportPublic := onceOrCancel(func(ctx context.Context) (*rsa.PublicKey, error) {
+	exportPublic := onceOrError(func(ctx context.Context) (*rsa.PublicKey, error) {
 		temp := []*pkcs11.Attribute{
 			pkcs11.NewAttribute(pkcs11.CKA_MODULUS, nil),
 			pkcs11.NewAttribute(pkcs11.CKA_PUBLIC_EXPONENT, nil),

@@ -31,7 +31,7 @@ func newMLDSA(pool *session.PoolRef, public, private object, mech *uint) (kms.Ke
 		return nil, fmt.Errorf("unsupported ML-DSA key mechanism: %x", m)
 	}
 
-	exportPublic := onceOrCancel(func(ctx context.Context) (*mldsa.PublicKey, error) {
+	exportPublic := onceOrError(func(ctx context.Context) (*mldsa.PublicKey, error) {
 		temp := []*pkcs11.Attribute{
 			pkcs11.NewAttribute(pkcs11v3.CKA_PARAMETER_SET, 0),
 			pkcs11.NewAttribute(pkcs11.CKA_VALUE, 0),
