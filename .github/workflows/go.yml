@@ -13,6 +13,7 @@ jobs:
           - './wrappers/alicloudkms'
           - './wrappers/awskms'
           - './wrappers/azurekeyvault'
+          - './wrappers/exoscalekms'
           - './wrappers/gcpckms'
           - './wrappers/huaweicloudkms'
           - './wrappers/kmip'
