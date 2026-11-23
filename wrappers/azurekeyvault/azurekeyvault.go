@@ -69,15 +69,22 @@ const (
 // data (RSA keys). Due to this fact, we generate AES key and wrap the
 // key using Key Vault and store it with the data.
 type Wrapper struct {
-	tenantID      string
-	clientID      string
-	clientSecret  string
-	keyName       string
-	authMethod    authenticationMethod
-	vaultName     string
-	certPath      string
-	certBytes     string
-	certPassword  string
+	tenantID   string
+	vaultName  string
+	keyName    string
+	authMethod authenticationMethod
+
+	// Client secret authorization method properties.
+	clientID     string
+	clientSecret string
+
+	// Certificate auth method properties;
+	// CertPath is mutually exclusive with certBytes.
+	certPath     string
+	certBytes    string
+	certPassword string
+
+	// Managed identity authorization method properties.
 	resourceID    string
 	managedIdKind managedIdentityKind
 
@@ -526,7 +533,12 @@ func (v *Wrapper) getWorkloadIdentityCredential() (azcore.TokenCredential, error
 	if v.tenantID == "" {
 		return nil, errors.New("tenant_id is required for azure workload identity authentication")
 	}
-	cred, err := azidentity.NewWorkloadIdentityCredential(&azidentity.WorkloadIdentityCredentialOptions{TenantID: v.tenantID})
+
+	if v.clientID == "" {
+		return nil, errors.New("client_id is required for azure workload identity authentication")
+	}
+
+	cred, err := azidentity.NewWorkloadIdentityCredential(&azidentity.WorkloadIdentityCredentialOptions{TenantID: v.tenantID, ClientID: v.clientID})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get workload identity credentials: %w", err)
 	}
