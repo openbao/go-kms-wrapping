@@ -13,7 +13,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"path"
 	"strconv"
 	"strings"
 
@@ -98,7 +97,7 @@ func (k *transitKMS) Open(ctx context.Context, opts *kms.OpenOptions) error {
 	client.SetNamespace(cfg.Namespace)
 
 	k.client = client
-	k.mount = cmp.Or(cfg.MountPath, "transit")
+	k.mount = strings.Trim(cmp.Or(cfg.MountPath, "transit"), "/")
 
 	return nil
 }
@@ -119,6 +118,16 @@ func (k *transitKMS) GetKey(_ context.Context, opts *kms.KeyOptions) (kms.Key, e
 		return nil, errors.New("missing required parameter 'name'")
 	case cfg.Version <= 0:
 		return nil, errors.New("missing required parameter 'version'")
+	}
+
+	cfg.Name = strings.Trim(cfg.Name, "/")
+	switch {
+	case cfg.Name == "":
+		return nil, errors.New("'name' cannot be empty")
+	case strings.Contains(cfg.Name, "/"):
+		return nil, errors.New("'name' cannot contain '/'")
+	case cfg.Name == "." || cfg.Name == "..":
+		return nil, errors.New("'name' cannot be '.' or '..'")
 	}
 
 	return &transitKey{
@@ -153,9 +162,7 @@ func (k *transitKey) Encrypt(ctx context.Context, opts *kms.CipherOptions) ([]by
 		data["associated_data"] = base64.StdEncoding.EncodeToString(opts.AAD)
 	}
 
-	resp, err := k.client.Logical().WriteWithContext(
-		ctx, path.Join(k.mount, "encrypt", k.name), data,
-	)
+	resp, err := k.client.Logical().WriteWithContext(ctx, fmt.Sprintf("%s/encrypt/%s", k.mount, k.name), data)
 	if err != nil {
 		return nil, err
 	}
@@ -193,9 +200,7 @@ func (k *transitKey) Decrypt(ctx context.Context, opts *kms.CipherOptions) ([]by
 		data["associated_data"] = base64.StdEncoding.EncodeToString(opts.AAD)
 	}
 
-	resp, err := k.client.Logical().WriteWithContext(
-		ctx, path.Join(k.mount, "decrypt", k.name), data,
-	)
+	resp, err := k.client.Logical().WriteWithContext(ctx, fmt.Sprintf("%s/decrypt/%s", k.mount, k.name), data)
 	if err != nil {
 		return nil, err
 	}
@@ -279,9 +284,7 @@ func (k *transitKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte, e
 		data["signature_algorithm"] = "pkcs1v15"
 	}
 
-	resp, err := k.client.Logical().WriteWithContext(
-		ctx, path.Join(k.mount, "sign", k.name), data,
-	)
+	resp, err := k.client.Logical().WriteWithContext(ctx, fmt.Sprintf("%s/sign/%s", k.mount, k.name), data)
 	if err != nil {
 		return nil, err
 	}
@@ -363,9 +366,7 @@ func (k *transitKey) Verify(ctx context.Context, opts *kms.VerifyOptions) error 
 		data["signature_algorithm"] = "pkcs1v15"
 	}
 
-	resp, err := k.client.Logical().WriteWithContext(
-		ctx, path.Join(k.mount, "verify", k.name), data,
-	)
+	resp, err := k.client.Logical().WriteWithContext(ctx, fmt.Sprintf("%s/verify/%s", k.mount, k.name), data)
 	if err != nil {
 		return err
 	}
@@ -383,7 +384,7 @@ func (k *transitKey) Verify(ctx context.Context, opts *kms.VerifyOptions) error 
 // See: https://openbao.org/api-docs/secret/transit/#export-key
 func (k *transitKey) ExportPublic(ctx context.Context) (crypto.PublicKey, error) {
 	resp, err := k.client.Logical().ReadWithDataWithContext(
-		ctx, path.Join(k.mount, "export/public-key", k.name, strconv.FormatUint(k.version, 10)), map[string][]string{"format": {"der"}},
+		ctx, fmt.Sprintf("%s/export/public-key/%s/%d", k.mount, k.name, k.version), map[string][]string{"format": {"der"}},
 	)
 	if err != nil {
 		return nil, err
