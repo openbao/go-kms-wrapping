@@ -22,11 +22,17 @@ const (
 // mockKMS fakes the Exoscale KMS API. Like the real one, it rejects a ciphertext made under another key.
 type mockKMS struct{}
 
-func (mockKMS) Encrypt(_ context.Context, id v3.UUID, req v3.EncryptRequest) (*v3.EncryptResponse, error) {
+func (mockKMS) Encrypt(ctx context.Context, id v3.UUID, req v3.EncryptRequest) (*v3.EncryptResponse, error) {
+	if _, ok := ctx.Deadline(); !ok {
+		return nil, fmt.Errorf("call has no deadline")
+	}
 	return &v3.EncryptResponse{Ciphertext: append([]byte(id+":"), req.Plaintext...)}, nil
 }
 
-func (mockKMS) Decrypt(_ context.Context, id v3.UUID, req v3.DecryptRequest) (*v3.DecryptResponse, error) {
+func (mockKMS) Decrypt(ctx context.Context, id v3.UUID, req v3.DecryptRequest) (*v3.DecryptResponse, error) {
+	if _, ok := ctx.Deadline(); !ok {
+		return nil, fmt.Errorf("call has no deadline")
+	}
 	plaintext, ok := bytes.CutPrefix(req.Ciphertext, []byte(id+":"))
 	if !ok {
 		return nil, fmt.Errorf("ciphertext was not made under key %s", id)

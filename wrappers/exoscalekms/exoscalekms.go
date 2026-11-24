@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	v3 "github.com/exoscale/egoscale/v3"
 	"github.com/exoscale/egoscale/v3/credentials"
@@ -25,6 +26,8 @@ const (
 	EnvExoscaleApiKey      = "EXOSCALE_API_KEY"
 	EnvExoscaleApiSecret   = "EXOSCALE_API_SECRET"
 )
+
+const requestTimeout = 30 * time.Second
 
 type kmsApi interface {
 	Decrypt(ctx context.Context, id v3.UUID, req v3.DecryptRequest) (*v3.DecryptResponse, error)
@@ -92,6 +95,9 @@ func (k *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 	}
 
 	if k.client == nil {
+		ctx, cancel := context.WithTimeout(ctx, requestTimeout)
+		defer cancel()
+
 		creds := credentials.NewStaticCredentials(k.apiKey, k.apiSecret)
 		o := []v3.ClientOpt{v3.ClientOptWithUserAgent("go-kms-wrapping-exoscalekms")}
 
@@ -142,6 +148,9 @@ func (k *Wrapper) Encrypt(ctx context.Context, plaintext []byte, opt ...wrapping
 		return nil, fmt.Errorf("client is nil")
 	}
 
+	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
+	defer cancel()
+
 	env, err := wrapping.EnvelopeEncrypt(plaintext, opt...)
 	if err != nil {
 		return nil, fmt.Errorf("error wrapping data: %w", err)
@@ -175,6 +184,9 @@ func (k *Wrapper) Decrypt(ctx context.Context, in *wrapping.BlobInfo, opt ...wra
 	if k.client == nil {
 		return nil, fmt.Errorf("client is nil")
 	}
+
+	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
+	defer cancel()
 
 	keyId := in.KeyInfo.KeyId
 	if in.KeyInfo.KeyId == "" {
