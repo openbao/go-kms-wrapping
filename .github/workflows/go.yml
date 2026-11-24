@@ -22,6 +22,7 @@ jobs:
           - './wrappers/tcloudpublickms'
           - './wrappers/tencentcloudkms'
           - './wrappers/transit'
+          - './wrappers/tpm'          
           - './kms/pkcs11'
           - './kms/transit'
         go:
