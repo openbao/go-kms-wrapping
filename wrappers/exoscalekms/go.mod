@@ -5,7 +5,7 @@ go 1.25.0
 replace github.com/openbao/go-kms-wrapping/v2 => ../../
 
 require (
-	github.com/exoscale/egoscale/v3 v3.1.63
+	github.com/exoscale/egoscale/v3 v3.1.66
 	github.com/openbao/go-kms-wrapping/v2 v2.9.0
 	github.com/stretchr/testify v1.10.0
 )
