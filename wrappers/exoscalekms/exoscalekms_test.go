@@ -120,7 +120,7 @@ func TestExoscaleKmsWrapper_SetConfigErrors(t *testing.T) {
 func TestExoscaleKmsWrapper_EndpointWithoutZone(t *testing.T) {
 	config := testConfig(testKeyA)
 	delete(config, "zone")
-	config["endpoint"] = "https://api.example.invalid/v2"
+	config["endpoint"] = "https://api.example.invalid/v2/"
 
 	w := NewWrapper()
 	w.client = mockKMS{}
@@ -129,7 +129,7 @@ func TestExoscaleKmsWrapper_EndpointWithoutZone(t *testing.T) {
 
 	want := map[string]string{
 		"key_id":   testKeyA,
-		"endpoint": config["endpoint"],
+		"endpoint": "https://api.example.invalid/v2",
 	}
 	require.Equal(t, want, wrapConfig.Metadata)
 }

@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"sync/atomic"
 
 	v3 "github.com/exoscale/egoscale/v3"
@@ -77,7 +78,7 @@ func (k *Wrapper) SetConfig(ctx context.Context, opt ...wrapping.Option) (*wrapp
 	k.currentKeyId.Store(k.keyId)
 
 	k.zone = envOrConfig(opts.WithDisallowEnvVars, EnvExoscaleKmsZone, opts.withZone)
-	k.endpoint = envOrConfig(opts.WithDisallowEnvVars, EnvExoscaleKmsEndpoint, opts.withEndpoint)
+	k.endpoint = strings.TrimSuffix(envOrConfig(opts.WithDisallowEnvVars, EnvExoscaleKmsEndpoint, opts.withEndpoint), "/")
 
 	if k.zone == "" && k.endpoint == "" {
 		return nil, fmt.Errorf("zone and endpoint not found in env or config for exoscale kms wrapper configuration")
