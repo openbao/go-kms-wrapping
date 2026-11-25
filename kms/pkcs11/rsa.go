@@ -24,6 +24,7 @@ func newRSA(
 	mech *uint,
 	oaepHash crypto.Hash,
 	disableSoftwareEncryption bool,
+	invalidator invalidatorFunc,
 ) (kms.Key, error) {
 	if mech != nil {
 		switch *mech {
@@ -46,6 +47,7 @@ func newRSA(
 			return s.GetAttributeValue(public.handle, temp)
 		})
 		if err != nil {
+			invalidator(err)
 			return nil, fmt.Errorf("export public key: %w", err)
 		}
 		n := new(big.Int).SetBytes(attr[0].Value)
@@ -77,6 +79,7 @@ func newRSA(
 		mech:                      mech,
 		oaepHash:                  oaepHash,
 		disableSoftwareEncryption: disableSoftwareEncryption,
+		invalidator:               invalidator,
 	}, nil
 }
 
@@ -99,6 +102,8 @@ type rsaKey struct {
 
 	// Whether to disable performing RSA-OAEP encryption in software.
 	disableSoftwareEncryption bool
+
+	invalidator invalidatorFunc
 }
 
 var rsaLookup = map[crypto.Hash]struct{ hash, mgf uint }{
@@ -127,12 +132,18 @@ func (r *rsaKey) Encrypt(ctx context.Context, opts *kms.CipherOptions) ([]byte, 
 	mech := pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS_OAEP,
 		pkcs11.NewOAEPParams(hashMechs.hash, hashMechs.mgf, pkcs11.CKZ_DATA_SPECIFIED, nil))
 
-	return session.Scope(ctx, r.pool, func(s *session.Handle) ([]byte, error) {
+	result, err := session.Scope(ctx, r.pool, func(s *session.Handle) ([]byte, error) {
 		if err := s.EncryptInit(mech, r.pubHandle); err != nil {
 			return nil, err
 		}
 		return s.Encrypt(opts.Data)
 	})
+	if err != nil {
+		r.invalidator(err)
+		return nil, err
+	}
+
+	return result, nil
 }
 
 func (r *rsaKey) Decrypt(ctx context.Context, opts *kms.CipherOptions) ([]byte, error) {
@@ -145,12 +156,18 @@ func (r *rsaKey) Decrypt(ctx context.Context, opts *kms.CipherOptions) ([]byte, 
 	mech := pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS_OAEP,
 		pkcs11.NewOAEPParams(hashMechs.hash, hashMechs.mgf, pkcs11.CKZ_DATA_SPECIFIED, nil))
 
-	return session.Scope(ctx, r.pool, func(s *session.Handle) ([]byte, error) {
+	result, err := session.Scope(ctx, r.pool, func(s *session.Handle) ([]byte, error) {
 		if err := s.DecryptInit(mech, r.prvHandle); err != nil {
 			return nil, err
 		}
 		return s.Decrypt(opts.Data)
 	})
+	if err != nil {
+		r.invalidator(err)
+		return nil, err
+	}
+
+	return result, nil
 }
 
 func (r *rsaKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte, error) {
@@ -191,12 +208,18 @@ func (r *rsaKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte, error
 		data = h.Sum(nil)
 	}
 
-	return session.Scope(ctx, r.pool, func(s *session.Handle) ([]byte, error) {
+	result, err := session.Scope(ctx, r.pool, func(s *session.Handle) ([]byte, error) {
 		if err := s.SignInit(mech, r.prvHandle); err != nil {
 			return nil, err
 		}
 		return s.Sign(data)
 	})
+	if err != nil {
+		r.invalidator(err)
+		return nil, err
+	}
+
+	return result, nil
 }
 
 func (r *rsaKey) Verify(ctx context.Context, opts *kms.VerifyOptions) error {

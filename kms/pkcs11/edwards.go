@@ -19,7 +19,13 @@ import (
 )
 
 // newEdwards constructs a new edwardsKey.
-func newEdwards(pool *session.PoolRef, public, private object, mech *uint) (kms.Key, error) {
+func newEdwards(
+	pool *session.PoolRef,
+	public object,
+	private object,
+	mech *uint,
+	invalidator invalidatorFunc,
+) (kms.Key, error) {
 	var m uint
 	if mech == nil {
 		m = pkcs11v3.CKM_EDDSA
@@ -42,6 +48,7 @@ func newEdwards(pool *session.PoolRef, public, private object, mech *uint) (kms.
 			return s.GetAttributeValue(public.handle, temp)
 		})
 		if err != nil {
+			invalidator(err)
 			return nil, fmt.Errorf("export public key attributes: %w", err)
 		}
 
@@ -74,9 +81,10 @@ func newEdwards(pool *session.PoolRef, public, private object, mech *uint) (kms.
 	})
 
 	return &edwardsKey{
-		pool:   pool,
-		handle: private.handle,
-		public: exportPublic,
+		pool:        pool,
+		handle:      private.handle,
+		public:      exportPublic,
+		invalidator: invalidator,
 	}, nil
 }
 
@@ -88,6 +96,8 @@ type edwardsKey struct {
 
 	// Exported public key.
 	public func(ctx context.Context) (ed25519.PublicKey, error)
+
+	invalidator invalidatorFunc
 }
 
 func (e *edwardsKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte, error) {
@@ -100,12 +110,18 @@ func (e *edwardsKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte, e
 	}
 
 	mech := pkcs11.NewMechanism(pkcs11v3.CKM_EDDSA, nil)
-	return session.Scope(ctx, e.pool, func(s *session.Handle) ([]byte, error) {
+	result, err := session.Scope(ctx, e.pool, func(s *session.Handle) ([]byte, error) {
 		if err := s.SignInit(mech, e.handle); err != nil {
 			return nil, err
 		}
 		return s.Sign(opts.Data)
 	})
+	if err != nil {
+		e.invalidator(err)
+		return nil, err
+	}
+
+	return result, nil
 }
 
 func (e *edwardsKey) Verify(ctx context.Context, opts *kms.VerifyOptions) error {

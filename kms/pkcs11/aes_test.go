@@ -29,7 +29,7 @@ func TestGCM(t *testing.T) {
 		ConfigMap: kms.ConfigMap{"label": label},
 	})
 	require.NoError(t, err)
-	require.IsType(t, aesKey{}, key)
+	require.IsType(t, &aesKey{}, key)
 
 	roundtrip := func(t *testing.T, key kms.Key, input, aad []byte) {
 		t.Helper()
