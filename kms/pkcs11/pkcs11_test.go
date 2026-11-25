@@ -5,6 +5,7 @@ package pkcs11
 
 import (
 	"context"
+	"crypto"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -161,7 +162,7 @@ func TestGetKey(t *testing.T) {
 		// By label:
 		key, err := svc.GetKey(ctx, &kms.KeyOptions{ConfigMap: kms.ConfigMap{"label": label}})
 		require.NoError(t, err)
-		require.IsType(t, aesKey{}, key)
+		require.IsType(t, &aesKey{}, key)
 	})
 
 	t.Run("KeyPair", func(t *testing.T) {
@@ -200,8 +201,10 @@ func TestGetKey(t *testing.T) {
 		_, err := svc.GetKey(ctx, opts)
 		require.Error(t, err)
 
+		var public pkcs11.ObjectHandle
+		var private pkcs11.ObjectHandle
 		require.NoError(t, svc.pool.Scope(ctx, func(s *session.Handle) error {
-			_, _, err := s.GenerateKeyPair(keybuilder.EC(keybuilder.OIDCurveP256).Label(label).Build())
+			public, private, err = s.GenerateKeyPair(keybuilder.EC(keybuilder.OIDCurveP256).Label(label).Build())
 			return err
 		}))
 
@@ -215,6 +218,66 @@ func TestGetKey(t *testing.T) {
 
 		// These should reference the same address.
 		require.True(t, key1.(*ecKey) == key2.(*ecKey))
+
+		// Using the key should work fine.
+		result, err := key1.Sign(t.Context(), &kms.SignOptions{
+			Data:       []byte("test"),
+			SignerOpts: crypto.SHA256,
+		})
+		require.NoError(t, err)
+		require.NotEmpty(t, result)
+
+		// Now delete the key.
+		require.NoError(t, svc.pool.Scope(ctx, func(s *session.Handle) error {
+			if err := s.DestroyObject(public); err != nil {
+				return err
+			}
+
+			if err := s.DestroyObject(private); err != nil {
+				return err
+			}
+
+			return nil
+		}))
+
+		// Getting the key should yield another copy from cache still.
+		key3, err := svc.GetKey(ctx, opts)
+		require.NoError(t, err)
+		require.IsType(t, &ecKey{}, key3)
+		require.True(t, key1.(*ecKey) == key3.(*ecKey))
+
+		// But using it should error.
+		result, err = key3.Sign(t.Context(), &kms.SignOptions{
+			Data:       []byte("test"),
+			SignerOpts: crypto.SHA256,
+		})
+		require.Error(t, err)
+		require.Empty(t, result)
+
+		// Fetching the key again should now fail due to invalidation.
+		key4, err := svc.GetKey(ctx, opts)
+		require.Error(t, err, "key4: %v / key1: %v", key4, key1)
+		require.Nil(t, key4)
+
+		// Creating new keys should work.
+		require.NoError(t, svc.pool.Scope(ctx, func(s *session.Handle) error {
+			_, _, err := s.GenerateKeyPair(keybuilder.EC(keybuilder.OIDCurveP256).Label(label).Build())
+			return err
+		}))
+
+		// And we should now have a new key.
+		key5, err := svc.GetKey(ctx, opts)
+		require.NoError(t, err)
+		require.IsType(t, &ecKey{}, key5)
+		require.True(t, key1.(*ecKey) != key5.(*ecKey))
+
+		// ...which should work.
+		result, err = key5.Sign(t.Context(), &kms.SignOptions{
+			Data:       []byte("test"),
+			SignerOpts: crypto.SHA256,
+		})
+		require.NoError(t, err)
+		require.NotEmpty(t, result)
 	})
 
 	t.Run("KeyPairMismatchedLabels", func(t *testing.T) {

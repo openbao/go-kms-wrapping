@@ -314,6 +314,7 @@ func (w *pkcs11Wrapper) with(ctx context.Context, info *wrapping.KeyInfo, f func
 		w.mechanism, w.oaepHash,
 		w.disableSoftwareEncryption,
 		w.quirks,
+		func(error) {},
 	)
 	if err != nil {
 		return err

@@ -17,7 +17,13 @@ import (
 )
 
 // newMLDSA constructs a new mldsaKey.
-func newMLDSA(pool *session.PoolRef, public, private object, mech *uint) (kms.Key, error) {
+func newMLDSA(
+	pool *session.PoolRef,
+	public object,
+	private object,
+	mech *uint,
+	invalidator invalidatorFunc,
+) (kms.Key, error) {
 	var m uint
 	if mech == nil {
 		m = pkcs11v3.CKM_ML_DSA
@@ -40,6 +46,7 @@ func newMLDSA(pool *session.PoolRef, public, private object, mech *uint) (kms.Ke
 			return s.GetAttributeValue(public.handle, temp)
 		})
 		if err != nil {
+			invalidator(err)
 			return nil, fmt.Errorf("export public key attributes: %w", err)
 		}
 		ckp, err := bytesToUint(attr[0].Value)
@@ -61,9 +68,10 @@ func newMLDSA(pool *session.PoolRef, public, private object, mech *uint) (kms.Ke
 	})
 
 	return &mldsaKey{
-		pool:   pool,
-		handle: private.handle,
-		public: exportPublic,
+		pool:        pool,
+		handle:      private.handle,
+		public:      exportPublic,
+		invalidator: invalidator,
 	}, nil
 }
 
@@ -75,6 +83,8 @@ type mldsaKey struct {
 
 	// Exported public key.
 	public func(ctx context.Context) (*mldsa.PublicKey, error)
+
+	invalidator invalidatorFunc
 }
 
 func (m *mldsaKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte, error) {
@@ -91,12 +101,19 @@ func (m *mldsaKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte, err
 	}
 
 	mech := pkcs11.NewMechanism(pkcs11v3.CKM_ML_DSA, nil)
-	return session.Scope(ctx, m.pool, func(s *session.Handle) ([]byte, error) {
+	result, err := session.Scope(ctx, m.pool, func(s *session.Handle) ([]byte, error) {
 		if err := s.SignInit(mech, m.handle); err != nil {
 			return nil, err
 		}
+
 		return s.Sign(opts.Data)
 	})
+	if err != nil {
+		m.invalidator(err)
+		return nil, err
+	}
+
+	return result, nil
 }
 
 func (m *mldsaKey) Verify(ctx context.Context, opts *kms.VerifyOptions) error {

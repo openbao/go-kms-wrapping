@@ -13,7 +13,13 @@ import (
 )
 
 // newAES constructs a new aesKey.
-func newAES(pool *session.PoolRef, o object, mech *uint, quirks string) (kms.Key, error) {
+func newAES(
+	pool *session.PoolRef,
+	o object,
+	mech *uint,
+	quirks string,
+	invalidator func(error),
+) (kms.Key, error) {
 	var m uint
 	if mech == nil {
 		m = pkcs11.CKM_AES_GCM
@@ -29,10 +35,11 @@ func newAES(pool *session.PoolRef, o object, mech *uint, quirks string) (kms.Key
 	}
 
 	// Small struct compared to other key types, value receivers should be good.
-	return aesKey{
-		pool:   pool,
-		handle: o.handle,
-		quirks: quirks,
+	return &aesKey{
+		pool:        pool,
+		handle:      o.handle,
+		quirks:      quirks,
+		invalidator: invalidator,
 	}, nil
 }
 
@@ -44,6 +51,8 @@ type aesKey struct {
 	handle pkcs11.ObjectHandle
 
 	quirks string
+
+	invalidator func(error)
 }
 
 const (
@@ -51,8 +60,8 @@ const (
 	aesGcmNonceSize = 12 // 96-bit nonce.
 )
 
-func (a aesKey) Encrypt(ctx context.Context, opts *kms.CipherOptions) ([]byte, error) {
-	return session.Scope(ctx, a.pool, func(s *session.Handle) ([]byte, error) {
+func (a *aesKey) Encrypt(ctx context.Context, opts *kms.CipherOptions) ([]byte, error) {
+	result, err := session.Scope(ctx, a.pool, func(s *session.Handle) ([]byte, error) {
 		var nonce []byte
 		var err error
 
@@ -90,10 +99,16 @@ func (a aesKey) Encrypt(ctx context.Context, opts *kms.CipherOptions) ([]byte, e
 		text := ciphertext[:len(ciphertext)-16]
 		return append(iv, text...), nil
 	})
+	if err != nil {
+		a.invalidator(err)
+		return nil, err
+	}
+
+	return result, nil
 }
 
-func (a aesKey) Decrypt(ctx context.Context, opts *kms.CipherOptions) ([]byte, error) {
-	return session.Scope(ctx, a.pool, func(s *session.Handle) ([]byte, error) {
+func (a *aesKey) Decrypt(ctx context.Context, opts *kms.CipherOptions) ([]byte, error) {
+	result, err := session.Scope(ctx, a.pool, func(s *session.Handle) ([]byte, error) {
 		nonceSize := aesGcmNonceSize
 		if a.quirks == thalesLunaFips {
 			nonceSize = 16
@@ -104,6 +119,13 @@ func (a aesKey) Decrypt(ctx context.Context, opts *kms.CipherOptions) ([]byte, e
 		if err := s.DecryptInit(pkcs11.NewMechanism(pkcs11.CKM_AES_GCM, params), a.handle); err != nil {
 			return nil, err
 		}
+
 		return s.Decrypt(opts.Data[nonceSize:])
 	})
+	if err != nil {
+		a.invalidator(err)
+		return nil, err
+	}
+
+	return result, nil
 }

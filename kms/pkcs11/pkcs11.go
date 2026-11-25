@@ -31,6 +31,11 @@ import (
 // when presenting a ConfigMap for display.
 var SensitiveKMSFields = []string{"pin"}
 
+// invalidatorFunc is called on errors when using keys to clean up references
+// to the cache when the module indicates a stale key. This can also be called
+// with a nil error to force a cache removal.
+type invalidatorFunc func(error)
+
 // Option is a system-level option passed to [New] or [NewWrapper].
 type Option func(*options) error
 
@@ -265,7 +270,37 @@ func (p *pkcs11KMS) GetKey(ctx context.Context, opts *kms.KeyOptions) (kms.Key, 
 	// On cache misses, ensure only a single flight is executed to populate the
 	// entry.
 	return p.cache.GetOrAdd(cacheKey, onceOrError(func(ctx context.Context) (kms.Key, error) {
-		return resolveKey(ctx, p.pool, keyID, cfg.Label, mech, oaepHash, p.disableSoftwareEncryption, p.quirks)
+		invalidator := func(err error) {
+			if err == nil {
+				// If there's no error and called explicitly, invalidate this
+				// entry.
+				p.cache.Delete(cacheKey)
+				return
+			}
+
+			if pErr, ok := errors.AsType[pkcs11.Error](err); ok {
+				switch pErr {
+				case pkcs11.Error(pkcs11.CKR_DEVICE_ERROR),
+					pkcs11.Error(pkcs11.CKR_KEY_CHANGED),
+					pkcs11.Error(pkcs11.CKR_KEY_HANDLE_INVALID),
+					pkcs11.Error(pkcs11.CKR_OBJECT_HANDLE_INVALID),
+					pkcs11.Error(pkcs11.CKR_MECHANISM_INVALID),
+					pkcs11.Error(pkcs11.CKR_MECHANISM_PARAM_INVALID):
+					// Delete just the cached key; local errors.
+					p.cache.Delete(cacheKey)
+				case pkcs11.Error(pkcs11.CKR_SLOT_ID_INVALID),
+					pkcs11.Error(pkcs11.CKR_TOKEN_NOT_PRESENT),
+					pkcs11.Error(pkcs11.CKR_USER_NOT_LOGGED_IN),
+					pkcs11.Error(pkcs11.CKR_SESSION_HANDLE_INVALID):
+					// Empty everything from the cache; module errors.
+					p.cache.DeleteAll()
+				}
+			}
+
+			// Non-PKCS#11 errors we can ignore.
+		}
+
+		return resolveKey(ctx, p.pool, keyID, cfg.Label, mech, oaepHash, p.disableSoftwareEncryption, p.quirks, invalidator)
 	}))(ctx)
 }
 
@@ -281,6 +316,7 @@ func resolveKey(
 	oaepHash crypto.Hash,
 	disableSoftwareEncryption bool,
 	quirks string,
+	invalidator invalidatorFunc,
 ) (kms.Key, error) {
 	// Build a template to perform the initial key lookup:
 	var temp []*pkcs11.Attribute
@@ -301,7 +337,7 @@ func resolveKey(
 			switch objs[0].class {
 			// A single secret key:
 			case pkcs11.CKO_SECRET_KEY:
-				return newSymmetric(pool, objs[0], mech, quirks)
+				return newSymmetric(pool, objs[0], mech, quirks, invalidator)
 
 			// A single private key: the matching public key may have a different
 			// label so search for the public key.
@@ -323,7 +359,7 @@ func resolveKey(
 				if err != nil {
 					return nil, err
 				}
-				return newAsymmetric(pool, pubs[0], objs[0], mech, oaepHash, disableSoftwareEncryption)
+				return newAsymmetric(pool, pubs[0], objs[0], mech, oaepHash, disableSoftwareEncryption, invalidator)
 
 			default:
 				return nil, fmt.Errorf("expected CKO_SECRET_KEY or CKO_PRIVATE_KEY but got %s", classToString(objs[0].class))
@@ -344,7 +380,7 @@ func resolveKey(
 			return nil, fmt.Errorf("private key of type %s does not match public key of type %s",
 				keyTypeToString(private.keytype), keyTypeToString(public.keytype))
 		}
-		return newAsymmetric(pool, public, private, mech, oaepHash, disableSoftwareEncryption)
+		return newAsymmetric(pool, public, private, mech, oaepHash, disableSoftwareEncryption, invalidator)
 	})
 }
 
@@ -394,10 +430,16 @@ func find(s *session.Handle, temp []*pkcs11.Attribute, limit int) ([]object, err
 }
 
 // newSymmetric constructs a symmetric key implementation from an object.
-func newSymmetric(pool *session.PoolRef, o object, mech *uint, quirks string) (kms.Key, error) {
+func newSymmetric(
+	pool *session.PoolRef,
+	o object,
+	mech *uint,
+	quirks string,
+	invalidator invalidatorFunc,
+) (kms.Key, error) {
 	switch o.keytype {
 	case pkcs11.CKK_AES:
-		return newAES(pool, o, mech, quirks)
+		return newAES(pool, o, mech, quirks, invalidator)
 	}
 	return nil, fmt.Errorf("unsupported symmetric key type: %s", keyTypeToString(o.keytype))
 }
@@ -409,16 +451,17 @@ func newAsymmetric(
 	mech *uint,
 	oaepHash crypto.Hash,
 	disableSoftwareEncryption bool,
+	invalidator invalidatorFunc,
 ) (kms.Key, error) {
 	switch public.keytype {
 	case pkcs11.CKK_EC:
-		return newEC(pool, public, private, mech)
+		return newEC(pool, public, private, mech, invalidator)
 	case pkcs11v3.CKK_EC_EDWARDS:
-		return newEdwards(pool, public, private, mech)
+		return newEdwards(pool, public, private, mech, invalidator)
 	case pkcs11v3.CKK_ML_DSA:
-		return newMLDSA(pool, public, private, mech)
+		return newMLDSA(pool, public, private, mech, invalidator)
 	case pkcs11.CKK_RSA:
-		return newRSA(pool, public, private, mech, oaepHash, disableSoftwareEncryption)
+		return newRSA(pool, public, private, mech, oaepHash, disableSoftwareEncryption, invalidator)
 	}
 	return nil, fmt.Errorf("unsupported asymmetric key type: %s", keyTypeToString(public.keytype))
 }

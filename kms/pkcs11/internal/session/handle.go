@@ -115,3 +115,8 @@ func (h *Handle) GenerateKeyPair(m *pkcs11.Mechanism, public, private []*pkcs11.
 	o1, o2, err := h.pool.mod.GenerateKeyPair(h.session, []*pkcs11.Mechanism{m}, public, private)
 	return o1, o2, mapErr(err, "GenerateKeyPair")
 }
+
+// DestroyObject wraps C_DestroyObject.
+func (h *Handle) DestroyObject(oh pkcs11.ObjectHandle) error {
+	return mapErr(h.pool.mod.DestroyObject(h.session, oh), "DestroyObject")
+}

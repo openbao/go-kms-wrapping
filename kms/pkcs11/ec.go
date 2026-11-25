@@ -21,7 +21,13 @@ import (
 )
 
 // newEC constructs a new ecKey.
-func newEC(pool *session.PoolRef, public, private object, mech *uint) (kms.Key, error) {
+func newEC(
+	pool *session.PoolRef,
+	public object,
+	private object,
+	mech *uint,
+	invalidator invalidatorFunc,
+) (kms.Key, error) {
 	var m uint
 	if mech == nil {
 		m = pkcs11.CKM_ECDSA
@@ -49,6 +55,7 @@ func newEC(pool *session.PoolRef, public, private object, mech *uint) (kms.Key, 
 			return s.GetAttributeValue(public.handle, temp)
 		})
 		if err != nil {
+			invalidator(err)
 			return nil, fmt.Errorf("export public key: %w", err)
 		}
 		curve, err := curveFromOID(attr[0].Value)
@@ -56,6 +63,7 @@ func newEC(pool *session.PoolRef, public, private object, mech *uint) (kms.Key, 
 			// Give this one more try as a literal.
 			curve, err = curveFromLiteral(attr[0].Value)
 			if err != nil {
+				invalidator(err)
 				return nil, fmt.Errorf("export public key: %w", err)
 			}
 		}
@@ -71,9 +79,10 @@ func newEC(pool *session.PoolRef, public, private object, mech *uint) (kms.Key, 
 	})
 
 	return &ecKey{
-		pool:   pool,
-		handle: private.handle,
-		public: exportPublic,
+		pool:        pool,
+		handle:      private.handle,
+		public:      exportPublic,
+		invalidator: invalidator,
 	}, nil
 }
 
@@ -86,6 +95,8 @@ type ecKey struct {
 
 	// Exported public key.
 	public func(ctx context.Context) (*ecdsa.PublicKey, error)
+
+	invalidator invalidatorFunc
 }
 
 func (e *ecKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte, error) {
@@ -113,6 +124,7 @@ func (e *ecKey) Sign(ctx context.Context, opts *kms.SignOptions) ([]byte, error)
 	})
 	switch {
 	case err != nil:
+		e.invalidator(err)
 		return nil, err
 	case len(raw) == 0, len(raw)%2 != 0:
 		return nil, fmt.Errorf("invalid ECDSA signature length: %d", len(raw))
